@@ -166,7 +166,18 @@
 
     <!-- WASM Engine -->
     <script type="module">
-        import init, { WasmEngine } from './wasm/entry_wasm.js';
+        // WASM 모듈을 동적으로 로드 (경로 문제 방지)
+        let WasmEngine = null;
+        let wasmInit = null;
+        
+        try {
+            const wasmModule = await import('/wasm/entry_wasm.js');
+            wasmInit = wasmModule.default;
+            WasmEngine = wasmModule.WasmEngine;
+            console.log('WASM 모듈 import 성공');
+        } catch (importError) {
+            console.warn('WASM 모듈 import 실패:', importError);
+        }
         
         // Image cache for sprites
         const imageCache = new Map();
@@ -186,13 +197,19 @@
                 this.updateProgress(10, 'WASM 엔진 초기화 중...');
                 
                 try {
-                    // Initialize WASM
-                    await init();
-                    this.wasmEngine = new WasmEngine();
-                    this.updateProgress(30, 'WASM 엔진 준비 완료');
+                    // Initialize WASM (모듈이 로드된 경우에만)
+                    if (wasmInit && WasmEngine) {
+                        console.log('WASM init() 호출 중...');
+                        await wasmInit();
+                        this.wasmEngine = new WasmEngine();
+                        console.log('WASM 엔진 인스턴스 생성 완료');
+                        this.updateProgress(30, 'WASM 엔진 준비 완료');
+                    } else {
+                        console.warn('WASM 모듈이 로드되지 않음, JS 폴백 사용');
+                    }
                 } catch (e) {
-                    console.warn('WASM 로드 실패, JS 폴백 사용:', e);
-                    // Fallback to JS engine
+                    console.warn('WASM 초기화 실패, JS 폴백 사용:', e);
+                    this.wasmEngine = null;
                 }
                 
                 // Get project ID from URL
