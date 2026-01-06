@@ -235,19 +235,26 @@
             
             async getCsrfToken() {
                 try {
-                    // Try to get CSRF token from the page via nginx proxy
+                    // Try to get CSRF token from the page via server proxy
                     const response = await fetch(`/api/playentry/iframe/${this.projectId}`);
                     const html = await response.text();
                     
-                    // Extract CSRF token from meta tag or script
-                    const csrfMatch = html.match(/csrf['":\s]+['"]([^'"]+)['"]/i) ||
-                                     html.match(/CSRF-Token['":\s]+['"]([^'"]+)['"]/i);
+                    // Extract CSRF token from meta tag: <meta name="csrf-token" content="..."/>
+                    const csrfMatch = html.match(/<meta\s+name=["']csrf-token["']\s+content=["']([^"']+)["']/i);
                     
                     if (csrfMatch) {
+                        console.log('CSRF 토큰 획득 성공:', csrfMatch[1].substring(0, 10) + '...');
                         return csrfMatch[1];
                     }
                     
-                    // Fallback: try without CSRF
+                    // Fallback: try other patterns
+                    const altMatch = html.match(/csrf['"]?\s*[:\s]+\s*['"]([^'"]+)['"]/i);
+                    if (altMatch) {
+                        console.log('CSRF 토큰 (대체 패턴):', altMatch[1].substring(0, 10) + '...');
+                        return altMatch[1];
+                    }
+                    
+                    console.warn('CSRF 토큰을 찾을 수 없음');
                     return '';
                 } catch (e) {
                     console.warn('CSRF 토큰 획득 실패:', e);
@@ -257,24 +264,173 @@
             
             async fetchProjectData(csrfToken) {
                 const query = `
-                    query SELECT_PROJECT($id: ID! $groupId: ID) {
-                        project(id: $id, groupId: $groupId) {
-                            id
-                            name
-                            speed
-                            objects
-                            variables
-                            messages
-                            functions
-                            tables
-                            scenes
-                            learning
-                            expansionBlocks
-                            aiUtilizeBlocks
-                            hardwareLiteBlocks
-                        }
-                    }
-                `;
+    query SELECT_PROJECT($id: ID! $groupId: ID) {
+        project(id: $id, groupId: $groupId) {
+            
+    
+    id
+    name
+    user {
+        
+    id
+    nickname
+    profileImage {
+        
+    id
+    name
+    label {
+        
+    ko
+    en
+    ja
+    vn
+
+    }
+    filename
+    imageType
+    dimension {
+        
+    width
+    height
+
+    }
+    trimmed {
+        filename
+        width
+        height
+    }
+
+    }
+    status {
+        following
+        follower
+    }
+    description
+    role
+    mark {
+        
+    id
+    name
+    label {
+        
+    ko
+    en
+    ja
+    vn
+
+    }
+    filename
+    imageType
+    dimension {
+        
+    width
+    height
+
+    }
+    trimmed {
+        filename
+        width
+        height
+    }
+ 
+    }
+
+    }
+    thumb
+    isopen
+    showComment
+    blamed
+    isPracticalCourse
+    category
+    categoryCode
+    created
+    updated
+    special
+    isForLecture
+    isForStudy
+    isForSubmit
+    hashId
+    complexity
+    staffPicked
+    ranked
+    visit
+    likeCnt
+    comment
+    favorite
+    shortenUrl
+    parent {
+        id
+        name
+        user {
+            id
+            nickname
+        }
+    }
+    description
+    description2
+    description3
+    hasRealTimeVariable
+    blockCategoryUsage
+    childCnt
+    commentGroup {
+        group
+        count
+    }
+    likeCntGroup {
+        group
+        count
+    }
+    visitGroup {
+        group
+        count
+    }
+    recentGroup {
+        group
+        count
+    }
+    published
+    isFirstPublish
+    tags
+
+    speed
+    objects
+    variables
+    submitId {
+        id
+    }
+    cloudVariable
+    messages
+    functions
+    tables
+    scenes
+    realTimeVariable {
+        
+    variableType
+    key
+    value
+    array {
+        key
+        data
+    }
+    minValue
+    maxValue
+    visible
+    x
+    y
+    width
+    height
+    object
+
+    }
+    learning
+    expansionBlocks
+    aiUtilizeBlocks
+    hardwareLiteBlocks
+    blockCategoryUsage
+
+        }
+     }
+`;
                 
                 const headers = {
                     'Content-Type': 'application/json',
@@ -283,11 +439,11 @@
                 };
                 
                 if (csrfToken) {
-                    headers['CSRF-Token'] = csrfToken;
+                    headers['csrf-token'] = csrfToken;  // 소문자로 변경
                 }
                 
-                // Use nginx proxy to avoid CORS issues
-                const response = await fetch('/api/playentry/graphql', {
+                // Use server proxy to avoid CORS issues - /graphql/SELECT_PROJECT 엔드포인트 사용
+                const response = await fetch(`/api/playentry/graphql/SELECT_PROJECT?id=${this.projectId}`, {
                     method: 'POST',
                     headers: headers,
                     credentials: 'include',
@@ -298,10 +454,13 @@
                 });
                 
                 if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
+                    const errorText = await response.text();
+                    console.error('GraphQL 요청 실패:', response.status, errorText);
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
                 }
                 
                 const result = await response.json();
+                console.log('GraphQL 응답:', result);
                 
                 if (result.errors) {
                     throw new Error(result.errors[0].message);

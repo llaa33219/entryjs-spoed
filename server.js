@@ -50,50 +50,52 @@ app.get('/api/playentry/iframe/:id', async (req, res) => {
 });
 
 // playentry.org GraphQL 프록시 (curl처럼 서버 측 요청)
-app.post('/api/playentry/graphql', async (req, res) => {
+app.post('/api/playentry/graphql/:operation', async (req, res) => {
     try {
         const csrfToken = req.headers['csrf-token'] || '';
+        const operation = req.params.operation || 'SELECT_PROJECT';
+        const projectId = req.query.id || '';
         
-        const response = await fetch('https://playentry.org/graphql', {
+        console.log(`GraphQL request: operation=${operation}, csrf=${csrfToken.substring(0, 10)}...`);
+        
+        const response = await fetch(`https://playentry.org/graphql/${operation}`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0',
-                'Accept': '*/*',
-                'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
-                'Origin': 'https://playentry.org',
-                'Referer': 'https://playentry.org/',
+                'accept': '*/*',
+                'accept-language': 'ja',
+                'content-type': 'application/json',
+                'csrf-token': csrfToken,
+                'priority': 'u=1, i',
+                'sec-ch-ua': '"Chromium";v="143", "Not A(Brand";v="24"',
+                'sec-ch-ua-mobile': '?0',
+                'sec-ch-ua-platform': '"Linux"',
+                'sec-fetch-dest': 'empty',
+                'sec-fetch-mode': 'cors',
+                'sec-fetch-site': 'same-origin',
                 'x-client-type': 'Client',
-                'CSRF-Token': csrfToken,
+                'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
+                'Referer': `https://playentry.org/iframe/${projectId}`,
+                'Origin': 'https://playentry.org',
             },
             body: JSON.stringify(req.body)
         });
         
+        const responseText = await response.text();
+        console.log(`GraphQL response status: ${response.status}, body preview: ${responseText.substring(0, 100)}...`);
+        
         if (!response.ok) {
-            // 403이면 CSRF 없이 다시 시도
-            if (response.status === 403) {
-                console.log('403 received, retrying without CSRF...');
-                const retryResponse = await fetch('https://playentry.org/graphql', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0',
-                        'Accept': 'application/json',
-                        'Accept-Language': 'ko-KR,ko;q=0.9',
-                        'x-client-type': 'Client',
-                    },
-                    body: JSON.stringify(req.body)
-                });
-                
-                const retryData = await retryResponse.json();
-                return res.status(retryResponse.status).json(retryData);
-            }
-            
-            return res.status(response.status).json({ error: `HTTP ${response.status}` });
+            console.error(`GraphQL error: ${response.status} - ${responseText}`);
+            return res.status(response.status).send(responseText);
         }
         
-        const data = await response.json();
-        res.json(data);
+        // Parse and return JSON
+        try {
+            const data = JSON.parse(responseText);
+            res.json(data);
+        } catch (e) {
+            // Return raw text if not JSON
+            res.send(responseText);
+        }
     } catch (error) {
         console.error('GraphQL proxy error:', error);
         res.status(500).json({ error: error.message });
