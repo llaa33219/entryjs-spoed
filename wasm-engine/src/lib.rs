@@ -1,0 +1,424 @@
+//! Entry WASM Execution Engine
+//! High-performance block execution engine for Entry projects
+
+use wasm_bindgen::prelude::*;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+mod blocks;
+mod executor;
+mod entity;
+
+pub use blocks::*;
+pub use executor::*;
+pub use entity::*;
+
+/// Initialize panic hook for better error messages in browser console
+#[wasm_bindgen(start)]
+pub fn init() {
+    #[cfg(feature = "console_error_panic_hook")]
+    console_error_panic_hook::set_once();
+}
+
+/// Main WASM Engine class exposed to JavaScript
+#[wasm_bindgen]
+pub struct WasmEngine {
+    state: EngineState,
+    entities: Vec<Entity>,
+    variables: HashMap<String, Value>,
+    executors: Vec<Executor>,
+    tick_count: u64,
+    fps: u32,
+    project_data: Option<ProjectData>,
+}
+
+#[wasm_bindgen]
+impl WasmEngine {
+    /// Create a new WASM engine instance
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> WasmEngine {
+        WasmEngine {
+            state: EngineState::Stopped,
+            entities: Vec::new(),
+            variables: HashMap::new(),
+            executors: Vec::new(),
+            tick_count: 0,
+            fps: 60,
+            project_data: None,
+        }
+    }
+
+    /// Load a project from JSON string
+    #[wasm_bindgen]
+    pub fn load_project(&mut self, json: &str) -> Result<(), JsValue> {
+        let project: ProjectData = serde_json::from_str(json)
+            .map_err(|e| JsValue::from_str(&format!("JSON parse error: {}", e)))?;
+        
+        self.fps = project.speed.unwrap_or(60);
+        self.project_data = Some(project.clone());
+        
+        // Initialize entities from objects
+        self.entities.clear();
+        if let Some(objects) = &project.objects {
+            for (idx, obj) in objects.iter().enumerate() {
+                let entity = Entity::from_object(obj, idx);
+                self.entities.push(entity);
+            }
+        }
+        
+        // Initialize variables
+        self.variables.clear();
+        if let Some(vars) = &project.variables {
+            for var in vars {
+                let value = Value::from_json(&var.value);
+                self.variables.insert(var.id.clone(), value);
+            }
+        }
+        
+        Ok(())
+    }
+
+    /// Start the engine
+    #[wasm_bindgen]
+    pub fn start(&mut self) {
+        self.state = EngineState::Running;
+        self.initialize_executors();
+        self.fire_event("start");
+    }
+
+    /// Stop the engine
+    #[wasm_bindgen]
+    pub fn stop(&mut self) {
+        self.state = EngineState::Stopped;
+        self.executors.clear();
+    }
+
+    /// Reset the engine to initial state
+    #[wasm_bindgen]
+    pub fn reset(&mut self) {
+        self.state = EngineState::Stopped;
+        self.tick_count = 0;
+        self.executors.clear();
+        
+        // Restore entity snapshots
+        for entity in &mut self.entities {
+            entity.restore_snapshot();
+        }
+    }
+
+    /// Execute one tick of the engine
+    #[wasm_bindgen]
+    pub fn tick(&mut self) {
+        if self.state != EngineState::Running {
+            return;
+        }
+        
+        self.tick_count += 1;
+        
+        // Execute all active executors
+        let mut completed = Vec::new();
+        
+        for (idx, executor) in self.executors.iter_mut().enumerate() {
+            let result = executor.execute(&mut self.entities, &mut self.variables);
+            if result == ExecuteResult::End {
+                completed.push(idx);
+            }
+        }
+        
+        // Remove completed executors (in reverse order to maintain indices)
+        for idx in completed.into_iter().rev() {
+            self.executors.remove(idx);
+        }
+    }
+
+    /// Get render data as JSON string for JavaScript to draw
+    #[wasm_bindgen]
+    pub fn get_render_data(&self) -> String {
+        let render_entities: Vec<RenderEntity> = self.entities
+            .iter()
+            .filter(|e| e.visible)
+            .map(|e| RenderEntity::from(e))
+            .collect();
+        
+        serde_json::to_string(&render_entities).unwrap_or_else(|_| "[]".to_string())
+    }
+
+    /// Check if engine is running
+    #[wasm_bindgen]
+    pub fn is_running(&self) -> bool {
+        self.state == EngineState::Running
+    }
+
+    /// Get current tick count
+    #[wasm_bindgen]
+    pub fn get_tick(&self) -> u64 {
+        self.tick_count
+    }
+
+    /// Fire an event to all entities
+    fn fire_event(&mut self, event_name: &str) {
+        if let Some(project) = &self.project_data {
+            if let Some(objects) = &project.objects {
+                for (entity_idx, obj) in objects.iter().enumerate() {
+                    if let Some(scripts) = &obj.script {
+                        for thread in scripts {
+                            if let Some(first_block) = thread.first() {
+                                if self.is_event_block(&first_block.block_type, event_name) {
+                                    let executor = Executor::new(
+                                        entity_idx,
+                                        thread.clone(),
+                                    );
+                                    self.executors.push(executor);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn is_event_block(&self, block_type: &str, event_name: &str) -> bool {
+        match event_name {
+            "start" => block_type == "when_run_button_click",
+            "mouse_clicked" => block_type == "when_some_key_pressed" || block_type == "when_object_click",
+            _ => false,
+        }
+    }
+
+    fn initialize_executors(&mut self) {
+        self.executors.clear();
+        // Take snapshots of all entities
+        for entity in &mut self.entities {
+            entity.take_snapshot();
+        }
+    }
+}
+
+/// Engine state enum
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum EngineState {
+    Stopped,
+    Running,
+    Paused,
+}
+
+/// Value type for variables
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Value {
+    Number(f64),
+    String(String),
+    Bool(bool),
+    List(Vec<Value>),
+    Null,
+}
+
+impl Value {
+    pub fn from_json(json: &serde_json::Value) -> Self {
+        match json {
+            serde_json::Value::Number(n) => Value::Number(n.as_f64().unwrap_or(0.0)),
+            serde_json::Value::String(s) => Value::String(s.clone()),
+            serde_json::Value::Bool(b) => Value::Bool(*b),
+            serde_json::Value::Array(arr) => {
+                Value::List(arr.iter().map(Value::from_json).collect())
+            }
+            _ => Value::Null,
+        }
+    }
+
+    pub fn as_number(&self) -> f64 {
+        match self {
+            Value::Number(n) => *n,
+            Value::String(s) => s.parse().unwrap_or(0.0),
+            Value::Bool(b) => if *b { 1.0 } else { 0.0 },
+            _ => 0.0,
+        }
+    }
+
+    pub fn as_string(&self) -> String {
+        match self {
+            Value::Number(n) => n.to_string(),
+            Value::String(s) => s.clone(),
+            Value::Bool(b) => b.to_string(),
+            _ => String::new(),
+        }
+    }
+
+    pub fn as_bool(&self) -> bool {
+        match self {
+            Value::Number(n) => *n != 0.0,
+            Value::String(s) => !s.is_empty() && s != "0" && s.to_lowercase() != "false",
+            Value::Bool(b) => *b,
+            _ => false,
+        }
+    }
+}
+
+/// Project data structure
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProjectData {
+    pub id: Option<String>,
+    pub name: Option<String>,
+    pub speed: Option<u32>,
+    pub objects: Option<Vec<ObjectData>>,
+    pub variables: Option<Vec<VariableData>>,
+    pub messages: Option<Vec<MessageData>>,
+    pub functions: Option<serde_json::Value>,
+    pub scenes: Option<Vec<SceneData>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ObjectData {
+    pub id: String,
+    pub name: Option<String>,
+    pub script: Option<Vec<Vec<Block>>>,
+    #[serde(rename = "selectedPictureId")]
+    pub selected_picture_id: Option<String>,
+    #[serde(rename = "objectType")]
+    pub object_type: Option<String>,
+    pub entity: Option<EntityData>,
+    pub sprite: Option<SpriteData>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EntityData {
+    pub x: Option<f64>,
+    pub y: Option<f64>,
+    #[serde(rename = "regX")]
+    pub reg_x: Option<f64>,
+    #[serde(rename = "regY")]
+    pub reg_y: Option<f64>,
+    #[serde(rename = "scaleX")]
+    pub scale_x: Option<f64>,
+    #[serde(rename = "scaleY")]
+    pub scale_y: Option<f64>,
+    pub rotation: Option<f64>,
+    pub direction: Option<f64>,
+    pub width: Option<f64>,
+    pub height: Option<f64>,
+    pub visible: Option<bool>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SpriteData {
+    pub pictures: Option<Vec<PictureData>>,
+    pub sounds: Option<Vec<SoundData>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PictureData {
+    pub id: String,
+    pub name: Option<String>,
+    pub filename: Option<String>,
+    pub fileurl: Option<String>,
+    pub dimension: Option<DimensionData>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DimensionData {
+    pub width: Option<f64>,
+    pub height: Option<f64>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SoundData {
+    pub id: String,
+    pub name: Option<String>,
+    pub filename: Option<String>,
+    pub fileurl: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VariableData {
+    pub id: String,
+    pub name: Option<String>,
+    pub value: serde_json::Value,
+    #[serde(rename = "variableType")]
+    pub variable_type: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MessageData {
+    pub id: String,
+    pub name: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SceneData {
+    pub id: String,
+    pub name: Option<String>,
+}
+
+/// Block structure
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Block {
+    #[serde(rename = "type")]
+    pub block_type: String,
+    pub x: Option<f64>,
+    pub y: Option<f64>,
+    pub params: Option<Vec<serde_json::Value>>,
+    pub statements: Option<Vec<Vec<Block>>>,
+}
+
+/// Render entity for JavaScript
+#[derive(Clone, Debug, Serialize)]
+pub struct RenderEntity {
+    pub id: usize,
+    pub x: f64,
+    pub y: f64,
+    pub rotation: f64,
+    pub direction: f64,
+    #[serde(rename = "scaleX")]
+    pub scale_x: f64,
+    #[serde(rename = "scaleY")]
+    pub scale_y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub visible: bool,
+    pub color: String,
+    #[serde(rename = "pictureId")]
+    pub picture_id: Option<String>,
+}
+
+impl From<&Entity> for RenderEntity {
+    fn from(e: &Entity) -> Self {
+        RenderEntity {
+            id: e.id,
+            x: e.x,
+            y: e.y,
+            rotation: e.rotation,
+            direction: e.direction,
+            scale_x: e.scale_x,
+            scale_y: e.scale_y,
+            width: e.width,
+            height: e.height,
+            visible: e.visible,
+            color: "#4a90d9".to_string(),
+            picture_id: e.current_picture_id.clone(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_engine_creation() {
+        let engine = WasmEngine::new();
+        assert!(!engine.is_running());
+        assert_eq!(engine.get_tick(), 0);
+    }
+
+    #[test]
+    fn test_value_conversion() {
+        let num = Value::Number(42.0);
+        assert_eq!(num.as_number(), 42.0);
+        assert_eq!(num.as_string(), "42");
+        assert!(num.as_bool());
+
+        let zero = Value::Number(0.0);
+        assert!(!zero.as_bool());
+    }
+}
