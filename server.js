@@ -11,6 +11,9 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 8080;
 
+// 세션 저장소 (프로젝트 ID별로 쿠키 저장)
+const sessionStore = new Map();
+
 // JSON body parser
 app.use(express.json());
 
@@ -18,7 +21,7 @@ app.use(express.json());
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, CSRF-Token, x-client-type');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, csrf-token, x-client-type, x-entry-cookie');
     if (req.method === 'OPTIONS') {
         return res.sendStatus(204);
     }
@@ -30,10 +33,12 @@ app.get('/health', (req, res) => {
     res.send('OK');
 });
 
-// playentry.org 프록시 - iframe 페이지 (CSRF 토큰 획득용)
+// playentry.org 프록시 - iframe 페이지 (CSRF 토큰 + 쿠키 획득용)
 app.get('/api/playentry/iframe/:id', async (req, res) => {
     try {
-        const response = await fetch(`https://playentry.org/iframe/${req.params.id}`, {
+        const projectId = req.params.id;
+        
+        const response = await fetch(`https://playentry.org/iframe/${projectId}`, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -41,7 +46,33 @@ app.get('/api/playentry/iframe/:id', async (req, res) => {
             }
         });
         
+        // Set-Cookie 헤더 캡처
+        const setCookieHeaders = response.headers.getSetCookie ? 
+            response.headers.getSetCookie() : 
+            (response.headers.get('set-cookie') || '').split(', ');
+        
+        // 쿠키를 파싱하여 저장
+        const cookies = [];
+        for (const cookieStr of setCookieHeaders) {
+            if (cookieStr) {
+                // 쿠키 이름=값 부분만 추출
+                const cookiePart = cookieStr.split(';')[0];
+                if (cookiePart) {
+                    cookies.push(cookiePart);
+                }
+            }
+        }
+        
+        const cookieString = cookies.join('; ');
+        console.log(`Captured cookies for project ${projectId}: ${cookieString.substring(0, 50)}...`);
+        
+        // 세션 저장소에 쿠키 저장
+        sessionStore.set(projectId, cookieString);
+        
         const html = await response.text();
+        
+        // 쿠키 정보를 응답 헤더에 포함
+        res.setHeader('X-Entry-Cookie', cookieString);
         res.send(html);
     } catch (error) {
         console.error('iframe fetch error:', error);
@@ -56,7 +87,12 @@ app.post('/api/playentry/graphql/:operation', async (req, res) => {
         const operation = req.params.operation || 'SELECT_PROJECT';
         const projectId = req.query.id || '';
         
-        console.log(`GraphQL request: operation=${operation}, csrf=${csrfToken.substring(0, 10)}...`);
+        // 클라이언트가 보낸 쿠키 또는 세션 저장소에서 쿠키 가져오기
+        const clientCookie = req.headers['x-entry-cookie'] || '';
+        const storedCookie = sessionStore.get(projectId) || '';
+        const cookieToUse = clientCookie || storedCookie;
+        
+        console.log(`GraphQL request: operation=${operation}, csrf=${csrfToken.substring(0, 10)}..., cookie=${cookieToUse.substring(0, 30)}...`);
         
         const response = await fetch(`https://playentry.org/graphql/${operation}`, {
             method: 'POST',
@@ -65,6 +101,7 @@ app.post('/api/playentry/graphql/:operation', async (req, res) => {
                 'accept-language': 'ja',
                 'content-type': 'application/json',
                 'csrf-token': csrfToken,
+                'cookie': cookieToUse,  // 쿠키 추가!
                 'priority': 'u=1, i',
                 'sec-ch-ua': '"Chromium";v="143", "Not A(Brand";v="24"',
                 'sec-ch-ua-mobile': '?0',

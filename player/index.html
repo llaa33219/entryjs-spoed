@@ -226,17 +226,26 @@
             }
             
             async loadProject() {
-                // Step 1: Fetch CSRF token from playentry.org
-                const csrfToken = await this.getCsrfToken();
+                // Step 1: Fetch CSRF token and cookie from playentry.org
+                this.entryCookie = '';  // 쓰키 초기화
+                const csrfToken = await this.getSessionData();
                 
                 // Step 2: Fetch project data via GraphQL
                 this.projectData = await this.fetchProjectData(csrfToken);
             }
             
-            async getCsrfToken() {
+            async getSessionData() {
                 try {
-                    // Try to get CSRF token from the page via server proxy
+                    // Try to get CSRF token and cookie from the page via server proxy
                     const response = await fetch(`/api/playentry/iframe/${this.projectId}`);
+                    
+                    // 서버에서 캐치한 쿠키 가져오기
+                    const entryCookie = response.headers.get('X-Entry-Cookie') || '';
+                    if (entryCookie) {
+                        console.log('쿠키 획득 성공:', entryCookie.substring(0, 30) + '...');
+                        this.entryCookie = entryCookie;
+                    }
+                    
                     const html = await response.text();
                     
                     // Extract CSRF token from meta tag: <meta name="csrf-token" content="..."/>
@@ -439,7 +448,12 @@
                 };
                 
                 if (csrfToken) {
-                    headers['csrf-token'] = csrfToken;  // 소문자로 변경
+                    headers['csrf-token'] = csrfToken;
+                }
+                
+                // 쿠키도 함께 전송
+                if (this.entryCookie) {
+                    headers['x-entry-cookie'] = this.entryCookie;
                 }
                 
                 // Use server proxy to avoid CORS issues - /graphql/SELECT_PROJECT 엔드포인트 사용
