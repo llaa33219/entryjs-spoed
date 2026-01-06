@@ -155,6 +155,15 @@ impl WasmEngine {
     /// Get render data as JSON string for JavaScript to draw
     #[wasm_bindgen]
     pub fn get_render_data(&self) -> String {
+        // Log entity positions every 60 ticks
+        if self.tick_count % 60 == 0 && !self.entities.is_empty() {
+            let e = &self.entities[0];
+            web_sys::console::log_1(&format!(
+                "[WASM] get_render_data: Entity 0 position: ({:.1}, {:.1}), visible: {}",
+                e.x, e.y, e.visible
+            ).into());
+        }
+        
         let render_entities: Vec<RenderEntity> = self.entities
             .iter()
             .filter(|e| e.visible)

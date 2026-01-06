@@ -129,7 +129,13 @@ impl Executor {
             "move_direction" => {
                 if let Some(e) = entity {
                     let value = self.get_param_number(block, 0, variables);
+                    let old_x = e.x;
+                    let old_y = e.y;
                     e.move_direction(value);
+                    web_sys::console::log_1(&format!(
+                        "[WASM] move_direction({}) executed: ({:.1}, {:.1}) -> ({:.1}, {:.1})",
+                        value, old_x, old_y, e.x, e.y
+                    ).into());
                 }
                 ExecuteResult::Continue
             }
@@ -178,7 +184,12 @@ impl Executor {
             "rotate_relative" => {
                 if let Some(e) = entity {
                     let value = self.get_param_number(block, 0, variables);
+                    let old_rot = e.rotation;
                     e.rotate(value);
+                    web_sys::console::log_1(&format!(
+                        "[WASM] rotate_relative({}) executed: {:.1} -> {:.1}",
+                        value, old_rot, e.rotation
+                    ).into());
                 }
                 ExecuteResult::Continue
             }
@@ -279,9 +290,18 @@ impl Executor {
             
             "repeat_basic" => {
                 let count = self.get_param_number(block, 0, variables) as u32;
+                web_sys::console::log_1(&format!(
+                    "[WASM] repeat_basic: count={}, has_statements={}",
+                    count,
+                    block.statements.is_some()
+                ).into());
                 if count > 0 {
                     if let Some(statements) = &block.statements {
                         if let Some(inner_blocks) = statements.first() {
+                            web_sys::console::log_1(&format!(
+                                "[WASM] repeat_basic: entering loop with {} inner blocks",
+                                inner_blocks.len()
+                            ).into());
                             // Save current state
                             let frame = StackFrame {
                                 blocks: self.blocks.clone(),
