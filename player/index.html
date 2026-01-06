@@ -825,27 +825,38 @@
                 if (entity.visible) {
                     // Try to draw cached image
                     const img = imageCache.get(entity.pictureId);
-                    if (img && img.complete) {
-                        this.ctx.drawImage(
-                            img,
-                            -entity.width / 2, 
-                            -entity.height / 2, 
-                            entity.width, 
-                            entity.height
-                        );
+                    
+                    // 이미지가 완전히 로드되었고, naturalWidth가 있는지 확인 (broken 이미지 체크)
+                    if (img && img.complete && img.naturalWidth > 0) {
+                        try {
+                            this.ctx.drawImage(
+                                img,
+                                -entity.width / 2, 
+                                -entity.height / 2, 
+                                entity.width, 
+                                entity.height
+                            );
+                        } catch (drawError) {
+                            // drawImage 실패 시 폴백
+                            this.drawFallbackRect(entity);
+                        }
                     } else {
                         // Fallback: draw colored rectangle
-                        this.ctx.fillStyle = entity.color || '#4a90d9';
-                        this.ctx.fillRect(
-                            -entity.width / 2, 
-                            -entity.height / 2, 
-                            entity.width, 
-                            entity.height
-                        );
+                        this.drawFallbackRect(entity);
                     }
                 }
                 
                 this.ctx.restore();
+            }
+            
+            drawFallbackRect(entity) {
+                this.ctx.fillStyle = entity.color || '#4a90d9';
+                this.ctx.fillRect(
+                    -entity.width / 2, 
+                    -entity.height / 2, 
+                    entity.width || 50, 
+                    entity.height || 50
+                );
             }
             
             // Preload sprite images
@@ -856,20 +867,61 @@
                     ? JSON.parse(this.projectData.objects)
                     : this.projectData.objects;
                 
+                const loadPromises = [];
+                
                 for (const obj of objects) {
                     if (obj.sprite?.pictures) {
                         for (const pic of obj.sprite.pictures) {
                             if (pic.fileurl || pic.filename) {
-                                const url = pic.fileurl || 
-                                    `https://playentry.org/uploads/${pic.filename.substring(0,2)}/${pic.filename.substring(2,4)}/image/${pic.filename}.png`;
+                                // 원본 URL 생성
+                                let originalUrl = pic.fileurl;
+                                if (!originalUrl && pic.filename) {
+                                    originalUrl = `uploads/${pic.filename.substring(0,2)}/${pic.filename.substring(2,4)}/image/${pic.filename}.png`;
+                                }
+                                
+                                // 프록시 URL로 변환 (playentry.org 직접 접근 대신 우리 서버 프록시 사용)
+                                let proxyUrl;
+                                if (originalUrl.startsWith('http://') || originalUrl.startsWith('https://')) {
+                                    // 절대 URL인 경우 playentry.org 부분을 프록시로 교체
+                                    proxyUrl = originalUrl.replace('https://playentry.org/', '/api/playentry/image/')
+                                                         .replace('http://playentry.org/', '/api/playentry/image/');
+                                } else {
+                                    // 상대 URL인 경우
+                                    proxyUrl = `/api/playentry/image/${originalUrl}`;
+                                }
+                                
+                                console.log(`이미지 로드: ${pic.id} -> ${proxyUrl}`);
                                 
                                 const img = new Image();
-                                img.crossOrigin = 'anonymous';
-                                img.src = url;
+                                
+                                // 이미지 로드 Promise 생성
+                                const loadPromise = new Promise((resolve, reject) => {
+                                    img.onload = () => {
+                                        console.log(`이미지 로드 완료: ${pic.id}`);
+                                        resolve(pic.id);
+                                    };
+                                    img.onerror = (e) => {
+                                        console.warn(`이미지 로드 실패: ${pic.id} - ${proxyUrl}`, e);
+                                        reject(new Error(`이미지 로드 실패: ${pic.id}`));
+                                    };
+                                });
+                                
+                                img.src = proxyUrl;
                                 imageCache.set(pic.id, img);
+                                loadPromises.push(loadPromise.catch(() => null)); // 실패해도 계속 진행
                             }
                         }
                     }
+                }
+                
+                // 모든 이미지 로드 대기 (최대 10초)
+                if (loadPromises.length > 0) {
+                    console.log(`${loadPromises.length}개 이미지 로드 대기 중...`);
+                    await Promise.race([
+                        Promise.all(loadPromises),
+                        new Promise(resolve => setTimeout(resolve, 10000)) // 10초 타임아웃
+                    ]);
+                    console.log('이미지 로드 완료 또는 타임아웃');
                 }
             }
             

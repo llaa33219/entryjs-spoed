@@ -80,6 +80,46 @@ app.get('/api/playentry/iframe/:id', async (req, res) => {
     }
 });
 
+// playentry.org 이미지 프록시 (CORS 우회)
+app.get('/api/playentry/image/*', async (req, res) => {
+    try {
+        // /api/playentry/image/uploads/... -> https://playentry.org/uploads/...
+        const imagePath = req.params[0];
+        const imageUrl = `https://playentry.org/${imagePath}`;
+        
+        console.log(`Image proxy: ${imagePath}`);
+        
+        const response = await fetch(imageUrl, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0',
+                'Accept': 'image/*,*/*;q=0.8',
+                'Referer': 'https://playentry.org/',
+            }
+        });
+        
+        if (!response.ok) {
+            console.error(`Image fetch failed: ${response.status} for ${imageUrl}`);
+            return res.status(response.status).send('Image not found');
+        }
+        
+        // Content-Type 전달
+        const contentType = response.headers.get('content-type');
+        if (contentType) {
+            res.setHeader('Content-Type', contentType);
+        }
+        
+        // 캐시 헤더 설정 (1시간)
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        
+        // 이미지 데이터 스트리밍
+        const buffer = await response.arrayBuffer();
+        res.send(Buffer.from(buffer));
+    } catch (error) {
+        console.error('Image proxy error:', error);
+        res.status(500).send('Image proxy error');
+    }
+});
+
 // playentry.org GraphQL 프록시 (curl처럼 서버 측 요청)
 app.post('/api/playentry/graphql/:operation', async (req, res) => {
     try {
