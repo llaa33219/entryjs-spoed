@@ -278,7 +278,8 @@
                 
                 const headers = {
                     'Content-Type': 'application/json',
-                    'Accept': '*/*'
+                    'Accept': '*/*',
+                    'x-client-type': 'Client'
                 };
                 
                 if (csrfToken) {
@@ -289,6 +290,7 @@
                 const response = await fetch('/api/playentry/graphql', {
                     method: 'POST',
                     headers: headers,
+                    credentials: 'include',
                     body: JSON.stringify({
                         query: query,
                         variables: { id: this.projectId }
