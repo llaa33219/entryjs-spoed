@@ -1,0 +1,19 @@
+{
+  "name": "entry_wasm",
+  "type": "module",
+  "collaborators": [
+    "Entry WASM Engine"
+  ],
+  "description": "High-performance WASM execution engine for Entry projects",
+  "version": "0.1.0",
+  "files": [
+    "entry_wasm_bg.wasm",
+    "entry_wasm.js",
+    "entry_wasm.d.ts"
+  ],
+  "main": "entry_wasm.js",
+  "types": "entry_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

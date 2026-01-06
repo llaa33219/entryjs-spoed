@@ -1,0 +1,4 @@
+# Keep WASM build files for deployment
+# Only ignore temporary/cache files
+*.d.ts.map
+.DS_Store
