@@ -129,21 +129,64 @@ app.post('/api/playentry/graphql/:operation', async (req, res) => {
         try {
             const data = JSON.parse(responseText);
             
+            console.log('GraphQL 응답 구조:', JSON.stringify({
+                hasData: !!data.data,
+                hasProject: !!(data.data && data.data.project),
+                hasErrors: !!data.errors,
+                topLevelKeys: Object.keys(data)
+            }));
+            
             // project 객체만 추출해서 반환
             if (data.data && data.data.project) {
-                console.log('Project data extracted:', data.data.project.name || 'unnamed');
-                res.json(data.data.project);
+                const project = data.data.project;
+                console.log('Project data extracted:', project.name || 'unnamed', 'id:', project.id);
+                
+                // 프로젝트 데이터가 실제로 있는지 확인
+                if (!project.id) {
+                    console.error('프로젝트 데이터가 비어있음:', JSON.stringify(project).substring(0, 200));
+                    return res.status(404).json({ 
+                        error: '프로젝트 데이터가 비어있습니다',
+                        detail: 'project.id가 없습니다',
+                        received: project
+                    });
+                }
+                
+                res.json(project);
             } else if (data.errors) {
-                console.error('GraphQL errors:', data.errors);
-                res.status(400).json({ error: data.errors[0].message, errors: data.errors });
+                console.error('GraphQL errors:', JSON.stringify(data.errors));
+                res.status(400).json({ 
+                    error: data.errors[0]?.message || 'GraphQL 에러',
+                    detail: 'GraphQL 서버에서 에러 반환',
+                    errors: data.errors 
+                });
+            } else if (data.data && !data.data.project) {
+                // data는 있지만 project가 없는 경우
+                console.error('data.project가 없음. data 내용:', JSON.stringify(data.data).substring(0, 300));
+                res.status(404).json({
+                    error: '프로젝트를 찾을 수 없습니다',
+                    detail: 'data.project가 undefined/null입니다',
+                    dataKeys: Object.keys(data.data || {}),
+                    received: data.data
+                });
             } else {
-                // 예상치 못한 형식이면 전체 반환
-                res.json(data);
+                // 완전히 예상치 못한 형식
+                console.error('예상치 못한 응답 형식:', JSON.stringify(data).substring(0, 500));
+                res.status(500).json({
+                    error: '예상치 못한 응답 형식',
+                    detail: 'data 필드가 없습니다',
+                    topLevelKeys: Object.keys(data),
+                    preview: JSON.stringify(data).substring(0, 300)
+                });
             }
         } catch (e) {
             // Return raw text if not JSON
-            console.error('JSON parse error:', e.message, 'Response:', responseText.substring(0, 200));
-            res.status(500).send(responseText);
+            console.error('JSON 파싱 실패:', e.message);
+            console.error('응답 원본 (처음 500자):', responseText.substring(0, 500));
+            res.status(500).json({
+                error: 'JSON 파싱 실패',
+                detail: e.message,
+                responsePreview: responseText.substring(0, 300)
+            });
         }
     } catch (error) {
         console.error('GraphQL proxy error:', error);
