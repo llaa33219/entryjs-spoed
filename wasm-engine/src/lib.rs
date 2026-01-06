@@ -81,9 +81,11 @@ impl WasmEngine {
     /// Start the engine
     #[wasm_bindgen]
     pub fn start(&mut self) {
+        web_sys::console::log_1(&"[WASM] start() called".into());
         self.state = EngineState::Running;
         self.initialize_executors();
         self.fire_event("start");
+        web_sys::console::log_1(&format!("[WASM] After fire_event, executors count: {}", self.executors.len()).into());
     }
 
     /// Stop the engine
@@ -115,11 +117,30 @@ impl WasmEngine {
         
         self.tick_count += 1;
         
+        // Log status every 60 ticks
+        if self.tick_count % 60 == 0 {
+            web_sys::console::log_1(&format!(
+                "[WASM] Tick {}: {} executors, {} entities",
+                self.tick_count,
+                self.executors.len(),
+                self.entities.len()
+            ).into());
+        }
+        
         // Execute all active executors
         let mut completed = Vec::new();
         
         for (idx, executor) in self.executors.iter_mut().enumerate() {
             let result = executor.execute(&mut self.entities, &mut self.variables);
+            
+            // Log first few ticks for debugging
+            if self.tick_count <= 5 {
+                web_sys::console::log_1(&format!(
+                    "[WASM] Executor {} result: {:?}",
+                    idx, result
+                ).into());
+            }
+            
             if result == ExecuteResult::End {
                 completed.push(idx);
             }
@@ -157,24 +178,70 @@ impl WasmEngine {
 
     /// Fire an event to all entities
     fn fire_event(&mut self, event_name: &str) {
+        web_sys::console::log_1(&format!("[WASM] fire_event('{}') called", event_name).into());
+        
         if let Some(project) = &self.project_data {
+            web_sys::console::log_1(&format!("[WASM] Project data exists, name: {:?}", project.name).into());
+            
             if let Some(objects) = &project.objects {
+                web_sys::console::log_1(&format!("[WASM] Found {} objects", objects.len()).into());
+                
                 for (entity_idx, obj) in objects.iter().enumerate() {
+                    web_sys::console::log_1(&format!(
+                        "[WASM] Object {}: id={}, name={:?}, has_script={}",
+                        entity_idx,
+                        obj.id,
+                        obj.name,
+                        obj.script.is_some()
+                    ).into());
+                    
                     if let Some(scripts) = &obj.script {
-                        for thread in scripts {
+                        web_sys::console::log_1(&format!(
+                            "[WASM]   Script has {} threads",
+                            scripts.len()
+                        ).into());
+                        
+                        for (thread_idx, thread) in scripts.iter().enumerate() {
+                            web_sys::console::log_1(&format!(
+                                "[WASM]   Thread {}: {} blocks",
+                                thread_idx,
+                                thread.len()
+                            ).into());
+                            
                             if let Some(first_block) = thread.first() {
-                                if self.is_event_block(&first_block.block_type, event_name) {
+                                web_sys::console::log_1(&format!(
+                                    "[WASM]     First block type: '{}'",
+                                    first_block.block_type
+                                ).into());
+                                
+                                let is_match = self.is_event_block(&first_block.block_type, event_name);
+                                web_sys::console::log_1(&format!(
+                                    "[WASM]     Matches '{}' event: {}",
+                                    event_name,
+                                    is_match
+                                ).into());
+                                
+                                if is_match {
                                     let executor = Executor::new(
                                         entity_idx,
                                         thread.clone(),
                                     );
                                     self.executors.push(executor);
+                                    web_sys::console::log_1(&"[WASM]     Created executor for this thread".into());
                                 }
+                            } else {
+                                web_sys::console::log_1(&"[WASM]     Thread is empty!".into());
                             }
                         }
+                    } else {
+                        web_sys::console::log_1(&"[WASM]   No script found for this object".into());
                     }
                 }
+            } else {
+                web_sys::console::log_1(&"[WASM] No objects in project!".into());
             }
+        } else {
+            web_sys::console::log_1(&"[WASM] No project data loaded!".into());
         }
     }
 
