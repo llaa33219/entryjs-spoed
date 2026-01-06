@@ -235,11 +235,8 @@
             
             async getCsrfToken() {
                 try {
-                    // Try to get CSRF token from the page
-                    const response = await fetch(`https://playentry.org/iframe/${this.projectId}`, {
-                        credentials: 'include',
-                        mode: 'cors'
-                    });
+                    // Try to get CSRF token from the page via nginx proxy
+                    const response = await fetch(`/api/playentry/iframe/${this.projectId}`);
                     const html = await response.text();
                     
                     // Extract CSRF token from meta tag or script
@@ -288,9 +285,9 @@
                     headers['CSRF-Token'] = csrfToken;
                 }
                 
-                const response = await fetch('https://playentry.org/graphql', {
+                // Use nginx proxy to avoid CORS issues
+                const response = await fetch('/api/playentry/graphql', {
                     method: 'POST',
-                    credentials: 'include',
                     headers: headers,
                     body: JSON.stringify({
                         query: query,
