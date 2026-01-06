@@ -473,14 +473,15 @@
                     throw new Error(`HTTP ${response.status}: ${errorText}`);
                 }
                 
-                const result = await response.json();
-                console.log('GraphQL 응답:', result);
+                const project = await response.json();
+                console.log('프로젝트 데이터:', project);
                 
-                if (result.errors) {
-                    throw new Error(result.errors[0].message);
+                if (project.error || project.errors) {
+                    throw new Error(project.error || project.errors[0].message);
                 }
                 
-                return result.data.project;
+                // 서버에서 이미 project 객체만 추출해서 반환함
+                return project;
             }
             
             async initializeProject() {

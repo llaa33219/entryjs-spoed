@@ -128,10 +128,22 @@ app.post('/api/playentry/graphql/:operation', async (req, res) => {
         // Parse and return JSON
         try {
             const data = JSON.parse(responseText);
-            res.json(data);
+            
+            // project 객체만 추출해서 반환
+            if (data.data && data.data.project) {
+                console.log('Project data extracted:', data.data.project.name || 'unnamed');
+                res.json(data.data.project);
+            } else if (data.errors) {
+                console.error('GraphQL errors:', data.errors);
+                res.status(400).json({ error: data.errors[0].message, errors: data.errors });
+            } else {
+                // 예상치 못한 형식이면 전체 반환
+                res.json(data);
+            }
         } catch (e) {
             // Return raw text if not JSON
-            res.send(responseText);
+            console.error('JSON parse error:', e.message, 'Response:', responseText.substring(0, 200));
+            res.status(500).send(responseText);
         }
     } catch (error) {
         console.error('GraphQL proxy error:', error);
