@@ -1,17 +1,19 @@
 # Railway 배포용 Dockerfile
-# nginx를 사용하여 정적 파일 서빙
+# Node.js 서버로 정적 파일 서빙 + API 프록시 (curl 역할)
 
-FROM nginx:alpine
+FROM node:20-alpine
 
-# nginx 설정 복사
-COPY nginx.conf /etc/nginx/nginx.conf
+WORKDIR /app
 
-# player 디렉토리의 정적 파일 복사
-COPY player/ /usr/share/nginx/html/
+# package.json 복사 및 의존성 설치
+COPY package-server.json package.json
+RUN npm install --production
 
-# Railway는 PORT 환경변수를 사용
-# nginx 설정에서 이를 동적으로 처리
-EXPOSE 80
+# 서버 및 정적 파일 복사
+COPY server.js .
+COPY player/ ./player/
 
-# 시작 시 PORT 환경변수로 nginx 포트 설정
-CMD sh -c "sed -i 's/listen 80/listen ${PORT:-80}/g' /etc/nginx/nginx.conf && nginx -g 'daemon off;'"
+# Railway는 PORT 환경변수 사용
+EXPOSE 8080
+
+CMD ["node", "server.js"]
