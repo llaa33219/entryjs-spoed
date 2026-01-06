@@ -272,6 +272,7 @@ pub struct ProjectData {
 pub struct ObjectData {
     pub id: String,
     pub name: Option<String>,
+    #[serde(deserialize_with = "deserialize_script", default)]
     pub script: Option<Vec<Vec<Block>>>,
     #[serde(rename = "selectedPictureId")]
     pub selected_picture_id: Option<String>,
@@ -279,6 +280,39 @@ pub struct ObjectData {
     pub object_type: Option<String>,
     pub entity: Option<EntityData>,
     pub sprite: Option<SpriteData>,
+}
+
+// script 필드가 문자열로 올 경우를 처리하는 커스텀 디시리얼라이저
+fn deserialize_script<'de, D>(deserializer: D) -> Result<Option<Vec<Vec<Block>>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+    
+    let value: Option<serde_json::Value> = Option::deserialize(deserializer)?;
+    
+    match value {
+        None => Ok(None),
+        Some(serde_json::Value::Null) => Ok(None),
+        Some(serde_json::Value::String(s)) => {
+            // 문자열인 경우 JSON으로 파싱
+            if s.is_empty() {
+                return Ok(Some(Vec::new()));
+            }
+            serde_json::from_str(&s)
+                .map(Some)
+                .map_err(|e| D::Error::custom(format!("Failed to parse script string: {}", e)))
+        }
+        Some(serde_json::Value::Array(arr)) => {
+            // 이미 배열인 경우
+            serde_json::from_value(serde_json::Value::Array(arr))
+                .map(Some)
+                .map_err(|e| D::Error::custom(format!("Failed to parse script array: {}", e)))
+        }
+        Some(other) => {
+            Err(D::Error::custom(format!("Unexpected script type: {:?}", other)))
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

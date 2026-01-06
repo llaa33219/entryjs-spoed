@@ -591,7 +591,12 @@
                 if (this.wasmEngine) {
                     try {
                         console.log('WASM 엔진에 프로젝트 로드 시도...');
-                        this.wasmEngine.load_project(JSON.stringify(this.projectData));
+                        
+                        // WASM에 전달하기 전에 문자열로 된 필드들을 파싱
+                        const projectForWasm = this.prepareProjectForWasm(this.projectData);
+                        console.log('WASM용 프로젝트 데이터 준비 완료');
+                        
+                        this.wasmEngine.load_project(JSON.stringify(projectForWasm));
                         console.log('WASM 엔진 프로젝트 로드 완료');
                     } catch (wasmError) {
                         console.error('WASM 엔진 프로젝트 로드 실패:', wasmError);
@@ -613,6 +618,93 @@
                     running: false,
                     tick: 0
                 };
+            }
+            
+            // playentry.org API에서 받은 데이터를 WASM 엔진용으로 변환
+            // objects, variables, functions 등이 문자열로 되어 있으면 파싱
+            prepareProjectForWasm(projectData) {
+                const prepared = { ...projectData };
+                
+                // objects 필드 파싱 (문자열 -> 배열)
+                if (typeof prepared.objects === 'string') {
+                    try {
+                        prepared.objects = JSON.parse(prepared.objects);
+                        console.log('objects 문자열 파싱 완료:', prepared.objects.length, '개 오브젝트');
+                    } catch (e) {
+                        console.error('objects 파싱 실패:', e);
+                        prepared.objects = [];
+                    }
+                }
+                
+                // variables 필드 파싱
+                if (typeof prepared.variables === 'string') {
+                    try {
+                        prepared.variables = JSON.parse(prepared.variables);
+                        console.log('variables 문자열 파싱 완료');
+                    } catch (e) {
+                        console.error('variables 파싱 실패:', e);
+                        prepared.variables = [];
+                    }
+                }
+                
+                // functions 필드 파싱
+                if (typeof prepared.functions === 'string') {
+                    try {
+                        prepared.functions = JSON.parse(prepared.functions);
+                        console.log('functions 문자열 파싱 완료');
+                    } catch (e) {
+                        console.error('functions 파싱 실패:', e);
+                        prepared.functions = [];
+                    }
+                }
+                
+                // messages 필드 파싱
+                if (typeof prepared.messages === 'string') {
+                    try {
+                        prepared.messages = JSON.parse(prepared.messages);
+                    } catch (e) {
+                        prepared.messages = [];
+                    }
+                }
+                
+                // scenes 필드 파싱
+                if (typeof prepared.scenes === 'string') {
+                    try {
+                        prepared.scenes = JSON.parse(prepared.scenes);
+                    } catch (e) {
+                        prepared.scenes = [];
+                    }
+                }
+                
+                // tables 필드 파싱
+                if (typeof prepared.tables === 'string') {
+                    try {
+                        prepared.tables = JSON.parse(prepared.tables);
+                    } catch (e) {
+                        prepared.tables = [];
+                    }
+                }
+                
+                // 각 object 안의 script 필드도 파싱 (이중 문자열화 된 경우)
+                if (Array.isArray(prepared.objects)) {
+                    prepared.objects = prepared.objects.map(obj => {
+                        const newObj = { ...obj };
+                        
+                        // script가 문자열이면 파싱
+                        if (typeof newObj.script === 'string') {
+                            try {
+                                newObj.script = JSON.parse(newObj.script);
+                            } catch (e) {
+                                console.warn('object script 파싱 실패:', obj.id, e);
+                                newObj.script = [];
+                            }
+                        }
+                        
+                        return newObj;
+                    });
+                }
+                
+                return prepared;
             }
             
             resizeCanvas() {
