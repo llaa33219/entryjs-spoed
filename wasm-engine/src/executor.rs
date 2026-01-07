@@ -14,8 +14,8 @@ pub enum ExecuteResult {
 }
 
 /// Maximum call stack depth to prevent infinite recursion
-/// Set to 10000 to allow deep recursion while preventing stack overflow
-const MAX_CALL_STACK_DEPTH: usize = 10000;
+/// Set very high to allow deep recursion - user preference
+const MAX_CALL_STACK_DEPTH: usize = 1_000_000;
 
 /// Executor manages the execution of a thread of blocks
 #[derive(Clone, Debug)]
