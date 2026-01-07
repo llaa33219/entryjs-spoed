@@ -211,6 +211,39 @@ impl WasmEngine {
                 ).into());
             }
         }
+        
+        // Also extract functions from object scripts (func_XXXX threads)
+        // In Entry.js, function definitions can be stored as threads starting with func_XXXX
+        if let Some(objects) = &project.objects {
+            for obj in objects {
+                if let Some(scripts) = &obj.script {
+                    for thread in scripts {
+                        if let Some(first_block) = thread.first() {
+                            // Check if this thread starts with func_XXXX (function definition)
+                            if first_block.block_type.starts_with("func_") {
+                                let func_id = &first_block.block_type[5..]; // Skip "func_" prefix
+                                
+                                // Only add if not already in functions map
+                                if !self.functions.contains_key(func_id) {
+                                    web_sys::console::log_1(&format!(
+                                        "[WASM] Found function definition in script: func_id='{}', thread has {} blocks",
+                                        func_id, thread.len()
+                                    ).into());
+                                    
+                                    // Create FunctionData from the thread
+                                    let func_data = FunctionData {
+                                        id: func_id.to_string(),
+                                        content: Some(vec![thread.clone()]),
+                                    };
+                                    self.functions.insert(func_id.to_string(), func_data);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
         web_sys::console::log_1(&format!("[WASM] Loaded {} functions total", self.functions.len()).into());
         
         Ok(())
@@ -220,6 +253,22 @@ impl WasmEngine {
     #[wasm_bindgen]
     pub fn start(&mut self) {
         web_sys::console::log_1(&"[WASM] start() called".into());
+        
+        // Debug: Log all loaded functions
+        web_sys::console::log_1(&format!(
+            "[WASM] Loaded functions: {:?}",
+            self.functions.keys().collect::<Vec<_>>()
+        ).into());
+        for (key, func_data) in &self.functions {
+            web_sys::console::log_1(&format!(
+                "[WASM]   Function '{}': id='{}', has_content={}, content_threads={}",
+                key,
+                func_data.id,
+                func_data.content.is_some(),
+                func_data.content.as_ref().map(|c| c.len()).unwrap_or(0)
+            ).into());
+        }
+        
         self.state = EngineState::Running;
         self.initialize_executors();
         self.fire_event("start");

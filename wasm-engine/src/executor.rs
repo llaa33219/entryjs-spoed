@@ -227,6 +227,12 @@ impl Executor {
     ) -> ExecuteResult {
         let block_type = block.block_type.as_str();
         
+        // Debug: Log every block type being executed
+        web_sys::console::log_1(&format!(
+            "[WASM] execute_block: type='{}'",
+            block_type
+        ).into());
+        
         // Handle function calls (blocks starting with "func_")
         if block_type.starts_with("func_") {
             return self.execute_function_call(block, functions);
@@ -1612,8 +1618,9 @@ impl Executor {
         let func_id = &block.block_type[5..]; // Skip "func_" prefix
         
         web_sys::console::log_1(&format!(
-            "[WASM] execute_function_call: func_id='{}'",
-            func_id
+            "[WASM] execute_function_call: func_id='{}', available_functions={:?}",
+            func_id,
+            functions.keys().collect::<Vec<_>>()
         ).into());
         
         // Look up the function
