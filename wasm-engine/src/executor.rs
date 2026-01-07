@@ -13,6 +13,10 @@ pub enum ExecuteResult {
     JumpedToBlock, // Jumped to a new block list (don't increment block_index)
 }
 
+/// Maximum call stack depth to prevent infinite recursion
+/// Set to a very large value (u32::MAX) to avoid cutting off legitimate deep recursion
+const MAX_CALL_STACK_DEPTH: usize = u32::MAX as usize;
+
 /// Executor manages the execution of a thread of blocks
 #[derive(Clone, Debug)]
 pub struct Executor {
@@ -1618,11 +1622,21 @@ impl Executor {
         let func_id = &block.block_type[5..]; // Skip "func_" prefix
         
         web_sys::console::log_1(&format!(
-            "[WASM] execute_function_call: func_id='{}', block_type='{}', available_functions={:?}",
+            "[WASM] execute_function_call: func_id='{}', block_type='{}', call_stack_depth={}, available_functions={:?}",
             func_id,
             block.block_type,
+            self.call_stack.len(),
             functions.keys().collect::<Vec<_>>()
         ).into());
+        
+        // Check for maximum call stack depth to prevent infinite recursion
+        if self.call_stack.len() >= MAX_CALL_STACK_DEPTH {
+            web_sys::console::log_1(&format!(
+                "[WASM] ERROR: Maximum call stack depth ({}) exceeded! Possible infinite recursion.",
+                MAX_CALL_STACK_DEPTH
+            ).into());
+            return ExecuteResult::End;
+        }
         
         // First check if the current block itself has statements (function body)
         // This handles the case where function is called and the body is in statements
