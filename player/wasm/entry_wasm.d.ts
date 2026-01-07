@@ -54,6 +54,10 @@ export class WasmEngine {
    */
   start(): void;
   /**
+   * Check if the engine is currently executing a tick
+   */
+  is_busy(): boolean;
+  /**
    * Get current tick count
    */
   get_tick(): bigint;
@@ -73,6 +77,7 @@ export interface InitOutput {
   readonly wasmengine_get_render_data: (a: number) => [number, number];
   readonly wasmengine_get_tick: (a: number) => bigint;
   readonly wasmengine_has_pending_js_actions: (a: number) => number;
+  readonly wasmengine_is_busy: (a: number) => number;
   readonly wasmengine_is_running: (a: number) => number;
   readonly wasmengine_load_project: (a: number, b: number, c: number) => [number, number];
   readonly wasmengine_new: () => number;

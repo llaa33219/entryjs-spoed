@@ -26,4 +26,5 @@ wasm-bindgen-test = "0.3"
 opt-level = 3
 lto = true
 codegen-units = 1
-panic = "abort"
+# Note: panic = "abort" removed to allow proper error handling in WASM
+# This allows panics to unwind properly and show useful error messages

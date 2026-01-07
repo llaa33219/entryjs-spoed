@@ -6,6 +6,7 @@ export const wasmengine_get_js_actions: (a: number) => [number, number];
 export const wasmengine_get_render_data: (a: number) => [number, number];
 export const wasmengine_get_tick: (a: number) => bigint;
 export const wasmengine_has_pending_js_actions: (a: number) => number;
+export const wasmengine_is_busy: (a: number) => number;
 export const wasmengine_is_running: (a: number) => number;
 export const wasmengine_load_project: (a: number, b: number, c: number) => [number, number];
 export const wasmengine_new: () => number;

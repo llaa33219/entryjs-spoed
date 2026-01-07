@@ -239,6 +239,14 @@ export class WasmEngine {
         wasm.wasmengine_start(this.__wbg_ptr);
     }
     /**
+     * Check if the engine is currently executing a tick
+     * @returns {boolean}
+     */
+    is_busy() {
+        const ret = wasm.wasmengine_is_busy(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
      * Get current tick count
      * @returns {bigint}
      */

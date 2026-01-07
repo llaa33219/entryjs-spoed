@@ -85,7 +85,7 @@ pub enum JsAction {
 /// Initialize panic hook for better error messages in browser console
 #[wasm_bindgen(start)]
 pub fn init() {
-    #[cfg(feature = "console_error_panic_hook")]
+    // Always set panic hook for better error messages in browser console
     console_error_panic_hook::set_once();
 }
 
@@ -111,6 +111,8 @@ pub struct WasmEngine {
     functions: HashMap<String, FunctionData>,
     /// Pending JavaScript actions to be consumed after tick()
     pending_js_actions: Vec<JsAction>,
+    /// Flag to track if tick() is currently executing (to prevent recursive calls)
+    is_ticking: bool,
 }
 
 #[wasm_bindgen]
@@ -128,6 +130,7 @@ impl WasmEngine {
             project_data: None,
             functions: HashMap::new(),
             pending_js_actions: Vec::new(),
+            is_ticking: false,
         }
     }
 
@@ -214,6 +217,10 @@ impl WasmEngine {
     /// Start the engine
     #[wasm_bindgen]
     pub fn start(&mut self) {
+        // Don't start if we're in the middle of a tick
+        if self.is_ticking {
+            return;
+        }
         self.state = EngineState::Running;
         self.initialize_executors();
         self.fire_event("start");
@@ -222,6 +229,11 @@ impl WasmEngine {
     /// Stop the engine
     #[wasm_bindgen]
     pub fn stop(&mut self) {
+        // Don't modify state if we're in the middle of a tick - just mark for stop
+        if self.is_ticking {
+            self.state = EngineState::Stopped;
+            return;
+        }
         self.state = EngineState::Stopped;
         self.executors.clear();
     }
@@ -229,6 +241,12 @@ impl WasmEngine {
     /// Reset the engine to initial state
     #[wasm_bindgen]
     pub fn reset(&mut self) {
+        // Don't reset while ticking
+        if self.is_ticking {
+            self.state = EngineState::Stopped;
+            return;
+        }
+        
         self.state = EngineState::Stopped;
         self.tick_count = 0;
         self.executors.clear();
@@ -244,6 +262,12 @@ impl WasmEngine {
             entity.brush_color = "#ff0000".to_string();
         }
     }
+    
+    /// Check if the engine is currently executing a tick
+    #[wasm_bindgen]
+    pub fn is_busy(&self) -> bool {
+        self.is_ticking
+    }
 
     /// Execute one tick of the engine
     #[wasm_bindgen]
@@ -252,6 +276,12 @@ impl WasmEngine {
             return;
         }
         
+        // Prevent recursive tick calls
+        if self.is_ticking {
+            return;
+        }
+        self.is_ticking = true;
+        
         self.tick_count += 1;
         
         // Execute all active executors
@@ -259,6 +289,11 @@ impl WasmEngine {
         const MAX_EXECUTIONS_PER_TICK: u32 = 1_000_000; // Safety limit to prevent infinite loops
         
         for (idx, executor) in self.executors.iter_mut().enumerate() {
+            // Check if engine was stopped during execution
+            if self.state != EngineState::Running {
+                break;
+            }
+            
             // Execute blocks continuously until Wait or End result
             // This ensures function calls and other non-waiting blocks execute without delay
             let mut execution_count = 0u32;
@@ -289,6 +324,13 @@ impl WasmEngine {
         // Remove completed executors (in reverse order to maintain indices)
         for idx in completed.into_iter().rev() {
             self.executors.remove(idx);
+        }
+        
+        self.is_ticking = false;
+        
+        // If stop was called during tick, clean up executors now
+        if self.state == EngineState::Stopped {
+            self.executors.clear();
         }
     }
     
