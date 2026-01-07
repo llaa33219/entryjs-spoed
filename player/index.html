@@ -1012,6 +1012,18 @@
                 const brushState = this.getBrushState(entityId);
                 brushState.fillDown = true;
                 brushState.fillPath = []; // Reset path
+                
+                // Get current entity position and add as first point (like moveTo in Entry.js)
+                const renderData = this.wasmEngine.get_render_data();
+                if (renderData && renderData !== '[]') {
+                    const entities = JSON.parse(renderData);
+                    const entity = entities.find(e => e.id === entityId);
+                    if (entity) {
+                        const screenX = 240 + entity.x;
+                        const screenY = 180 - entity.y;
+                        brushState.fillPath.push({ x: screenX, y: screenY });
+                    }
+                }
             }
             
             // Handle stop fill (close and fill the polygon)
@@ -1078,15 +1090,16 @@
                     if (brushState.fillDown) {
                         // Add point to fill path with minimum distance threshold to prevent memory bloat
                         const lastPoint = brushState.fillPath[brushState.fillPath.length - 1];
-                        if (!lastPoint) {
-                            brushState.fillPath.push({ x: screenX, y: screenY });
-                        } else {
+                        if (lastPoint) {
                             const dx = screenX - lastPoint.x;
                             const dy = screenY - lastPoint.y;
                             const distance = Math.sqrt(dx * dx + dy * dy);
                             if (distance >= 2) { // Minimum 2px distance between points
                                 brushState.fillPath.push({ x: screenX, y: screenY });
                             }
+                        } else {
+                            // Fallback: add first point if somehow missing
+                            brushState.fillPath.push({ x: screenX, y: screenY });
                         }
                     }
                     
