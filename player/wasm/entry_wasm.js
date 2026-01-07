@@ -165,6 +165,23 @@ export class WasmEngine {
         wasm.wasmengine_update_mouse(this.__wbg_ptr, x, y, clicked);
     }
     /**
+     * Get pending JavaScript actions as JSON and clear the queue
+     * Call this after tick() to process any actions that require JS
+     * @returns {string}
+     */
+    get_js_actions() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.wasmengine_get_js_actions(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
      * Get render data as JSON string for JavaScript to draw
      * @returns {string}
      */
@@ -179,6 +196,14 @@ export class WasmEngine {
         } finally {
             wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
         }
+    }
+    /**
+     * Check if there are pending JS actions
+     * @returns {boolean}
+     */
+    has_pending_js_actions() {
+        const ret = wasm.wasmengine_has_pending_js_actions(this.__wbg_ptr);
+        return ret !== 0;
     }
     /**
      * Create a new WASM engine instance
@@ -220,30 +245,6 @@ export class WasmEngine {
     get_tick() {
         const ret = wasm.wasmengine_get_tick(this.__wbg_ptr);
         return BigInt.asUintN(64, ret);
-    }
-    /**
-     * Get pending JavaScript actions as JSON string and clear the queue
-     * @returns {string}
-     */
-    get_js_actions() {
-        let deferred1_0;
-        let deferred1_1;
-        try {
-            const ret = wasm.wasmengine_get_js_actions(this.__wbg_ptr);
-            deferred1_0 = ret[0];
-            deferred1_1 = ret[1];
-            return getStringFromWasm0(ret[0], ret[1]);
-        } finally {
-            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
-        }
-    }
-    /**
-     * Check if there are pending JS actions
-     * @returns {boolean}
-     */
-    has_pending_js_actions() {
-        const ret = wasm.wasmengine_has_pending_js_actions(this.__wbg_ptr);
-        return ret !== 0;
     }
 }
 if (Symbol.dispose) WasmEngine.prototype[Symbol.dispose] = WasmEngine.prototype.free;
@@ -304,8 +305,40 @@ function __wbg_get_imports() {
             wasm.__wbindgen_free(deferred0_0, deferred0_1, 1);
         }
     };
+    imports.wbg.__wbg_getDate_b8071ea9fc4f6838 = function(arg0) {
+        const ret = arg0.getDate();
+        return ret;
+    };
+    imports.wbg.__wbg_getDay_c13a50561112f77a = function(arg0) {
+        const ret = arg0.getDay();
+        return ret;
+    };
+    imports.wbg.__wbg_getFullYear_6ac412e8eee86879 = function(arg0) {
+        const ret = arg0.getFullYear();
+        return ret;
+    };
+    imports.wbg.__wbg_getHours_52eb417ad6e924e8 = function(arg0) {
+        const ret = arg0.getHours();
+        return ret;
+    };
+    imports.wbg.__wbg_getMinutes_4097cef8e08622f9 = function(arg0) {
+        const ret = arg0.getMinutes();
+        return ret;
+    };
+    imports.wbg.__wbg_getMonth_48a392071f9e5017 = function(arg0) {
+        const ret = arg0.getMonth();
+        return ret;
+    };
+    imports.wbg.__wbg_getSeconds_d94762aec8103802 = function(arg0) {
+        const ret = arg0.getSeconds();
+        return ret;
+    };
     imports.wbg.__wbg_log_1d990106d99dacb7 = function(arg0) {
         console.log(arg0);
+    };
+    imports.wbg.__wbg_new_0_23cedd11d9b40c9d = function() {
+        const ret = new Date();
+        return ret;
     };
     imports.wbg.__wbg_new_8a6f238a6ece86ea = function() {
         const ret = new Error();

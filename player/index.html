@@ -840,7 +840,18 @@
             handleJsActions() {
                 if (!this.wasmEngine) return;
                 
-                const actionsJson = this.wasmEngine.get_js_actions();
+                // Check if get_js_actions function exists (WASM may not have it exported)
+                if (typeof this.wasmEngine.get_js_actions !== 'function') {
+                    return; // Function not available in WASM binary
+                }
+                
+                let actionsJson;
+                try {
+                    actionsJson = this.wasmEngine.get_js_actions();
+                } catch (e) {
+                    console.warn('get_js_actions() 호출 실패:', e);
+                    return;
+                }
                 if (!actionsJson || actionsJson === '[]') return;
                 
                 try {
