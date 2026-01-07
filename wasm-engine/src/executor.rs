@@ -67,15 +67,25 @@ impl Executor {
                 if let Some(frame) = self.call_stack.pop() {
                     self.blocks = frame.blocks;
                     self.block_index = frame.block_index;
-                    self.iteration_count = frame.iteration_count;
                     
-                    if frame.is_loop && self.iteration_count > 0 {
-                        self.iteration_count -= 1;
-                        self.block_index = 0;
+                    if frame.is_loop && frame.iteration_count > 0 {
+                        // More iterations remaining - set iteration_count for repeat_basic to use
+                        self.iteration_count = frame.iteration_count;
+                        web_sys::console::log_1(&format!(
+                            "[WASM] Loop iteration complete, {} remaining",
+                            frame.iteration_count
+                        ).into());
+                        // Re-execute the loop block (don't increment block_index)
                         return ExecuteResult::Continue;
                     }
                     
+                    // Loop finished or not a loop - move to next block
+                    self.iteration_count = 0;
                     self.block_index += 1;
+                    web_sys::console::log_1(&format!(
+                        "[WASM] Stack frame popped, moving to block {}",
+                        self.block_index
+                    ).into());
                     return ExecuteResult::Continue;
                 }
                 return ExecuteResult::End;
@@ -293,21 +303,31 @@ impl Executor {
             }
             
             "repeat_basic" => {
-                let count = self.get_param_number(block, 0, variables) as u32;
+                // Check if we're resuming a loop (iteration_count was set by stack pop)
+                // or starting fresh
+                let count = if self.iteration_count > 0 {
+                    // Resuming from stack pop - use remaining iterations
+                    self.iteration_count
+                } else {
+                    // Fresh start - get count from params
+                    self.get_param_number(block, 0, variables) as u32
+                };
+                
                 web_sys::console::log_1(&format!(
                     "[WASM] repeat_basic: count={}, has_statements={}",
                     count,
                     block.statements.is_some()
                 ).into());
+                
                 if count > 0 {
                     if let Some(statements) = &block.statements {
                         if let Some(inner_blocks) = statements.first() {
                             if !inner_blocks.is_empty() {
                                 web_sys::console::log_1(&format!(
-                                    "[WASM] repeat_basic: entering loop with {} inner blocks",
-                                    inner_blocks.len()
+                                    "[WASM] repeat_basic: entering loop iteration, {} remaining",
+                                    count
                                 ).into());
-                                // Save current state
+                                // Save current state with remaining count
                                 let frame = StackFrame {
                                     blocks: self.blocks.clone(),
                                     block_index: self.block_index,
@@ -316,15 +336,17 @@ impl Executor {
                                 };
                                 self.call_stack.push(frame);
                                 
-                                // Enter loop
+                                // Enter loop body
                                 self.blocks = inner_blocks.clone();
                                 self.block_index = 0;
-                                self.iteration_count = count - 1;
+                                self.iteration_count = 0; // Reset for inner blocks
                                 return ExecuteResult::JumpedToBlock;
                             }
                         }
                     }
                 }
+                // Loop finished or no statements
+                self.iteration_count = 0;
                 ExecuteResult::Continue
             }
             
