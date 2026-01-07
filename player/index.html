@@ -191,6 +191,11 @@
                 this.ctx = this.canvas.getContext('2d');
                 this.isRunning = false;
                 this.animationId = null;
+                
+                // Mouse state for WASM engine
+                this.mouseX = 0;
+                this.mouseY = 0;
+                this.mouseClicked = false;
             }
             
             async initialize() {
@@ -786,8 +791,9 @@
             gameLoop() {
                 if (!this.isRunning) return;
                 
-                // Update
+                // Update mouse state in WASM engine
                 if (this.wasmEngine) {
+                    this.wasmEngine.update_mouse(this.mouseX, this.mouseY, this.mouseClicked);
                     this.wasmEngine.tick();
                 } else if (this.jsEngine) {
                     this.jsEngine.tick++;
@@ -1168,6 +1174,68 @@
                         document.documentElement.requestFullscreen();
                     }
                 });
+                
+                // Mouse tracking for WASM engine
+                this.canvas.addEventListener('mousemove', (e) => {
+                    this.updateMousePosition(e);
+                });
+                
+                this.canvas.addEventListener('mousedown', (e) => {
+                    this.mouseClicked = true;
+                    this.updateMousePosition(e);
+                });
+                
+                this.canvas.addEventListener('mouseup', (e) => {
+                    this.mouseClicked = false;
+                    this.updateMousePosition(e);
+                });
+                
+                this.canvas.addEventListener('mouseleave', (e) => {
+                    this.mouseClicked = false;
+                });
+                
+                // Touch support for mobile
+                this.canvas.addEventListener('touchstart', (e) => {
+                    e.preventDefault();
+                    this.mouseClicked = true;
+                    if (e.touches.length > 0) {
+                        this.updateTouchPosition(e.touches[0]);
+                    }
+                });
+                
+                this.canvas.addEventListener('touchmove', (e) => {
+                    e.preventDefault();
+                    if (e.touches.length > 0) {
+                        this.updateTouchPosition(e.touches[0]);
+                    }
+                });
+                
+                this.canvas.addEventListener('touchend', (e) => {
+                    e.preventDefault();
+                    this.mouseClicked = false;
+                });
+            }
+            
+            // Convert mouse event to Entry coordinates
+            updateMousePosition(e) {
+                const rect = this.canvas.getBoundingClientRect();
+                const canvasX = e.clientX - rect.left;
+                const canvasY = e.clientY - rect.top;
+                
+                // Convert to Entry coordinate system:
+                // Canvas (0,0) to (480,360) -> Entry (-240,180) to (240,-180)
+                this.mouseX = (canvasX / rect.width) * 480 - 240;
+                this.mouseY = 180 - (canvasY / rect.height) * 360;
+            }
+            
+            // Convert touch event to Entry coordinates
+            updateTouchPosition(touch) {
+                const rect = this.canvas.getBoundingClientRect();
+                const canvasX = touch.clientX - rect.left;
+                const canvasY = touch.clientY - rect.top;
+                
+                this.mouseX = (canvasX / rect.width) * 480 - 240;
+                this.mouseY = 180 - (canvasY / rect.height) * 360;
             }
             
             updateProgress(percent, text) {
