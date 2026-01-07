@@ -173,7 +173,9 @@ impl Executor {
                             ).into());
                         }
                         // Re-execute the loop block (don't increment block_index)
-                        return ExecuteResult::Continue;
+                        // Return Wait to create a frame delay between loop iterations
+                        // This is the only intentional delay - all other blocks execute immediately
+                        return ExecuteResult::Wait;
                     }
                     
                     // Loop finished or not a loop - move to next block

@@ -326,6 +326,9 @@ impl WasmEngine {
     /// Execute one tick of the engine
     #[wasm_bindgen]
     pub fn tick(&mut self) {
+        // Maximum number of block executions per tick per executor to prevent infinite loops
+        // Set to u32::MAX to avoid cutting off legitimate deep execution
+        let max_executions_per_tick: u32 = u32::MAX;
         if self.state != EngineState::Running {
             return;
         }
@@ -346,18 +349,43 @@ impl WasmEngine {
         let mut completed = Vec::new();
         
         for (idx, executor) in self.executors.iter_mut().enumerate() {
-            let result = executor.execute(&mut self.entities, &mut self.variables, &mut self.pending_js_actions, &self.functions);
+            // Execute blocks continuously until Wait or End result
+            // This ensures function calls and other non-waiting blocks execute without delay
+            let mut execution_count = 0u32;
             
-            // Log first few ticks for debugging
-            if self.tick_count <= 5 {
-                web_sys::console::log_1(&format!(
-                    "[WASM] Executor {} result: {:?}",
-                    idx, result
-                ).into());
-            }
-            
-            if result == ExecuteResult::End {
-                completed.push(idx);
+            loop {
+                let result = executor.execute(&mut self.entities, &mut self.variables, &mut self.pending_js_actions, &self.functions);
+                
+                // Log first few ticks for debugging
+                if self.tick_count <= 5 {
+                    web_sys::console::log_1(&format!(
+                        "[WASM] Executor {} result: {:?}",
+                        idx, result
+                    ).into());
+                }
+                
+                match result {
+                    ExecuteResult::End => {
+                        completed.push(idx);
+                        break;
+                    }
+                    ExecuteResult::Wait => {
+                        // Wait result - stop execution for this tick
+                        break;
+                    }
+                    ExecuteResult::Continue | ExecuteResult::JumpedToBlock | ExecuteResult::Break => {
+                        // Continue executing more blocks in the same tick
+                        execution_count += 1;
+                        if execution_count >= max_executions_per_tick {
+                            web_sys::console::log_1(&format!(
+                                "[WASM] WARNING: Executor {} exceeded max executions per tick ({})",
+                                idx, max_executions_per_tick
+                            ).into());
+                            break;
+                        }
+                        // Continue the loop to execute the next block immediately
+                    }
+                }
             }
         }
         
