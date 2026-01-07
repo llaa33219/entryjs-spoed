@@ -63,17 +63,27 @@ impl Executor {
         let block = match self.get_current_block() {
             Some(b) => b.clone(),
             None => {
+                web_sys::console::log_1(&format!(
+                    "[WASM] No current block at index {}, stack size: {}",
+                    self.block_index, self.call_stack.len()
+                ).into());
+                
                 // Try to pop from call stack
                 if let Some(frame) = self.call_stack.pop() {
                     self.blocks = frame.blocks;
                     self.block_index = frame.block_index;
                     
+                    web_sys::console::log_1(&format!(
+                        "[WASM] Popped stack frame: is_loop={}, iteration_count={}, block_index={}",
+                        frame.is_loop, frame.iteration_count, frame.block_index
+                    ).into());
+                    
                     if frame.is_loop && frame.iteration_count > 0 {
                         // More iterations remaining - set iteration_count for repeat_basic to use
                         self.iteration_count = frame.iteration_count;
                         web_sys::console::log_1(&format!(
-                            "[WASM] Loop iteration complete, {} remaining",
-                            frame.iteration_count
+                            "[WASM] Loop iteration complete, {} remaining, will re-execute block at index {}",
+                            frame.iteration_count, self.block_index
                         ).into());
                         // Re-execute the loop block (don't increment block_index)
                         return ExecuteResult::Continue;
@@ -83,11 +93,12 @@ impl Executor {
                     self.iteration_count = 0;
                     self.block_index += 1;
                     web_sys::console::log_1(&format!(
-                        "[WASM] Stack frame popped, moving to block {}",
-                        self.block_index
+                        "[WASM] Stack frame popped, moving to block {}, blocks.len()={}",
+                        self.block_index, self.blocks.len()
                     ).into());
                     return ExecuteResult::Continue;
                 }
+                web_sys::console::log_1(&"[WASM] No more blocks and stack empty, returning End".into());
                 return ExecuteResult::End;
             }
         };
