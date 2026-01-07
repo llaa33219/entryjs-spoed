@@ -320,6 +320,9 @@ impl WasmEngine {
             return;
         }
         
+        // Debug: log tick start
+        web_sys::console::log_1(&format!("tick start: {} executors", inner.executors.len()).into());
+        
         inner.tick_count += 1;
         
         // Execute all active executors
@@ -352,12 +355,18 @@ impl WasmEngine {
                     break;
                 }
                 
+                // Debug: log before execute
+                web_sys::console::log_1(&format!("executing block for entity {}", executor.entity_idx).into());
+                
                 let result = executor.execute(
                     &mut entities, 
                     &mut variables, 
                     &mut pending_js_actions, 
                     functions_ref
                 );
+                
+                // Debug: log after execute
+                web_sys::console::log_1(&format!("execute result: {:?}", result).into());
                 
                 match result {
                     ExecuteResult::End => {
