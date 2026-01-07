@@ -1361,7 +1361,16 @@ impl Executor {
             }
             
             "set_brush_color" => {
-                let color = self.get_param_string(block, 0);
+                // Color can be a direct string or a nested "color" block
+                let mut color = self.get_param_string(block, 0);
+                if color.is_empty() {
+                    // Try evaluating as a nested block (e.g., color picker block)
+                    let color_value = self.get_param_value(block, 0, variables);
+                    color = Self::value_as_string(&color_value);
+                }
+                web_sys::console::log_1(&format!(
+                    "[WASM] set_brush_color: color='{}'", color
+                ).into());
                 if let Some(e) = entity {
                     if !color.is_empty() {
                         e.brush_color = color.clone();
@@ -1414,6 +1423,7 @@ impl Executor {
             }
             
             "start_fill" => {
+                web_sys::console::log_1(&"[WASM] start_fill".into());
                 js_actions.push(JsAction::StartFill {
                     entity_id: self.entity_idx,
                 });
@@ -1421,6 +1431,7 @@ impl Executor {
             }
             
             "stop_fill" => {
+                web_sys::console::log_1(&"[WASM] stop_fill".into());
                 js_actions.push(JsAction::StopFill {
                     entity_id: self.entity_idx,
                 });
@@ -1428,14 +1439,27 @@ impl Executor {
             }
             
             "set_color" => {
-                let color = self.get_param_string(block, 0);
-                if let Some(e) = entity {
-                    e.brush_color = color.clone();
+                // Color can be a direct string or a nested "color" block
+                let mut color = self.get_param_string(block, 0);
+                if color.is_empty() {
+                    // Try evaluating as a nested block (e.g., color picker block)
+                    let color_value = self.get_param_value(block, 0, variables);
+                    color = Self::value_as_string(&color_value);
                 }
-                js_actions.push(JsAction::SetBrushColor {
-                    entity_id: self.entity_idx,
-                    color,
-                });
+                web_sys::console::log_1(&format!(
+                    "[WASM] set_color: color='{}'", color
+                ).into());
+                if let Some(e) = entity {
+                    if !color.is_empty() {
+                        e.brush_color = color.clone();
+                    }
+                }
+                if !color.is_empty() {
+                    js_actions.push(JsAction::SetBrushColor {
+                        entity_id: self.entity_idx,
+                        color,
+                    });
+                }
                 ExecuteResult::Continue
             }
             
@@ -1447,11 +1471,22 @@ impl Executor {
             }
             
             "set_fill_color" => {
-                let color = self.get_param_string(block, 0);
-                js_actions.push(JsAction::SetFillColor {
-                    entity_id: self.entity_idx,
-                    color,
-                });
+                // Color can be a direct string or a nested "color" block
+                let mut color = self.get_param_string(block, 0);
+                if color.is_empty() {
+                    // Try evaluating as a nested block (e.g., color picker block)
+                    let color_value = self.get_param_value(block, 0, variables);
+                    color = Self::value_as_string(&color_value);
+                }
+                web_sys::console::log_1(&format!(
+                    "[WASM] set_fill_color: color='{}'", color
+                ).into());
+                if !color.is_empty() {
+                    js_actions.push(JsAction::SetFillColor {
+                        entity_id: self.entity_idx,
+                        color,
+                    });
+                }
                 ExecuteResult::Continue
             }
             
@@ -1633,6 +1668,18 @@ impl Executor {
             }
             
             "text" => {
+                if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
+                    if let Some(val) = params.first() {
+                        if let Some(s) = val.as_str() {
+                            return Value::String(s.to_string());
+                        }
+                    }
+                }
+                Value::String(String::new())
+            }
+            
+            "color" | "Color" => {
+                // Color picker block - extract color value from params[0]
                 if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
                     if let Some(val) = params.first() {
                         if let Some(s) = val.as_str() {

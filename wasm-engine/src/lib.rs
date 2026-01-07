@@ -174,11 +174,15 @@ impl WasmEngine {
         self.tick_count = 0;
         self.executors.clear();
         
-        // Restore entity snapshots and clear dialog
+        // Restore entity snapshots and clear dialog/brush state
         for entity in &mut self.entities {
             entity.restore_snapshot();
             entity.dialog_message = None;
             entity.dialog_mode = None;
+            // Reset brush state
+            entity.brush_down = false;
+            entity.brush_size = 1.0;
+            entity.brush_color = "#ff0000".to_string();
         }
     }
 
