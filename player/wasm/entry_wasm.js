@@ -114,6 +114,7 @@ const WasmEngineFinalization = (typeof FinalizationRegistry === 'undefined')
 
 /**
  * Main WASM Engine class exposed to JavaScript
+ * Uses RefCell for interior mutability to prevent wasm-bindgen borrow conflicts
  */
 export class WasmEngine {
     __destroy_into_raw() {
@@ -239,7 +240,7 @@ export class WasmEngine {
         wasm.wasmengine_start(this.__wbg_ptr);
     }
     /**
-     * Check if the engine is currently executing a tick
+     * Check if the engine is currently executing a tick (always returns false now since we handle this internally)
      * @returns {boolean}
      */
     is_busy() {

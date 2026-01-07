@@ -4,6 +4,7 @@
 use wasm_bindgen::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::cell::{Cell, RefCell};
 
 mod blocks;
 mod executor;
@@ -97,9 +98,8 @@ pub struct FunctionData {
     pub content: Option<Vec<Vec<Block>>>,
 }
 
-/// Main WASM Engine class exposed to JavaScript
-#[wasm_bindgen]
-pub struct WasmEngine {
+/// Inner mutable state wrapped in RefCell
+struct EngineInner {
     state: EngineState,
     entities: Vec<Entity>,
     variables: HashMap<String, Value>,
@@ -107,20 +107,13 @@ pub struct WasmEngine {
     tick_count: u64,
     fps: u32,
     project_data: Option<ProjectData>,
-    /// Parsed functions for quick lookup
     functions: HashMap<String, FunctionData>,
-    /// Pending JavaScript actions to be consumed after tick()
     pending_js_actions: Vec<JsAction>,
-    /// Flag to track if tick() is currently executing (to prevent recursive calls)
-    is_ticking: bool,
 }
 
-#[wasm_bindgen]
-impl WasmEngine {
-    /// Create a new WASM engine instance
-    #[wasm_bindgen(constructor)]
-    pub fn new() -> WasmEngine {
-        WasmEngine {
+impl EngineInner {
+    fn new() -> Self {
+        EngineInner {
             state: EngineState::Stopped,
             entities: Vec::new(),
             variables: HashMap::new(),
@@ -130,45 +123,67 @@ impl WasmEngine {
             project_data: None,
             functions: HashMap::new(),
             pending_js_actions: Vec::new(),
-            is_ticking: false,
+        }
+    }
+}
+
+/// Main WASM Engine class exposed to JavaScript
+/// Uses RefCell for interior mutability to prevent wasm-bindgen borrow conflicts
+#[wasm_bindgen]
+pub struct WasmEngine {
+    inner: RefCell<EngineInner>,
+    /// Separate flag for stop requests that can be set even when inner is borrowed
+    stop_requested: Cell<bool>,
+}
+
+#[wasm_bindgen]
+impl WasmEngine {
+    /// Create a new WASM engine instance
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> WasmEngine {
+        WasmEngine {
+            inner: RefCell::new(EngineInner::new()),
+            stop_requested: Cell::new(false),
         }
     }
 
     /// Load a project from JSON string
     #[wasm_bindgen]
-    pub fn load_project(&mut self, json: &str) -> Result<(), JsValue> {
+    pub fn load_project(&self, json: &str) -> Result<(), JsValue> {
+        let mut inner = self.inner.borrow_mut();
+        
         let project: ProjectData = serde_json::from_str(json)
             .map_err(|e| JsValue::from_str(&format!("JSON parse error: {}", e)))?;
         
-        self.fps = project.speed.unwrap_or(60);
-        self.project_data = Some(project.clone());
+        inner.fps = project.speed.unwrap_or(60);
+        inner.project_data = Some(project.clone());
         
         // Initialize entities from objects
-        self.entities.clear();
+        inner.entities.clear();
         if let Some(objects) = &project.objects {
             for (idx, obj) in objects.iter().enumerate() {
                 let entity = Entity::from_object(obj, idx);
-                self.entities.push(entity);
+                inner.entities.push(entity);
             }
         }
         
         // Initialize variables
-        self.variables.clear();
+        inner.variables.clear();
         if let Some(vars) = &project.variables {
             for var in vars {
                 let value = Value::from_json(&var.value);
-                self.variables.insert(var.id.clone(), value);
+                inner.variables.insert(var.id.clone(), value);
             }
         }
         
         // Initialize functions
-        self.functions.clear();
+        inner.functions.clear();
         if let Some(funcs) = &project.functions {
             // Handle array format (from getFunctionJSON())
             if let Some(func_array) = funcs.as_array() {
                 for func_value in func_array {
                     if let Ok(func_data) = serde_json::from_value::<FunctionData>(func_value.clone()) {
-                        self.functions.insert(func_data.id.clone(), func_data);
+                        inner.functions.insert(func_data.id.clone(), func_data);
                     }
                 }
             }
@@ -178,7 +193,7 @@ impl WasmEngine {
                     if let Ok(func_data) = serde_json::from_value::<FunctionData>(func_value.clone()) {
                         // Use func_data.id for consistency with execute_function_call lookup
                         let key = if func_data.id.is_empty() { func_id.clone() } else { func_data.id.clone() };
-                        self.functions.insert(key, func_data);
+                        inner.functions.insert(key, func_data);
                     }
                 }
             }
@@ -196,13 +211,13 @@ impl WasmEngine {
                                 let func_id = &first_block.block_type[5..]; // Skip "func_" prefix
                                 
                                 // Only add if not already in functions map
-                                if !self.functions.contains_key(func_id) {
+                                if !inner.functions.contains_key(func_id) {
                                     // Create FunctionData from the thread
                                     let func_data = FunctionData {
                                         id: func_id.to_string(),
                                         content: Some(vec![thread.clone()]),
                                     };
-                                    self.functions.insert(func_id.to_string(), func_data);
+                                    inner.functions.insert(func_id.to_string(), func_data);
                                 }
                             }
                         }
@@ -216,43 +231,61 @@ impl WasmEngine {
 
     /// Start the engine
     #[wasm_bindgen]
-    pub fn start(&mut self) {
-        // Don't start if we're in the middle of a tick
-        if self.is_ticking {
-            return;
-        }
-        self.state = EngineState::Running;
-        self.initialize_executors();
-        self.fire_event("start");
+    pub fn start(&self) {
+        // Use try_borrow_mut to avoid panic if already borrowed (e.g., during tick)
+        let mut inner = match self.inner.try_borrow_mut() {
+            Ok(inner) => inner,
+            Err(_) => {
+                // Already borrowed (likely in tick), ignore the call
+                return;
+            }
+        };
+        
+        inner.state = EngineState::Running;
+        self.stop_requested.set(false);
+        
+        // Initialize executors and fire start event
+        Self::initialize_executors_inner(&mut inner);
+        Self::fire_event_inner(&mut inner, "start");
     }
 
     /// Stop the engine
     #[wasm_bindgen]
-    pub fn stop(&mut self) {
-        // Don't modify state if we're in the middle of a tick - just mark for stop
-        if self.is_ticking {
-            self.state = EngineState::Stopped;
-            return;
-        }
-        self.state = EngineState::Stopped;
-        self.executors.clear();
+    pub fn stop(&self) {
+        // Use try_borrow_mut to avoid panic if already borrowed (e.g., during tick)
+        match self.inner.try_borrow_mut() {
+            Ok(mut inner) => {
+                inner.state = EngineState::Stopped;
+                inner.executors.clear();
+                self.stop_requested.set(false);
+            }
+            Err(_) => {
+                // Already borrowed (likely in tick), set the stop flag
+                // The tick loop will check this and stop gracefully
+                self.stop_requested.set(true);
+            }
+        };
     }
 
     /// Reset the engine to initial state
     #[wasm_bindgen]
-    pub fn reset(&mut self) {
-        // Don't reset while ticking
-        if self.is_ticking {
-            self.state = EngineState::Stopped;
-            return;
-        }
+    pub fn reset(&self) {
+        // Use try_borrow_mut to avoid panic if already borrowed
+        let mut inner = match self.inner.try_borrow_mut() {
+            Ok(inner) => inner,
+            Err(_) => {
+                // Already borrowed, can't reset now
+                return;
+            }
+        };
         
-        self.state = EngineState::Stopped;
-        self.tick_count = 0;
-        self.executors.clear();
+        inner.state = EngineState::Stopped;
+        inner.tick_count = 0;
+        inner.executors.clear();
+        self.stop_requested.set(false);
         
         // Restore entity snapshots and clear dialog/brush state
-        for entity in &mut self.entities {
+        for entity in &mut inner.entities {
             entity.restore_snapshot();
             entity.dialog_message = None;
             entity.dialog_mode = None;
@@ -263,34 +296,46 @@ impl WasmEngine {
         }
     }
     
-    /// Check if the engine is currently executing a tick
+    /// Check if the engine is currently executing a tick (always returns false now since we handle this internally)
     #[wasm_bindgen]
     pub fn is_busy(&self) -> bool {
-        self.is_ticking
+        // With RefCell, we can check if it's borrowed
+        self.inner.try_borrow_mut().is_err()
     }
 
     /// Execute one tick of the engine
     #[wasm_bindgen]
-    pub fn tick(&mut self) {
-        if self.state != EngineState::Running {
+    pub fn tick(&self) {
+        // Use try_borrow_mut to prevent recursive tick calls
+        let mut inner = match self.inner.try_borrow_mut() {
+            Ok(inner) => inner,
+            Err(_) => {
+                // Already in a tick, skip this call
+                return;
+            }
+        };
+        
+        if inner.state != EngineState::Running {
             return;
         }
         
-        // Prevent recursive tick calls
-        if self.is_ticking {
-            return;
-        }
-        self.is_ticking = true;
-        
-        self.tick_count += 1;
+        inner.tick_count += 1;
         
         // Execute all active executors
         let mut completed = Vec::new();
         const MAX_EXECUTIONS_PER_TICK: u32 = 1_000_000; // Safety limit to prevent infinite loops
         
-        for (idx, executor) in self.executors.iter_mut().enumerate() {
+        // Take all fields out to avoid borrow conflicts
+        // This allows us to pass mutable references to separate fields
+        let mut executors = std::mem::take(&mut inner.executors);
+        let mut entities = std::mem::take(&mut inner.entities);
+        let mut variables = std::mem::take(&mut inner.variables);
+        let mut pending_js_actions = std::mem::take(&mut inner.pending_js_actions);
+        let functions = inner.functions.clone(); // Clone functions since it's read-only
+        
+        for (idx, executor) in executors.iter_mut().enumerate() {
             // Check if engine was stopped during execution
-            if self.state != EngineState::Running {
+            if inner.state != EngineState::Running || self.stop_requested.get() {
                 break;
             }
             
@@ -299,7 +344,17 @@ impl WasmEngine {
             let mut execution_count = 0u32;
             
             loop {
-                let result = executor.execute(&mut self.entities, &mut self.variables, &mut self.pending_js_actions, &self.functions);
+                // Check stop condition inside loop
+                if inner.state != EngineState::Running || self.stop_requested.get() {
+                    break;
+                }
+                
+                let result = executor.execute(
+                    &mut entities, 
+                    &mut variables, 
+                    &mut pending_js_actions, 
+                    &functions
+                );
                 
                 match result {
                     ExecuteResult::End => {
@@ -323,39 +378,58 @@ impl WasmEngine {
         
         // Remove completed executors (in reverse order to maintain indices)
         for idx in completed.into_iter().rev() {
-            self.executors.remove(idx);
+            executors.remove(idx);
         }
         
-        self.is_ticking = false;
+        // Put all fields back
+        inner.executors = executors;
+        inner.entities = entities;
+        inner.variables = variables;
+        inner.pending_js_actions = pending_js_actions;
         
-        // If stop was called during tick, clean up executors now
-        if self.state == EngineState::Stopped {
-            self.executors.clear();
+        // Handle stop request
+        if self.stop_requested.get() {
+            inner.state = EngineState::Stopped;
+            inner.executors.clear();
+            self.stop_requested.set(false);
         }
     }
     
     /// Get pending JavaScript actions as JSON and clear the queue
     /// Call this after tick() to process any actions that require JS
     #[wasm_bindgen]
-    pub fn get_js_actions(&mut self) -> String {
-        if self.pending_js_actions.is_empty() {
+    pub fn get_js_actions(&self) -> String {
+        let mut inner = match self.inner.try_borrow_mut() {
+            Ok(inner) => inner,
+            Err(_) => return "[]".to_string(),
+        };
+        
+        if inner.pending_js_actions.is_empty() {
             return "[]".to_string();
         }
         
-        let actions = std::mem::take(&mut self.pending_js_actions);
+        let actions = std::mem::take(&mut inner.pending_js_actions);
         serde_json::to_string(&actions).unwrap_or_else(|_| "[]".to_string())
     }
     
     /// Check if there are pending JS actions
     #[wasm_bindgen]
     pub fn has_pending_js_actions(&self) -> bool {
-        !self.pending_js_actions.is_empty()
+        match self.inner.try_borrow() {
+            Ok(inner) => !inner.pending_js_actions.is_empty(),
+            Err(_) => false,
+        }
     }
 
     /// Get render data as JSON string for JavaScript to draw
     #[wasm_bindgen]
     pub fn get_render_data(&self) -> String {
-        let render_entities: Vec<RenderEntity> = self.entities
+        let inner = match self.inner.try_borrow() {
+            Ok(inner) => inner,
+            Err(_) => return "[]".to_string(),
+        };
+        
+        let render_entities: Vec<RenderEntity> = inner.entities
             .iter()
             .filter(|e| e.visible)
             .map(|e| RenderEntity::from(e))
@@ -367,19 +441,30 @@ impl WasmEngine {
     /// Check if engine is running
     #[wasm_bindgen]
     pub fn is_running(&self) -> bool {
-        self.state == EngineState::Running
+        match self.inner.try_borrow() {
+            Ok(inner) => inner.state == EngineState::Running,
+            Err(_) => true, // If borrowed, we're probably in tick, which means running
+        }
     }
 
     /// Get current tick count
     #[wasm_bindgen]
     pub fn get_tick(&self) -> u64 {
-        self.tick_count
+        match self.inner.try_borrow() {
+            Ok(inner) => inner.tick_count,
+            Err(_) => 0,
+        }
     }
     
     /// Update mouse state from JavaScript
     #[wasm_bindgen]
-    pub fn update_mouse(&mut self, x: f64, y: f64, clicked: bool) {
-        for executor in &mut self.executors {
+    pub fn update_mouse(&self, x: f64, y: f64, clicked: bool) {
+        let mut inner = match self.inner.try_borrow_mut() {
+            Ok(inner) => inner,
+            Err(_) => return,
+        };
+        
+        for executor in &mut inner.executors {
             executor.cached_mouse_x = x;
             executor.cached_mouse_y = y;
             executor.mouse_clicked = clicked;
@@ -388,27 +473,32 @@ impl WasmEngine {
     
     /// Update pressed keys from JavaScript
     #[wasm_bindgen]
-    pub fn update_keys(&mut self, keys: &[u32]) {
+    pub fn update_keys(&self, keys: &[u32]) {
+        let mut inner = match self.inner.try_borrow_mut() {
+            Ok(inner) => inner,
+            Err(_) => return,
+        };
+        
         let keys_vec: Vec<u32> = keys.to_vec();
-        for executor in &mut self.executors {
+        for executor in &mut inner.executors {
             executor.pressed_keys = keys_vec.clone();
         }
     }
 
-    /// Fire an event to all entities
-    fn fire_event(&mut self, event_name: &str) {
-        if let Some(project) = &self.project_data {
+    /// Fire an event to all entities (internal helper)
+    fn fire_event_inner(inner: &mut EngineInner, event_name: &str) {
+        if let Some(project) = &inner.project_data.clone() {
             if let Some(objects) = &project.objects {
                 for (entity_idx, obj) in objects.iter().enumerate() {
                     if let Some(scripts) = &obj.script {
                         for thread in scripts.iter() {
                             if let Some(first_block) = thread.first() {
-                                if self.is_event_block(&first_block.block_type, event_name) {
+                                if Self::is_event_block_inner(&first_block.block_type, event_name) {
                                     let executor = Executor::new(
                                         entity_idx,
                                         thread.clone(),
                                     );
-                                    self.executors.push(executor);
+                                    inner.executors.push(executor);
                                 }
                             }
                         }
@@ -418,7 +508,7 @@ impl WasmEngine {
         }
     }
 
-    fn is_event_block(&self, block_type: &str, event_name: &str) -> bool {
+    fn is_event_block_inner(block_type: &str, event_name: &str) -> bool {
         match event_name {
             "start" => block_type == "when_run_button_click",
             "mouse_clicked" => block_type == "when_some_key_pressed" || block_type == "when_object_click",
@@ -426,10 +516,10 @@ impl WasmEngine {
         }
     }
 
-    fn initialize_executors(&mut self) {
-        self.executors.clear();
+    fn initialize_executors_inner(inner: &mut EngineInner) {
+        inner.executors.clear();
         // Take snapshots of all entities
-        for entity in &mut self.entities {
+        for entity in &mut inner.entities {
             entity.take_snapshot();
         }
     }

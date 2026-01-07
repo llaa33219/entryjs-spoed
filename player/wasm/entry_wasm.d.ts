@@ -54,7 +54,7 @@ export class WasmEngine {
    */
   start(): void;
   /**
-   * Check if the engine is currently executing a tick
+   * Check if the engine is currently executing a tick (always returns false now since we handle this internally)
    */
   is_busy(): boolean;
   /**
