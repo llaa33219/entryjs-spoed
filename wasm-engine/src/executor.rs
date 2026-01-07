@@ -1361,11 +1361,17 @@ impl Executor {
             }
             
             "set_brush_color" => {
+                let color = self.get_param_string(block, 0);
                 if let Some(e) = entity {
-                    let color = self.get_param_string(block, 0);
                     if !color.is_empty() {
-                        e.brush_color = color;
+                        e.brush_color = color.clone();
                     }
+                }
+                if !color.is_empty() {
+                    js_actions.push(JsAction::SetBrushColor {
+                        entity_id: self.entity_idx,
+                        color,
+                    });
                 }
                 ExecuteResult::Continue
             }

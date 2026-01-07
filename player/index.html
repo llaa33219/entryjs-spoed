@@ -191,6 +191,10 @@
                 this.opacity = 0;
                 this.lastX = null;
                 this.lastY = null;
+                // Fill state
+                this.fillDown = false;
+                this.fillColor = '#ff0000';
+                this.fillPath = []; // Array of {x, y} points for polygon
             }
         }
         
@@ -899,6 +903,21 @@
                         this.handleSetBrushColor(entityId, randomColor);
                         break;
                     }
+                    case 'StartFill': {
+                        const entityId = data.entity_id;
+                        this.handleStartFill(entityId);
+                        break;
+                    }
+                    case 'StopFill': {
+                        const entityId = data.entity_id;
+                        this.handleStopFill(entityId);
+                        break;
+                    }
+                    case 'SetFillColor': {
+                        const { entity_id, color } = data;
+                        this.handleSetFillColor(entity_id, color);
+                        break;
+                    }
                     // Other actions can be added here (sounds, clones, etc.)
                     default:
                         console.log('Unhandled JS action:', type, data);
@@ -988,6 +1007,47 @@
                 brushState.color = color;
             }
             
+            // Handle start fill (begin tracking polygon path)
+            handleStartFill(entityId) {
+                const brushState = this.getBrushState(entityId);
+                brushState.fillDown = true;
+                brushState.fillPath = []; // Reset path
+            }
+            
+            // Handle stop fill (close and fill the polygon)
+            handleStopFill(entityId) {
+                const brushState = this.getBrushState(entityId);
+                
+                if (!brushState.fillDown || brushState.fillPath.length < 3) {
+                    // Need at least 3 points to make a polygon
+                    brushState.fillDown = false;
+                    brushState.fillPath = [];
+                    return;
+                }
+                
+                // Draw filled polygon on brush canvas
+                this.brushCtx.beginPath();
+                this.brushCtx.moveTo(brushState.fillPath[0].x, brushState.fillPath[0].y);
+                
+                for (let i = 1; i < brushState.fillPath.length; i++) {
+                    this.brushCtx.lineTo(brushState.fillPath[i].x, brushState.fillPath[i].y);
+                }
+                
+                this.brushCtx.closePath();
+                this.brushCtx.fillStyle = brushState.fillColor;
+                this.brushCtx.fill();
+                
+                // Reset fill state
+                brushState.fillDown = false;
+                brushState.fillPath = [];
+            }
+            
+            // Handle set fill color
+            handleSetFillColor(entityId, color) {
+                const brushState = this.getBrushState(entityId);
+                brushState.fillColor = color;
+            }
+            
             // Draw brush lines for entities that have brush_down
             updateBrushDrawing(entities) {
                 for (const entity of entities) {
@@ -1010,16 +1070,32 @@
                         brushState.lastY = null;
                     }
                     
+                    // Convert to canvas coordinates
+                    const screenX = 240 + entity.x;
+                    const screenY = 180 - entity.y;
+                    
+                    // Track fill path if fill mode is active
+                    if (brushState.fillDown) {
+                        // Add point to fill path with minimum distance threshold to prevent memory bloat
+                        const lastPoint = brushState.fillPath[brushState.fillPath.length - 1];
+                        if (!lastPoint) {
+                            brushState.fillPath.push({ x: screenX, y: screenY });
+                        } else {
+                            const dx = screenX - lastPoint.x;
+                            const dy = screenY - lastPoint.y;
+                            const distance = Math.sqrt(dx * dx + dy * dy);
+                            if (distance >= 2) { // Minimum 2px distance between points
+                                brushState.fillPath.push({ x: screenX, y: screenY });
+                            }
+                        }
+                    }
+                    
                     // If brush is not down, skip drawing but reset last position
                     if (!brushState.down) {
                         brushState.lastX = null;
                         brushState.lastY = null;
                         continue;
                     }
-                    
-                    // Convert to canvas coordinates
-                    const screenX = 240 + entity.x;
-                    const screenY = 180 - entity.y;
                     
                     if (brushState.lastX !== null && brushState.lastY !== null) {
                         // Draw line from last position to current position
