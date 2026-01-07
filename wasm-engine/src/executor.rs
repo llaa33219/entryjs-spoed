@@ -120,12 +120,6 @@ impl Executor {
         js_actions: &mut Vec<JsAction>,
         functions: &HashMap<String, FunctionData>,
     ) -> ExecuteResult {
-        // Log current state at start of execute
-        web_sys::console::log_1(&format!(
-            "[WASM] execute(): block_index={}, blocks.len()={}, wait_frames={}, iteration_count={}",
-            self.block_index, self.blocks.len(), self.wait_frames, self.iteration_count
-        ).into());
-        
         // Update cached entity properties
         self.update_cached_entity(entities.get(self.entity_idx));
         
@@ -139,20 +133,10 @@ impl Executor {
         let block = match self.get_current_block() {
             Some(b) => b.clone(),
             None => {
-                web_sys::console::log_1(&format!(
-                    "[WASM] No current block at index {}, stack size: {}",
-                    self.block_index, self.call_stack.len()
-                ).into());
-                
                 // Try to pop from call stack
                 if let Some(frame) = self.call_stack.pop() {
                     self.blocks = frame.blocks;
                     self.block_index = frame.block_index;
-                    
-                    web_sys::console::log_1(&format!(
-                        "[WASM] Popped stack frame: is_loop={}, iteration_count={}, block_index={}",
-                        frame.is_loop, frame.iteration_count, frame.block_index
-                    ).into());
                     
                     if frame.is_loop && frame.iteration_count > 0 {
                         // For repeat_while_true (iteration_count == MAX), we need to re-evaluate
@@ -160,17 +144,9 @@ impl Executor {
                         if frame.iteration_count == u32::MAX {
                             // repeat_while_true or repeat_inf - re-execute block to check condition
                             self.iteration_count = 0; // Reset so block re-evaluates condition
-                            web_sys::console::log_1(&format!(
-                                "[WASM] Conditional loop iteration complete, will re-check condition at block {}",
-                                self.block_index
-                            ).into());
                         } else {
                             // repeat_basic - use remaining count
                             self.iteration_count = frame.iteration_count;
-                            web_sys::console::log_1(&format!(
-                                "[WASM] Loop iteration complete, {} remaining, will re-execute block at index {}",
-                                frame.iteration_count, self.block_index
-                            ).into());
                         }
                         // Re-execute the loop block (don't increment block_index)
                         // Return Wait to create a frame delay between loop iterations
@@ -181,13 +157,8 @@ impl Executor {
                     // Loop finished or not a loop - move to next block
                     self.iteration_count = 0;
                     self.block_index += 1;
-                    web_sys::console::log_1(&format!(
-                        "[WASM] Stack frame popped, moving to block {}, blocks.len()={}",
-                        self.block_index, self.blocks.len()
-                    ).into());
                     return ExecuteResult::Continue;
                 }
-                web_sys::console::log_1(&"[WASM] No more blocks and stack empty, returning End".into());
                 return ExecuteResult::End;
             }
         };
@@ -233,12 +204,6 @@ impl Executor {
     ) -> ExecuteResult {
         let block_type = block.block_type.as_str();
         
-        // Debug: Log every block type being executed
-        web_sys::console::log_1(&format!(
-            "[WASM] execute_block: type='{}'",
-            block_type
-        ).into());
-        
         // Handle function calls (blocks starting with "func_")
         if block_type.starts_with("func_") {
             return self.execute_function_call(block, functions);
@@ -270,13 +235,7 @@ impl Executor {
             "move_direction" => {
                 if let Some(e) = entity {
                     let value = self.get_param_number(block, 0, variables);
-                    let old_x = e.x;
-                    let old_y = e.y;
                     e.move_direction(value);
-                    web_sys::console::log_1(&format!(
-                        "[WASM] move_direction({}) executed: ({:.1}, {:.1}) -> ({:.1}, {:.1})",
-                        value, old_x, old_y, e.x, e.y
-                    ).into());
                 }
                 ExecuteResult::Continue
             }
@@ -325,12 +284,7 @@ impl Executor {
             "rotate_relative" => {
                 if let Some(e) = entity {
                     let value = self.get_param_number(block, 0, variables);
-                    let old_rot = e.rotation;
                     e.rotate(value);
-                    web_sys::console::log_1(&format!(
-                        "[WASM] rotate_relative({}) executed: {:.1} -> {:.1}",
-                        value, old_rot, e.rotation
-                    ).into());
                 }
                 ExecuteResult::Continue
             }
@@ -840,12 +794,8 @@ impl Executor {
                     let mode = if mode.is_empty() { "speak".to_string() } else { mode };
                     
                     // Set dialog state on entity
-                    e.dialog_message = Some(message_str.clone());
-                    e.dialog_mode = Some(mode.clone());
-                    
-                    web_sys::console::log_1(&format!(
-                        "[WASM] Dialog({}): {}", mode, message_str
-                    ).into());
+                    e.dialog_message = Some(message_str);
+                    e.dialog_mode = Some(mode);
                     
                     if block_type == "dialog_time" {
                         let seconds = self.get_param_number(block, 1, variables);
@@ -859,7 +809,6 @@ impl Executor {
                 if let Some(e) = entity {
                     e.dialog_message = None;
                     e.dialog_mode = None;
-                    web_sys::console::log_1(&"[WASM] Dialog removed".into());
                 }
                 ExecuteResult::Continue
             }
@@ -884,20 +833,10 @@ impl Executor {
                     self.get_param_number(block, 0, variables) as u32
                 };
                 
-                web_sys::console::log_1(&format!(
-                    "[WASM] repeat_basic: count={}, has_statements={}",
-                    count,
-                    block.statements.is_some()
-                ).into());
-                
                 if count > 0 {
                     if let Some(statements) = &block.statements {
                         if let Some(inner_blocks) = statements.first() {
                             if !inner_blocks.is_empty() {
-                                web_sys::console::log_1(&format!(
-                                    "[WASM] repeat_basic: entering loop iteration, {} remaining",
-                                    count
-                                ).into());
                                 // Save current state with remaining count
                                 let frame = StackFrame {
                                     blocks: self.blocks.clone(),
@@ -1018,11 +957,6 @@ impl Executor {
                 // "until" means loop UNTIL condition becomes true (loop while condition is false)
                 // "while" means loop WHILE condition is true
                 let should_loop = if option == "until" { !condition } else { condition };
-                
-                web_sys::console::log_1(&format!(
-                    "[WASM] repeat_while_true: condition={}, option='{}', should_loop={}",
-                    condition, option, should_loop
-                ).into());
                 
                 if should_loop {
                     if let Some(statements) = &block.statements {
@@ -1397,9 +1331,6 @@ impl Executor {
                     let color_value = self.get_param_value(block, 0, variables);
                     color = Self::value_as_string(&color_value);
                 }
-                web_sys::console::log_1(&format!(
-                    "[WASM] set_brush_color: color='{}'", color
-                ).into());
                 if let Some(e) = entity {
                     if !color.is_empty() {
                         e.brush_color = color.clone();
@@ -1452,7 +1383,6 @@ impl Executor {
             }
             
             "start_fill" => {
-                web_sys::console::log_1(&"[WASM] start_fill".into());
                 js_actions.push(JsAction::StartFill {
                     entity_id: self.entity_idx,
                 });
@@ -1460,7 +1390,6 @@ impl Executor {
             }
             
             "stop_fill" => {
-                web_sys::console::log_1(&"[WASM] stop_fill".into());
                 js_actions.push(JsAction::StopFill {
                     entity_id: self.entity_idx,
                 });
@@ -1475,9 +1404,6 @@ impl Executor {
                     let color_value = self.get_param_value(block, 0, variables);
                     color = Self::value_as_string(&color_value);
                 }
-                web_sys::console::log_1(&format!(
-                    "[WASM] set_color: color='{}'", color
-                ).into());
                 if let Some(e) = entity {
                     if !color.is_empty() {
                         e.brush_color = color.clone();
@@ -1507,9 +1433,6 @@ impl Executor {
                     let color_value = self.get_param_value(block, 0, variables);
                     color = Self::value_as_string(&color_value);
                 }
-                web_sys::console::log_1(&format!(
-                    "[WASM] set_fill_color: color='{}'", color
-                ).into());
                 if !color.is_empty() {
                     js_actions.push(JsAction::SetFillColor {
                         entity_id: self.entity_idx,
@@ -1605,12 +1528,7 @@ impl Executor {
             }
 
             // Default: unknown block, just continue
-            _ => {
-                // Log unknown block type in debug builds
-                #[cfg(debug_assertions)]
-                web_sys::console::log_1(&format!("Unknown block type: {}", block_type).into());
-                ExecuteResult::Continue
-            }
+            _ => ExecuteResult::Continue,
         }
     }
 
@@ -1623,44 +1541,16 @@ impl Executor {
         // Extract function ID from block type ("func_XXXX" -> "XXXX")
         let func_id = &block.block_type[5..]; // Skip "func_" prefix
         
-        web_sys::console::log_1(&format!(
-            "[WASM] execute_function_call: func_id='{}', block_type='{}', call_stack_depth={}, available_functions={:?}",
-            func_id,
-            block.block_type,
-            self.call_stack.len(),
-            functions.keys().collect::<Vec<_>>()
-        ).into());
-        
         // Check for maximum call stack depth to prevent infinite recursion
         if self.call_stack.len() >= MAX_CALL_STACK_DEPTH {
-            web_sys::console::log_1(&format!(
-                "[WASM] ERROR: Maximum call stack depth ({}) exceeded! Possible infinite recursion.",
-                MAX_CALL_STACK_DEPTH
-            ).into());
             return ExecuteResult::End;
         }
         
         // First check if the current block itself has statements (function body)
         // This handles the case where function is called and the body is in statements
         if let Some(statements) = &block.statements {
-            web_sys::console::log_1(&format!(
-                "[WASM] Current block has {} statement lists",
-                statements.len()
-            ).into());
-            
             if let Some(body) = statements.first() {
                 if !body.is_empty() {
-                    web_sys::console::log_1(&format!(
-                        "[WASM] Found function body in current block statements: {} blocks",
-                        body.len()
-                    ).into());
-                    for (i, blk) in body.iter().enumerate() {
-                        web_sys::console::log_1(&format!(
-                            "[WASM]   Block {}: type='{}'",
-                            i, blk.block_type
-                        ).into());
-                    }
-                    
                     // Push current state to call stack
                     let frame = StackFrame {
                         blocks: self.blocks.clone(),
@@ -1678,55 +1568,22 @@ impl Executor {
                     return ExecuteResult::JumpedToBlock;
                 }
             }
-        } else {
-            web_sys::console::log_1(&"[WASM] Current block has NO statements".into());
         }
         
         // Look up the function
         if let Some(func_data) = functions.get(func_id) {
-            web_sys::console::log_1(&format!(
-                "[WASM] Found function: id={}, has_content={}",
-                func_data.id,
-                func_data.content.is_some()
-            ).into());
-            
             if let Some(content) = &func_data.content {
-                web_sys::console::log_1(&format!(
-                    "[WASM] Function content has {} threads",
-                    content.len()
-                ).into());
-                
                 // The function content is Vec<Vec<Block>> (threads of blocks)
                 // We need to find the function_create block and get its statements
                 if let Some(first_thread) = content.first() {
-                    web_sys::console::log_1(&format!(
-                        "[WASM] First thread has {} blocks",
-                        first_thread.len()
-                    ).into());
-                    
                     if let Some(func_create_block) = first_thread.first() {
-                        web_sys::console::log_1(&format!(
-                            "[WASM] Function create block type: '{}', has_statements: {}",
-                            func_create_block.block_type,
-                            func_create_block.statements.is_some()
-                        ).into());
-                        
                         // Try to get function body from statements first
                         let mut func_body: Option<Vec<Block>> = None;
                         
                         if let Some(statements) = &func_create_block.statements {
-                            web_sys::console::log_1(&format!(
-                                "[WASM] Statements has {} statement lists",
-                                statements.len()
-                            ).into());
-                            
                             if let Some(body) = statements.first() {
                                 if !body.is_empty() {
                                     func_body = Some(body.clone());
-                                    web_sys::console::log_1(&format!(
-                                        "[WASM] Found function body in statements: {} blocks",
-                                        body.len()
-                                    ).into());
                                 }
                             }
                         }
@@ -1737,27 +1594,12 @@ impl Executor {
                             // The function body blocks are stored after the function_create block
                             let body: Vec<Block> = first_thread.iter().skip(1).cloned().collect();
                             if !body.is_empty() {
-                                func_body = Some(body.clone());
-                                web_sys::console::log_1(&format!(
-                                    "[WASM] Found function body as subsequent blocks: {} blocks",
-                                    body.len()
-                                ).into());
-                                for (i, blk) in body.iter().enumerate() {
-                                    web_sys::console::log_1(&format!(
-                                        "[WASM]   Block {}: type='{}'",
-                                        i, blk.block_type
-                                    ).into());
-                                }
+                                func_body = Some(body);
                             }
                         }
                         
                         // Execute the function body if found
                         if let Some(body) = func_body {
-                            web_sys::console::log_1(&format!(
-                                "[WASM] Executing function body with {} blocks",
-                                body.len()
-                            ).into());
-                            
                             // Push current state to call stack
                             let frame = StackFrame {
                                 blocks: self.blocks.clone(),
@@ -1773,26 +1615,10 @@ impl Executor {
                             self.iteration_count = 0;
                             
                             return ExecuteResult::JumpedToBlock;
-                        } else {
-                            web_sys::console::log_1(&"[WASM] Function body is empty or not found".into());
                         }
-                    } else {
-                        web_sys::console::log_1(&"[WASM] No function_create block in first thread".into());
                     }
-                } else {
-                    web_sys::console::log_1(&"[WASM] No first thread in content".into());
                 }
-            } else {
-                web_sys::console::log_1(&"[WASM] Function content is None".into());
             }
-            
-            web_sys::console::log_1(&"[WASM] Function has no executable content".into());
-        } else {
-            web_sys::console::log_1(&format!(
-                "[WASM] Function not found: '{}'. Available functions: {:?}",
-                func_id,
-                functions.keys().collect::<Vec<_>>()
-            ).into());
         }
         
         // Function not found or empty - just continue
@@ -1803,14 +1629,7 @@ impl Executor {
     fn get_param_number(&self, block: &Block, index: usize, variables: &HashMap<String, Value>) -> f64 {
         if let Some(params) = &block.params {
             if let Some(param) = params.get(index) {
-                let value = self.evaluate_value(param, variables);
-                let num = value.as_number();
-                // Debug log for troubleshooting
-                web_sys::console::log_1(&format!(
-                    "[WASM] get_param_number({}, {}): param={:?}, value={:?}, num={}",
-                    block.block_type, index, param, value, num
-                ).into());
-                return num;
+                return self.evaluate_value(param, variables).as_number();
             }
         }
         0.0
@@ -2472,11 +2291,6 @@ impl Executor {
                         }
                     };
                     
-                    web_sys::console::log_1(&format!(
-                        "[WASM] reach_something({}): x={:.1}, y={:.1}, result={}",
-                        target, x, y, result
-                    ).into());
-                    
                     return Value::Bool(result);
                 }
                 Value::Bool(false)
@@ -2499,13 +2313,6 @@ impl Executor {
                     
                     let clicked = mx >= x - half_width && mx <= x + half_width &&
                                   my >= y - half_height && my <= y + half_height;
-                    
-                    if clicked {
-                        web_sys::console::log_1(&format!(
-                            "[WASM] is_object_clicked: true (mouse at {:.1},{:.1}, entity at {:.1},{:.1})",
-                            mx, my, x, y
-                        ).into());
-                    }
                     
                     Value::Bool(clicked)
                 } else {
