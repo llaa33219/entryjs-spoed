@@ -891,6 +891,7 @@
                 // Calculate position in screen coordinates
                 const screenX = 240 + entity.x;
                 const screenY = 180 - entity.y;
+                const entityHalfHeight = (entity.height || 50) / 2;
                 
                 // Set font and measure text
                 this.ctx.font = '14px "Noto Sans KR", sans-serif';
@@ -902,49 +903,96 @@
                 const padding = 12;
                 const balloonWidth = textWidth + padding * 2;
                 const balloonHeight = textHeight + padding * 2;
-                const balloonX = screenX - balloonWidth / 2;
-                const balloonY = screenY - (entity.height || 50) / 2 - balloonHeight - 20;
                 const radius = 10;
+                const margin = 5; // margin from canvas edge
+                
+                // Initial position: above entity
+                let balloonX = screenX - balloonWidth / 2;
+                let balloonY = screenY - entityHalfHeight - balloonHeight - 20;
+                let isBelowEntity = false;
+                
+                // Clamp X position to stay within canvas
+                balloonX = Math.max(margin, Math.min(480 - balloonWidth - margin, balloonX));
+                
+                // If balloon goes above canvas, place it below entity
+                if (balloonY < margin) {
+                    balloonY = screenY + entityHalfHeight + 20;
+                    isBelowEntity = true;
+                }
+                
+                // Also clamp Y to stay within canvas
+                if (balloonY + balloonHeight > 360 - margin) {
+                    balloonY = 360 - balloonHeight - margin;
+                }
+                
+                // Calculate tail target (entity edge)
+                const tailTargetY = isBelowEntity 
+                    ? screenY + entityHalfHeight + 5 
+                    : screenY - entityHalfHeight - 5;
                 
                 if (mode === 'think') {
                     // Think bubble: cloud-style with dots
-                    this.drawThinkBubble(balloonX, balloonY, balloonWidth, balloonHeight, radius, screenX, screenY - (entity.height || 50) / 2);
+                    this.drawThinkBubble(balloonX, balloonY, balloonWidth, balloonHeight, radius, screenX, tailTargetY, isBelowEntity);
                 } else {
                     // Speak bubble: regular balloon with tail
-                    this.drawSpeakBubble(balloonX, balloonY, balloonWidth, balloonHeight, radius, screenX, screenY - (entity.height || 50) / 2);
+                    this.drawSpeakBubble(balloonX, balloonY, balloonWidth, balloonHeight, radius, screenX, tailTargetY, isBelowEntity);
                 }
                 
                 // Draw text
                 this.ctx.fillStyle = '#000000';
                 this.ctx.textAlign = 'center';
                 this.ctx.textBaseline = 'middle';
-                this.ctx.fillText(message, screenX, balloonY + balloonHeight / 2);
+                this.ctx.fillText(message, balloonX + balloonWidth / 2, balloonY + balloonHeight / 2);
                 
                 this.ctx.restore();
             }
             
             // Draw speak balloon (with triangle tail)
-            drawSpeakBubble(x, y, width, height, radius, tailX, tailY) {
+            drawSpeakBubble(x, y, width, height, radius, tailX, tailY, isBelowEntity = false) {
                 const ctx = this.ctx;
-                
-                // Draw rounded rectangle
-                ctx.beginPath();
-                ctx.moveTo(x + radius, y);
-                ctx.lineTo(x + width - radius, y);
-                ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-                ctx.lineTo(x + width, y + height - radius);
-                ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-                
-                // Tail (triangle pointing down)
                 const tailWidth = 10;
-                ctx.lineTo(x + width / 2 + tailWidth / 2, y + height);
-                ctx.lineTo(tailX, tailY - 5);
-                ctx.lineTo(x + width / 2 - tailWidth / 2, y + height);
                 
-                ctx.lineTo(x + radius, y + height);
-                ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-                ctx.lineTo(x, y + radius);
-                ctx.quadraticCurveTo(x, y, x + radius, y);
+                // Clamp tailX to be within balloon width
+                const clampedTailX = Math.max(x + tailWidth, Math.min(x + width - tailWidth, tailX));
+                
+                ctx.beginPath();
+                
+                if (isBelowEntity) {
+                    // Tail pointing UP (balloon is below entity)
+                    ctx.moveTo(x + radius, y);
+                    
+                    // Top edge with tail
+                    ctx.lineTo(clampedTailX - tailWidth / 2, y);
+                    ctx.lineTo(clampedTailX, tailY);
+                    ctx.lineTo(clampedTailX + tailWidth / 2, y);
+                    
+                    ctx.lineTo(x + width - radius, y);
+                    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+                    ctx.lineTo(x + width, y + height - radius);
+                    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+                    ctx.lineTo(x + radius, y + height);
+                    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+                    ctx.lineTo(x, y + radius);
+                    ctx.quadraticCurveTo(x, y, x + radius, y);
+                } else {
+                    // Tail pointing DOWN (balloon is above entity)
+                    ctx.moveTo(x + radius, y);
+                    ctx.lineTo(x + width - radius, y);
+                    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+                    ctx.lineTo(x + width, y + height - radius);
+                    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+                    
+                    // Bottom edge with tail
+                    ctx.lineTo(clampedTailX + tailWidth / 2, y + height);
+                    ctx.lineTo(clampedTailX, tailY);
+                    ctx.lineTo(clampedTailX - tailWidth / 2, y + height);
+                    
+                    ctx.lineTo(x + radius, y + height);
+                    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+                    ctx.lineTo(x, y + radius);
+                    ctx.quadraticCurveTo(x, y, x + radius, y);
+                }
+                
                 ctx.closePath();
                 
                 // Fill and stroke
@@ -956,7 +1004,7 @@
             }
             
             // Draw think bubble (cloud-style with dots)
-            drawThinkBubble(x, y, width, height, radius, tailX, tailY) {
+            drawThinkBubble(x, y, width, height, radius, tailX, tailY, isBelowEntity = false) {
                 const ctx = this.ctx;
                 
                 // Draw cloud-like rounded rectangle
@@ -979,20 +1027,39 @@
                 ctx.lineWidth = 2;
                 ctx.stroke();
                 
-                // Draw thought dots (3 circles getting smaller)
-                const dotX = tailX;
-                let dotY = y + height + 8;
-                const dotSizes = [6, 4, 3];
+                // Clamp tailX to be within balloon width
+                const clampedTailX = Math.max(x + 10, Math.min(x + width - 10, tailX));
                 
-                for (const size of dotSizes) {
-                    ctx.beginPath();
-                    ctx.arc(dotX, dotY, size, 0, Math.PI * 2);
-                    ctx.fillStyle = '#ffffff';
-                    ctx.fill();
-                    ctx.strokeStyle = '#000000';
-                    ctx.lineWidth = 1.5;
-                    ctx.stroke();
-                    dotY += size * 2 + 3;
+                // Draw thought dots (3 circles getting smaller)
+                const dotSizes = [6, 4, 3];
+                let dotY;
+                
+                if (isBelowEntity) {
+                    // Dots pointing UP (balloon is below entity)
+                    dotY = y - 8;
+                    for (const size of dotSizes) {
+                        ctx.beginPath();
+                        ctx.arc(clampedTailX, dotY, size, 0, Math.PI * 2);
+                        ctx.fillStyle = '#ffffff';
+                        ctx.fill();
+                        ctx.strokeStyle = '#000000';
+                        ctx.lineWidth = 1.5;
+                        ctx.stroke();
+                        dotY -= size * 2 + 3;
+                    }
+                } else {
+                    // Dots pointing DOWN (balloon is above entity)
+                    dotY = y + height + 8;
+                    for (const size of dotSizes) {
+                        ctx.beginPath();
+                        ctx.arc(clampedTailX, dotY, size, 0, Math.PI * 2);
+                        ctx.fillStyle = '#ffffff';
+                        ctx.fill();
+                        ctx.strokeStyle = '#000000';
+                        ctx.lineWidth = 1.5;
+                        ctx.stroke();
+                        dotY += size * 2 + 3;
+                    }
                 }
             }
             

@@ -102,9 +102,11 @@ impl WasmEngine {
         self.tick_count = 0;
         self.executors.clear();
         
-        // Restore entity snapshots
+        // Restore entity snapshots and clear dialog
         for entity in &mut self.entities {
             entity.restore_snapshot();
+            entity.dialog_message = None;
+            entity.dialog_mode = None;
         }
     }
 
