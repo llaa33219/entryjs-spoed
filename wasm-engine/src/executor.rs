@@ -1618,10 +1618,53 @@ impl Executor {
         let func_id = &block.block_type[5..]; // Skip "func_" prefix
         
         web_sys::console::log_1(&format!(
-            "[WASM] execute_function_call: func_id='{}', available_functions={:?}",
+            "[WASM] execute_function_call: func_id='{}', block_type='{}', available_functions={:?}",
             func_id,
+            block.block_type,
             functions.keys().collect::<Vec<_>>()
         ).into());
+        
+        // First check if the current block itself has statements (function body)
+        // This handles the case where function is called and the body is in statements
+        if let Some(statements) = &block.statements {
+            web_sys::console::log_1(&format!(
+                "[WASM] Current block has {} statement lists",
+                statements.len()
+            ).into());
+            
+            if let Some(body) = statements.first() {
+                if !body.is_empty() {
+                    web_sys::console::log_1(&format!(
+                        "[WASM] Found function body in current block statements: {} blocks",
+                        body.len()
+                    ).into());
+                    for (i, blk) in body.iter().enumerate() {
+                        web_sys::console::log_1(&format!(
+                            "[WASM]   Block {}: type='{}'",
+                            i, blk.block_type
+                        ).into());
+                    }
+                    
+                    // Push current state to call stack
+                    let frame = StackFrame {
+                        blocks: self.blocks.clone(),
+                        block_index: self.block_index,
+                        iteration_count: 0,
+                        is_loop: false,
+                    };
+                    self.call_stack.push(frame);
+                    
+                    // Set up execution of function body
+                    self.blocks = body.clone();
+                    self.block_index = 0;
+                    self.iteration_count = 0;
+                    
+                    return ExecuteResult::JumpedToBlock;
+                }
+            }
+        } else {
+            web_sys::console::log_1(&"[WASM] Current block has NO statements".into());
+        }
         
         // Look up the function
         if let Some(func_data) = functions.get(func_id) {

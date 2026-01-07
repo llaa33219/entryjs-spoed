@@ -230,6 +230,28 @@ impl WasmEngine {
                                         func_id, thread.len()
                                     ).into());
                                     
+                                    // Debug: Log the first block's statements
+                                    if let Some(statements) = &first_block.statements {
+                                        web_sys::console::log_1(&format!(
+                                            "[WASM]   func_block has {} statement lists",
+                                            statements.len()
+                                        ).into());
+                                        for (i, stmt_list) in statements.iter().enumerate() {
+                                            web_sys::console::log_1(&format!(
+                                                "[WASM]   Statement list {}: {} blocks",
+                                                i, stmt_list.len()
+                                            ).into());
+                                            for (j, blk) in stmt_list.iter().enumerate() {
+                                                web_sys::console::log_1(&format!(
+                                                    "[WASM]     Block {}: type='{}'",
+                                                    j, blk.block_type
+                                                ).into());
+                                            }
+                                        }
+                                    } else {
+                                        web_sys::console::log_1(&"[WASM]   func_block has NO statements".into());
+                                    }
+                                    
                                     // Create FunctionData from the thread
                                     let func_data = FunctionData {
                                         id: func_id.to_string(),
