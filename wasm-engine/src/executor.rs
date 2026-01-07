@@ -6,10 +6,11 @@ use crate::{Block, Entity, Value};
 /// Result of block execution
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ExecuteResult {
-    Continue,  // Continue to next block
-    Wait,      // Wait (for timed blocks)
-    Break,     // Break out of loop
-    End,       // Execution ended
+    Continue,      // Continue to next block
+    Wait,          // Wait (for timed blocks)
+    Break,         // Break out of loop
+    End,           // Execution ended
+    JumpedToBlock, // Jumped to a new block list (don't increment block_index)
 }
 
 /// Executor manages the execution of a thread of blocks
@@ -88,6 +89,9 @@ impl Executor {
         match result {
             ExecuteResult::Continue => {
                 self.block_index += 1;
+            }
+            ExecuteResult::JumpedToBlock => {
+                // Don't increment block_index - we jumped to a new block list
             }
             ExecuteResult::Break => {
                 // Pop loop from stack
@@ -298,24 +302,26 @@ impl Executor {
                 if count > 0 {
                     if let Some(statements) = &block.statements {
                         if let Some(inner_blocks) = statements.first() {
-                            web_sys::console::log_1(&format!(
-                                "[WASM] repeat_basic: entering loop with {} inner blocks",
-                                inner_blocks.len()
-                            ).into());
-                            // Save current state
-                            let frame = StackFrame {
-                                blocks: self.blocks.clone(),
-                                block_index: self.block_index,
-                                iteration_count: count - 1,
-                                is_loop: true,
-                            };
-                            self.call_stack.push(frame);
-                            
-                            // Enter loop
-                            self.blocks = inner_blocks.clone();
-                            self.block_index = 0;
-                            self.iteration_count = count - 1;
-                            return ExecuteResult::Continue;
+                            if !inner_blocks.is_empty() {
+                                web_sys::console::log_1(&format!(
+                                    "[WASM] repeat_basic: entering loop with {} inner blocks",
+                                    inner_blocks.len()
+                                ).into());
+                                // Save current state
+                                let frame = StackFrame {
+                                    blocks: self.blocks.clone(),
+                                    block_index: self.block_index,
+                                    iteration_count: count - 1,
+                                    is_loop: true,
+                                };
+                                self.call_stack.push(frame);
+                                
+                                // Enter loop
+                                self.blocks = inner_blocks.clone();
+                                self.block_index = 0;
+                                self.iteration_count = count - 1;
+                                return ExecuteResult::JumpedToBlock;
+                            }
                         }
                     }
                 }
@@ -325,18 +331,20 @@ impl Executor {
             "repeat_inf" => {
                 if let Some(statements) = &block.statements {
                     if let Some(inner_blocks) = statements.first() {
-                        let frame = StackFrame {
-                            blocks: self.blocks.clone(),
-                            block_index: self.block_index,
-                            iteration_count: u32::MAX,
-                            is_loop: true,
-                        };
-                        self.call_stack.push(frame);
-                        
-                        self.blocks = inner_blocks.clone();
-                        self.block_index = 0;
-                        self.iteration_count = u32::MAX;
-                        return ExecuteResult::Continue;
+                        if !inner_blocks.is_empty() {
+                            let frame = StackFrame {
+                                blocks: self.blocks.clone(),
+                                block_index: self.block_index,
+                                iteration_count: u32::MAX,
+                                is_loop: true,
+                            };
+                            self.call_stack.push(frame);
+                            
+                            self.blocks = inner_blocks.clone();
+                            self.block_index = 0;
+                            self.iteration_count = u32::MAX;
+                            return ExecuteResult::JumpedToBlock;
+                        }
                     }
                 }
                 ExecuteResult::Continue
@@ -347,17 +355,19 @@ impl Executor {
                 if condition {
                     if let Some(statements) = &block.statements {
                         if let Some(inner_blocks) = statements.first() {
-                            let frame = StackFrame {
-                                blocks: self.blocks.clone(),
-                                block_index: self.block_index,
-                                iteration_count: 0,
-                                is_loop: false,
-                            };
-                            self.call_stack.push(frame);
-                            
-                            self.blocks = inner_blocks.clone();
-                            self.block_index = 0;
-                            return ExecuteResult::Continue;
+                            if !inner_blocks.is_empty() {
+                                let frame = StackFrame {
+                                    blocks: self.blocks.clone(),
+                                    block_index: self.block_index,
+                                    iteration_count: 0,
+                                    is_loop: false,
+                                };
+                                self.call_stack.push(frame);
+                                
+                                self.blocks = inner_blocks.clone();
+                                self.block_index = 0;
+                                return ExecuteResult::JumpedToBlock;
+                            }
                         }
                     }
                 }
@@ -369,17 +379,19 @@ impl Executor {
                 if let Some(statements) = &block.statements {
                     let branch_idx = if condition { 0 } else { 1 };
                     if let Some(inner_blocks) = statements.get(branch_idx) {
-                        let frame = StackFrame {
-                            blocks: self.blocks.clone(),
-                            block_index: self.block_index,
-                            iteration_count: 0,
-                            is_loop: false,
-                        };
-                        self.call_stack.push(frame);
-                        
-                        self.blocks = inner_blocks.clone();
-                        self.block_index = 0;
-                        return ExecuteResult::Continue;
+                        if !inner_blocks.is_empty() {
+                            let frame = StackFrame {
+                                blocks: self.blocks.clone(),
+                                block_index: self.block_index,
+                                iteration_count: 0,
+                                is_loop: false,
+                            };
+                            self.call_stack.push(frame);
+                            
+                            self.blocks = inner_blocks.clone();
+                            self.block_index = 0;
+                            return ExecuteResult::JumpedToBlock;
+                        }
                     }
                 }
                 ExecuteResult::Continue
