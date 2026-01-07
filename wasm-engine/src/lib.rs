@@ -207,7 +207,8 @@ impl WasmEngine {
                     for thread in scripts {
                         if let Some(first_block) = thread.first() {
                             // Check if this thread starts with func_XXXX (function definition)
-                            if first_block.block_type.starts_with("func_") {
+                            // Use safe string slicing to prevent panic
+                            if first_block.block_type.starts_with("func_") && first_block.block_type.len() > 5 {
                                 let func_id = &first_block.block_type[5..]; // Skip "func_" prefix
                                 
                                 // Only add if not already in functions map

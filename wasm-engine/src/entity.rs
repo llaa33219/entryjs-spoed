@@ -267,7 +267,10 @@ impl Entity {
             .unwrap_or(0);
         
         let next_idx = (current_idx + 1) % self.pictures.len();
-        self.current_picture_id = Some(self.pictures[next_idx].clone());
+        // Use safe access with get() instead of direct indexing
+        if let Some(picture) = self.pictures.get(next_idx) {
+            self.current_picture_id = Some(picture.clone());
+        }
     }
     
     pub fn prev_picture(&mut self) {
@@ -285,7 +288,10 @@ impl Entity {
         } else {
             current_idx - 1
         };
-        self.current_picture_id = Some(self.pictures[prev_idx].clone());
+        // Use safe access with get() instead of direct indexing
+        if let Some(picture) = self.pictures.get(prev_idx) {
+            self.current_picture_id = Some(picture.clone());
+        }
     }
     
     // Getters for blocks

@@ -1115,8 +1115,12 @@ impl Executor {
                 
                 if let Some(list_var) = variables.get_mut(&list_id) {
                     if let Value::List(list) = list_var {
-                        if index > 0 && index <= list.len() {
-                            list[index - 1] = value;
+                        // Use safe bounds checking before assignment
+                        if index > 0 {
+                            let actual_idx = index - 1;
+                            if actual_idx < list.len() {
+                                list[actual_idx] = value;
+                            }
                         }
                     }
                 }
@@ -1551,7 +1555,13 @@ impl Executor {
         functions: &HashMap<String, FunctionData>,
     ) -> ExecuteResult {
         // Extract function ID from block type ("func_XXXX" -> "XXXX")
-        let func_id = &block.block_type[5..]; // Skip "func_" prefix
+        // Use safe string slicing to prevent panic if block_type is too short
+        let func_id = if block.block_type.len() > 5 {
+            &block.block_type[5..]
+        } else {
+            // Invalid function block type - return early
+            return ExecuteResult::Continue;
+        };
         
         // Check for maximum call stack depth to prevent infinite recursion
         if self.call_stack.len() >= MAX_CALL_STACK_DEPTH {
@@ -1954,12 +1964,13 @@ impl Executor {
                 let start = eval_param_num(3) as usize;
                 let end = eval_param_num(5) as usize;
                 
-                if start > 0 && end > 0 && start <= s.len() && end <= s.len() {
-                    let min_idx = start.min(end) - 1;
+                if start > 0 && end > 0 {
+                    let min_idx = start.min(end).saturating_sub(1);
                     let max_idx = start.max(end);
                     let chars: Vec<char> = s.chars().collect();
-                    if max_idx <= chars.len() {
-                        return Value::String(chars[min_idx..max_idx].iter().collect());
+                    // Use safe slicing with bounds check
+                    if min_idx < chars.len() && max_idx <= chars.len() {
+                        return Value::String(chars.get(min_idx..max_idx).map(|s| s.iter().collect()).unwrap_or_default());
                     }
                 }
                 Value::String(String::new())
@@ -2053,8 +2064,11 @@ impl Executor {
                 let index = eval_param_num(3) as usize;
                 if let Some(list_var) = variables.get(&list_id) {
                     if let Value::List(list) = list_var {
-                        if index > 0 && index <= list.len() {
-                            return list[index - 1].clone();
+                        // Use safe access with get() instead of direct indexing
+                        if index > 0 {
+                            if let Some(item) = list.get(index - 1) {
+                                return item.clone();
+                            }
                         }
                     }
                 }
@@ -2136,10 +2150,17 @@ impl Executor {
                 let hex = Self::value_as_string(&hex_val);
                 let color_type = eval_param_str(1);
                 let hex = hex.trim_start_matches('#');
+                // Use safe string access with get() to prevent panic on short strings
                 if hex.len() >= 6 {
-                    let r = u8::from_str_radix(&hex[0..2], 16).unwrap_or(0) as f64;
-                    let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(0) as f64;
-                    let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(0) as f64;
+                    let r = hex.get(0..2)
+                        .and_then(|s| u8::from_str_radix(s, 16).ok())
+                        .unwrap_or(0) as f64;
+                    let g = hex.get(2..4)
+                        .and_then(|s| u8::from_str_radix(s, 16).ok())
+                        .unwrap_or(0) as f64;
+                    let b = hex.get(4..6)
+                        .and_then(|s| u8::from_str_radix(s, 16).ok())
+                        .unwrap_or(0) as f64;
                     Value::Number(match color_type.as_str() {
                         "r" => r,
                         "g" => g,
