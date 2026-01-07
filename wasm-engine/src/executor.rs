@@ -316,7 +316,9 @@ impl Executor {
             "wait_second" => {
                 let seconds = self.get_param_number(block, 0, variables);
                 self.wait_frames = (seconds * 60.0) as u32; // Assuming 60 FPS
-                ExecuteResult::Wait
+                // Note: We return Continue here so block_index increments.
+                // The wait will happen on subsequent ticks via wait_frames check.
+                ExecuteResult::Continue
             }
             
             "repeat_basic" => {
