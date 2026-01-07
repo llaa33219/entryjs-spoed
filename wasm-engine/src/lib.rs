@@ -325,13 +325,15 @@ impl WasmEngine {
         let mut completed = Vec::new();
         const MAX_EXECUTIONS_PER_TICK: u32 = 1_000_000; // Safety limit to prevent infinite loops
         
-        // Take all fields out to avoid borrow conflicts
+        // Take mutable fields out to avoid borrow conflicts
         // This allows us to pass mutable references to separate fields
         let mut executors = std::mem::take(&mut inner.executors);
         let mut entities = std::mem::take(&mut inner.entities);
         let mut variables = std::mem::take(&mut inner.variables);
         let mut pending_js_actions = std::mem::take(&mut inner.pending_js_actions);
-        let functions = inner.functions.clone(); // Clone functions since it's read-only
+        // Note: functions is borrowed immutably, no need to clone
+        // We'll put it back in inner first so we can borrow it
+        let functions_ref = &inner.functions;
         
         for (idx, executor) in executors.iter_mut().enumerate() {
             // Check if engine was stopped during execution
@@ -353,7 +355,7 @@ impl WasmEngine {
                     &mut entities, 
                     &mut variables, 
                     &mut pending_js_actions, 
-                    &functions
+                    functions_ref
                 );
                 
                 match result {

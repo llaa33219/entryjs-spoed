@@ -14,8 +14,8 @@ pub enum ExecuteResult {
 }
 
 /// Maximum call stack depth to prevent infinite recursion
-/// Set to a very large value (u32::MAX) to avoid cutting off legitimate deep recursion
-const MAX_CALL_STACK_DEPTH: usize = u32::MAX as usize;
+/// Set to 10000 to allow deep recursion while preventing stack overflow
+const MAX_CALL_STACK_DEPTH: usize = 10000;
 
 /// Executor manages the execution of a thread of blocks
 #[derive(Clone, Debug)]
