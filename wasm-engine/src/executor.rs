@@ -1,6 +1,7 @@
 //! Executor module - handles block execution with call stack
 
 use std::collections::HashMap;
+use std::rc::Rc;
 use crate::{Block, Entity, Value, JsAction, FunctionData};
 
 /// Result of block execution
@@ -21,7 +22,7 @@ const MAX_CALL_STACK_DEPTH: usize = 1_000_000;
 #[derive(Clone, Debug)]
 pub struct Executor {
     pub entity_idx: usize,
-    blocks: Vec<Block>,
+    blocks: Rc<Vec<Block>>,
     block_index: usize,
     call_stack: Vec<StackFrame>,
     #[allow(dead_code)]
@@ -53,7 +54,7 @@ pub struct Executor {
 
 #[derive(Clone, Debug)]
 struct StackFrame {
-    blocks: Vec<Block>,
+    blocks: Rc<Vec<Block>>,
     block_index: usize,
     iteration_count: u32,
     is_loop: bool,
@@ -63,7 +64,7 @@ impl Executor {
     pub fn new(entity_idx: usize, blocks: Vec<Block>) -> Self {
         Executor {
             entity_idx,
-            blocks,
+            blocks: Rc::new(blocks),
             block_index: 0,
             call_stack: Vec::new(),
             register: HashMap::new(),
@@ -135,7 +136,7 @@ impl Executor {
             None => {
                 // Try to pop from call stack
                 if let Some(frame) = self.call_stack.pop() {
-                    self.blocks = frame.blocks;
+                    self.blocks = Rc::clone(&frame.blocks);
                     self.block_index = frame.block_index;
                     
                     if frame.is_loop && frame.iteration_count > 0 {
@@ -178,7 +179,7 @@ impl Executor {
                 // Pop loop from stack
                 while let Some(frame) = self.call_stack.pop() {
                     if frame.is_loop {
-                        self.blocks = frame.blocks;
+                        self.blocks = Rc::clone(&frame.blocks);
                         self.block_index = frame.block_index + 1;
                         break;
                     }
@@ -839,7 +840,7 @@ impl Executor {
                             if !inner_blocks.is_empty() {
                                 // Save current state with remaining count
                                 let frame = StackFrame {
-                                    blocks: self.blocks.clone(),
+                                    blocks: Rc::clone(&self.blocks),
                                     block_index: self.block_index,
                                     iteration_count: count - 1,
                                     is_loop: true,
@@ -847,7 +848,7 @@ impl Executor {
                                 self.call_stack.push(frame);
                                 
                                 // Enter loop body
-                                self.blocks = inner_blocks.clone();
+                                self.blocks = Rc::new(inner_blocks.clone());
                                 self.block_index = 0;
                                 self.iteration_count = 0; // Reset for inner blocks
                                 return ExecuteResult::JumpedToBlock;
@@ -865,14 +866,14 @@ impl Executor {
                     if let Some(inner_blocks) = statements.first() {
                         if !inner_blocks.is_empty() {
                             let frame = StackFrame {
-                                blocks: self.blocks.clone(),
+                                blocks: Rc::clone(&self.blocks),
                                 block_index: self.block_index,
                                 iteration_count: u32::MAX,
                                 is_loop: true,
                             };
                             self.call_stack.push(frame);
                             
-                            self.blocks = inner_blocks.clone();
+                            self.blocks = Rc::new(inner_blocks.clone());
                             self.block_index = 0;
                             self.iteration_count = u32::MAX;
                             return ExecuteResult::JumpedToBlock;
@@ -889,14 +890,14 @@ impl Executor {
                         if let Some(inner_blocks) = statements.first() {
                             if !inner_blocks.is_empty() {
                                 let frame = StackFrame {
-                                    blocks: self.blocks.clone(),
+                                    blocks: Rc::clone(&self.blocks),
                                     block_index: self.block_index,
                                     iteration_count: 0,
                                     is_loop: false,
                                 };
                                 self.call_stack.push(frame);
                                 
-                                self.blocks = inner_blocks.clone();
+                                self.blocks = Rc::new(inner_blocks.clone());
                                 self.block_index = 0;
                                 return ExecuteResult::JumpedToBlock;
                             }
@@ -913,14 +914,14 @@ impl Executor {
                     if let Some(inner_blocks) = statements.get(branch_idx) {
                         if !inner_blocks.is_empty() {
                             let frame = StackFrame {
-                                blocks: self.blocks.clone(),
+                                blocks: Rc::clone(&self.blocks),
                                 block_index: self.block_index,
                                 iteration_count: 0,
                                 is_loop: false,
                             };
                             self.call_stack.push(frame);
                             
-                            self.blocks = inner_blocks.clone();
+                            self.blocks = Rc::new(inner_blocks.clone());
                             self.block_index = 0;
                             return ExecuteResult::JumpedToBlock;
                         }
@@ -936,7 +937,7 @@ impl Executor {
                 while let Some(frame) = self.call_stack.pop() {
                     if frame.is_loop {
                         // Found the loop, restore and continue iteration
-                        self.blocks = frame.blocks;
+                        self.blocks = Rc::clone(&frame.blocks);
                         self.block_index = frame.block_index;
                         if frame.iteration_count > 0 {
                             self.iteration_count = frame.iteration_count;
@@ -963,14 +964,14 @@ impl Executor {
                         if let Some(inner_blocks) = statements.first() {
                             if !inner_blocks.is_empty() {
                                 let frame = StackFrame {
-                                    blocks: self.blocks.clone(),
+                                    blocks: Rc::clone(&self.blocks),
                                     block_index: self.block_index,
                                     iteration_count: u32::MAX, // Infinite until condition changes
                                     is_loop: true,
                                 };
                                 self.call_stack.push(frame);
                                 
-                                self.blocks = inner_blocks.clone();
+                                self.blocks = Rc::new(inner_blocks.clone());
                                 self.block_index = 0;
                                 self.iteration_count = 0;
                                 return ExecuteResult::JumpedToBlock;
@@ -1553,7 +1554,7 @@ impl Executor {
                 if !body.is_empty() {
                     // Push current state to call stack
                     let frame = StackFrame {
-                        blocks: self.blocks.clone(),
+                        blocks: Rc::clone(&self.blocks),
                         block_index: self.block_index,
                         iteration_count: 0,
                         is_loop: false,
@@ -1561,7 +1562,7 @@ impl Executor {
                     self.call_stack.push(frame);
                     
                     // Set up execution of function body
-                    self.blocks = body.clone();
+                    self.blocks = Rc::new(body.clone());
                     self.block_index = 0;
                     self.iteration_count = 0;
                     
@@ -1602,7 +1603,7 @@ impl Executor {
                         if let Some(body) = func_body {
                             // Push current state to call stack
                             let frame = StackFrame {
-                                blocks: self.blocks.clone(),
+                                blocks: Rc::clone(&self.blocks),
                                 block_index: self.block_index,
                                 iteration_count: 0,
                                 is_loop: false,
@@ -1610,7 +1611,7 @@ impl Executor {
                             self.call_stack.push(frame);
                             
                             // Set up execution of function body
-                            self.blocks = body;
+                            self.blocks = Rc::new(body);
                             self.block_index = 0;
                             self.iteration_count = 0;
                             
