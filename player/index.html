@@ -858,9 +858,14 @@
                 }
                 if (!actionsJson || actionsJson === '[]') return;
                 
+                // DEBUG: Log received actions
+                console.log('[JS] Received actions:', actionsJson);
+                
                 try {
                     const actions = JSON.parse(actionsJson);
+                    console.log('[JS] Parsed actions count:', actions.length);
                     for (const action of actions) {
+                        console.log('[JS] Processing action:', action.type, action.data);
                         this.processJsAction(action);
                     }
                 } catch (e) {
@@ -1026,9 +1031,15 @@
             
             // Handle start fill (begin tracking polygon path)
             handleStartFill(entityId) {
+                console.log('[Fill] handleStartFill called with entityId:', entityId);
+                
                 // Get current entity position and add as first point (like moveTo in Entry.js)
                 const entityKey = this.getEntityId(entityId);
-                if (entityKey === null) return;
+                console.log('[Fill] entityKey:', entityKey);
+                if (entityKey === null) {
+                    console.log('[Fill] entityKey is null, returning');
+                    return;
+                }
                 
                 const renderData = this.wasmEngine.get_render_data();
                 if (!renderData || renderData === '[]') return;
@@ -1047,13 +1058,21 @@
             
             // Handle stop fill (close and fill the polygon)
             handleStopFill(entityId) {
+                console.log('[Fill] handleStopFill called with entityId:', entityId);
+                
                 const entityKey = this.getEntityId(entityId);
-                if (entityKey === null) return;
+                console.log('[Fill] entityKey:', entityKey);
+                if (entityKey === null) {
+                    console.log('[Fill] entityKey is null, returning');
+                    return;
+                }
                 
                 const brushState = this.getBrushState(entityKey);
+                console.log('[Fill] brushState.fillDown:', brushState.fillDown, 'fillPath.length:', brushState.fillPath.length);
                 
                 if (!brushState.fillDown || brushState.fillPath.length < 3) {
                     // Need at least 3 points to make a polygon
+                    console.log('[Fill] Not enough points or fillDown is false, skipping fill');
                     brushState.fillDown = false;
                     brushState.fillPath = [];
                     return;
