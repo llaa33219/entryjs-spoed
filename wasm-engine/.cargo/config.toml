@@ -1,0 +1,6 @@
+# Cargo configuration for WASM target
+# This increases the stack size to 32MB to allow deep recursion without stack overflow
+# Default WASM stack size is 1MB which can cause "unreachable executed" errors with deep call stacks
+
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "link-args=-z stack-size=33554432"]
