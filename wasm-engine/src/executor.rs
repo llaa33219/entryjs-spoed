@@ -53,6 +53,12 @@ impl Executor {
         entities: &mut Vec<Entity>, 
         variables: &mut HashMap<String, Value>
     ) -> ExecuteResult {
+        // Log current state at start of execute
+        web_sys::console::log_1(&format!(
+            "[WASM] execute(): block_index={}, blocks.len()={}, wait_frames={}, iteration_count={}",
+            self.block_index, self.blocks.len(), self.wait_frames, self.iteration_count
+        ).into());
+        
         // Check if waiting
         if self.wait_frames > 0 {
             self.wait_frames -= 1;
