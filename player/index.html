@@ -924,12 +924,21 @@
                 }
             }
             
-            // Get or create brush state for an entity
-            getBrushState(entityId) {
-                if (!this.brushStates.has(entityId)) {
-                    this.brushStates.set(entityId, new BrushState());
+            // Get or create brush state for an entity (by string ID)
+            getBrushState(entityStringId) {
+                if (!this.brushStates.has(entityStringId)) {
+                    this.brushStates.set(entityStringId, new BrushState());
                 }
-                return this.brushStates.get(entityId);
+                return this.brushStates.get(entityStringId);
+            }
+            
+            // Convert entity index to string ID by looking up in render data
+            getEntityStringId(entityIndex) {
+                const renderData = this.wasmEngine.get_render_data();
+                if (!renderData || renderData === '[]') return null;
+                const entities = JSON.parse(renderData);
+                const entity = entities[entityIndex];
+                return entity ? entity.id : null;
             }
             
             // Handle brush stamp (copy entity image to brush canvas)
@@ -940,7 +949,7 @@
                 
                 try {
                     const entities = JSON.parse(renderData);
-                    const entity = entities.find(e => e.id === entityId);
+                    const entity = entities[entityId]; // Access by index
                     if (!entity || !entity.visible) return;
                     
                     // Convert to canvas coordinates
@@ -987,7 +996,9 @@
             
             // Handle start drawing
             handleStartDrawing(entityId) {
-                const brushState = this.getBrushState(entityId);
+                const entityStringId = this.getEntityStringId(entityId);
+                if (!entityStringId) return;
+                const brushState = this.getBrushState(entityStringId);
                 brushState.down = true;
                 brushState.lastX = null;
                 brushState.lastY = null;
@@ -995,7 +1006,9 @@
             
             // Handle stop drawing
             handleStopDrawing(entityId) {
-                const brushState = this.getBrushState(entityId);
+                const entityStringId = this.getEntityStringId(entityId);
+                if (!entityStringId) return;
+                const brushState = this.getBrushState(entityStringId);
                 brushState.down = false;
                 brushState.lastX = null;
                 brushState.lastY = null;
@@ -1003,41 +1016,52 @@
             
             // Handle set brush color
             handleSetBrushColor(entityId, color) {
-                const brushState = this.getBrushState(entityId);
+                const entityStringId = this.getEntityStringId(entityId);
+                if (!entityStringId) return;
+                const brushState = this.getBrushState(entityStringId);
                 brushState.color = color;
             }
             
             // Handle start fill (begin tracking polygon path)
             handleStartFill(entityId) {
-                const brushState = this.getBrushState(entityId);
+                // Get current entity position and add as first point (like moveTo in Entry.js)
+                const renderData = this.wasmEngine.get_render_data();
+                if (!renderData || renderData === '[]') return;
+                
+                const entities = JSON.parse(renderData);
+                const entity = entities[entityId]; // Access by index, not string ID
+                if (!entity) return;
+                
+                const brushState = this.getBrushState(entity.id); // Use entity's string ID
                 brushState.fillDown = true;
                 brushState.fillPath = []; // Reset path
                 
-                // Get current entity position and add as first point (like moveTo in Entry.js)
-                const renderData = this.wasmEngine.get_render_data();
-                if (renderData && renderData !== '[]') {
-                    const entities = JSON.parse(renderData);
-                    const entity = entities.find(e => e.id === entityId);
-                    if (entity) {
-                        const screenX = 240 + entity.x;
-                        const screenY = 180 - entity.y;
-                        brushState.fillPath.push({ x: screenX, y: screenY });
-                    }
-                }
+                const screenX = 240 + entity.x;
+                const screenY = 180 - entity.y;
+                brushState.fillPath.push({ x: screenX, y: screenY });
+                
+                console.log(`[Fill] StartFill: entityIndex=${entityId}, entityId=${entity.id}, firstPoint=(${screenX}, ${screenY})`);
             }
             
             // Handle stop fill (close and fill the polygon)
             handleStopFill(entityId) {
-                const brushState = this.getBrushState(entityId);
+                const entityStringId = this.getEntityStringId(entityId);
+                if (!entityStringId) return;
+                
+                const brushState = this.getBrushState(entityStringId);
+                
+                console.log(`[Fill] StopFill: entityIndex=${entityId}, entityId=${entityStringId}, fillDown=${brushState.fillDown}, pathLength=${brushState.fillPath.length}, fillColor=${brushState.fillColor}`);
                 
                 if (!brushState.fillDown || brushState.fillPath.length < 3) {
                     // Need at least 3 points to make a polygon
+                    console.log(`[Fill] StopFill: Not enough points or not filling (need >= 3, have ${brushState.fillPath.length})`);
                     brushState.fillDown = false;
                     brushState.fillPath = [];
                     return;
                 }
                 
                 // Draw filled polygon on brush canvas
+                console.log(`[Fill] Drawing polygon with ${brushState.fillPath.length} points, color=${brushState.fillColor}`);
                 this.brushCtx.beginPath();
                 this.brushCtx.moveTo(brushState.fillPath[0].x, brushState.fillPath[0].y);
                 
@@ -1056,8 +1080,11 @@
             
             // Handle set fill color
             handleSetFillColor(entityId, color) {
-                const brushState = this.getBrushState(entityId);
+                const entityStringId = this.getEntityStringId(entityId);
+                if (!entityStringId) return;
+                const brushState = this.getBrushState(entityStringId);
                 brushState.fillColor = color;
+                console.log(`[Fill] SetFillColor: entityIndex=${entityId}, entityId=${entityStringId}, color=${color}`);
             }
             
             // Draw brush lines for entities that have brush_down
