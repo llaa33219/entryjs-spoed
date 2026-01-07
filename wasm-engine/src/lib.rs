@@ -604,6 +604,13 @@ pub struct RenderEntity {
     pub dialog_message: Option<String>,
     #[serde(rename = "dialogMode")]
     pub dialog_mode: Option<String>,
+    // Brush state
+    #[serde(rename = "brushDown")]
+    pub brush_down: bool,
+    #[serde(rename = "brushColor")]
+    pub brush_color: String,
+    #[serde(rename = "brushSize")]
+    pub brush_size: f64,
 }
 
 impl From<&Entity> for RenderEntity {
@@ -623,6 +630,9 @@ impl From<&Entity> for RenderEntity {
             picture_id: e.current_picture_id.clone(),
             dialog_message: e.dialog_message.clone(),
             dialog_mode: e.dialog_mode.clone(),
+            brush_down: e.brush_down,
+            brush_color: e.brush_color.clone(),
+            brush_size: e.brush_size,
         }
     }
 }

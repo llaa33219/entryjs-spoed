@@ -182,6 +182,18 @@
         // Image cache for sprites
         const imageCache = new Map();
         
+        // Brush drawing helper
+        class BrushState {
+            constructor() {
+                this.down = false;
+                this.color = '#ff0000';
+                this.size = 1;
+                this.opacity = 0;
+                this.lastX = null;
+                this.lastY = null;
+            }
+        }
+        
         class EntryPlayer {
             constructor() {
                 this.projectId = null;
@@ -196,6 +208,11 @@
                 this.mouseX = 0;
                 this.mouseY = 0;
                 this.mouseClicked = false;
+                
+                // Brush drawing state
+                this.brushCanvas = null;
+                this.brushCtx = null;
+                this.brushStates = new Map(); // entity_id -> BrushState
             }
             
             async initialize() {
@@ -605,6 +622,12 @@
                 this.canvas.width = 480;
                 this.canvas.height = 360;
                 
+                // Initialize brush canvas (separate layer for drawing)
+                this.brushCanvas = document.createElement('canvas');
+                this.brushCanvas.width = 480;
+                this.brushCanvas.height = 360;
+                this.brushCtx = this.brushCanvas.getContext('2d');
+                
                 // Scale canvas to fit screen
                 this.resizeCanvas();
                 window.addEventListener('resize', () => this.resizeCanvas());
@@ -785,6 +808,11 @@
                 if (this.wasmEngine) {
                     this.wasmEngine.reset();
                 }
+                // Clear brush canvas on restart
+                if (this.brushCtx) {
+                    this.brushCtx.clearRect(0, 0, this.brushCanvas.width, this.brushCanvas.height);
+                }
+                this.brushStates.clear();
                 setTimeout(() => this.start(), 100);
             }
             
@@ -795,6 +823,9 @@
                 if (this.wasmEngine) {
                     this.wasmEngine.update_mouse(this.mouseX, this.mouseY, this.mouseClicked);
                     this.wasmEngine.tick();
+                    
+                    // Process JS actions from WASM (brush, sound, etc.)
+                    this.handleJsActions();
                 } else if (this.jsEngine) {
                     this.jsEngine.tick++;
                 }
@@ -805,10 +836,209 @@
                 this.animationId = requestAnimationFrame(() => this.gameLoop());
             }
             
+            // Handle JS actions from WASM engine
+            handleJsActions() {
+                if (!this.wasmEngine) return;
+                
+                const actionsJson = this.wasmEngine.get_js_actions();
+                if (!actionsJson || actionsJson === '[]') return;
+                
+                try {
+                    const actions = JSON.parse(actionsJson);
+                    for (const action of actions) {
+                        this.processJsAction(action);
+                    }
+                } catch (e) {
+                    console.error('Failed to parse JS actions:', e);
+                }
+            }
+            
+            // Process a single JS action
+            processJsAction(action) {
+                const { type, data } = action;
+                
+                switch (type) {
+                    case 'BrushStamp': {
+                        const entityId = data.entity_id;
+                        this.handleBrushStamp(entityId);
+                        break;
+                    }
+                    case 'BrushEraseAll': {
+                        this.handleBrushEraseAll();
+                        break;
+                    }
+                    case 'StartDrawing': {
+                        const entityId = data.entity_id;
+                        this.handleStartDrawing(entityId);
+                        break;
+                    }
+                    case 'StopDrawing': {
+                        const entityId = data.entity_id;
+                        this.handleStopDrawing(entityId);
+                        break;
+                    }
+                    case 'SetBrushColor': {
+                        const { entity_id, color } = data;
+                        this.handleSetBrushColor(entity_id, color);
+                        break;
+                    }
+                    case 'SetRandomColor': {
+                        const entityId = data.entity_id;
+                        const randomColor = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
+                        this.handleSetBrushColor(entityId, randomColor);
+                        break;
+                    }
+                    // Other actions can be added here (sounds, clones, etc.)
+                    default:
+                        console.log('Unhandled JS action:', type, data);
+                }
+            }
+            
+            // Get or create brush state for an entity
+            getBrushState(entityId) {
+                if (!this.brushStates.has(entityId)) {
+                    this.brushStates.set(entityId, new BrushState());
+                }
+                return this.brushStates.get(entityId);
+            }
+            
+            // Handle brush stamp (copy entity image to brush canvas)
+            handleBrushStamp(entityId) {
+                // Get current render data to find entity position
+                const renderData = this.wasmEngine.get_render_data();
+                if (!renderData) return;
+                
+                try {
+                    const entities = JSON.parse(renderData);
+                    const entity = entities.find(e => e.id === entityId);
+                    if (!entity || !entity.visible) return;
+                    
+                    // Convert to canvas coordinates
+                    const screenX = 240 + entity.x;
+                    const screenY = 180 - entity.y;
+                    
+                    // Try to get cached image
+                    const img = imageCache.get(entity.pictureId);
+                    
+                    this.brushCtx.save();
+                    this.brushCtx.translate(screenX, screenY);
+                    this.brushCtx.rotate(-entity.rotation * Math.PI / 180);
+                    this.brushCtx.scale(entity.scaleX, entity.scaleY);
+                    
+                    if (img && img.complete && img.naturalWidth > 0) {
+                        this.brushCtx.drawImage(
+                            img,
+                            -entity.width / 2,
+                            -entity.height / 2,
+                            entity.width,
+                            entity.height
+                        );
+                    } else {
+                        // Fallback: draw colored rectangle
+                        this.brushCtx.fillStyle = entity.color || '#4a90d9';
+                        this.brushCtx.fillRect(
+                            -entity.width / 2,
+                            -entity.height / 2,
+                            entity.width || 50,
+                            entity.height || 50
+                        );
+                    }
+                    
+                    this.brushCtx.restore();
+                } catch (e) {
+                    console.error('Failed to handle brush stamp:', e);
+                }
+            }
+            
+            // Handle erase all brush content
+            handleBrushEraseAll() {
+                this.brushCtx.clearRect(0, 0, this.brushCanvas.width, this.brushCanvas.height);
+            }
+            
+            // Handle start drawing
+            handleStartDrawing(entityId) {
+                const brushState = this.getBrushState(entityId);
+                brushState.down = true;
+                brushState.lastX = null;
+                brushState.lastY = null;
+            }
+            
+            // Handle stop drawing
+            handleStopDrawing(entityId) {
+                const brushState = this.getBrushState(entityId);
+                brushState.down = false;
+                brushState.lastX = null;
+                brushState.lastY = null;
+            }
+            
+            // Handle set brush color
+            handleSetBrushColor(entityId, color) {
+                const brushState = this.getBrushState(entityId);
+                brushState.color = color;
+            }
+            
+            // Draw brush lines for entities that have brush_down
+            updateBrushDrawing(entities) {
+                for (const entity of entities) {
+                    // Get or create brush state
+                    let brushState = this.brushStates.get(entity.id);
+                    if (!brushState) {
+                        brushState = new BrushState();
+                        this.brushStates.set(entity.id, brushState);
+                    }
+                    
+                    // Sync brush state from entity render data (WASM state)
+                    const wasBrushDown = brushState.down;
+                    brushState.down = entity.brushDown || false;
+                    brushState.color = entity.brushColor || brushState.color;
+                    brushState.size = entity.brushSize || brushState.size;
+                    
+                    // If brush just went down, reset last position
+                    if (!wasBrushDown && brushState.down) {
+                        brushState.lastX = null;
+                        brushState.lastY = null;
+                    }
+                    
+                    // If brush is not down, skip drawing but reset last position
+                    if (!brushState.down) {
+                        brushState.lastX = null;
+                        brushState.lastY = null;
+                        continue;
+                    }
+                    
+                    // Convert to canvas coordinates
+                    const screenX = 240 + entity.x;
+                    const screenY = 180 - entity.y;
+                    
+                    if (brushState.lastX !== null && brushState.lastY !== null) {
+                        // Draw line from last position to current position
+                        this.brushCtx.beginPath();
+                        this.brushCtx.strokeStyle = brushState.color;
+                        this.brushCtx.lineWidth = brushState.size;
+                        this.brushCtx.lineCap = 'round';
+                        this.brushCtx.lineJoin = 'round';
+                        this.brushCtx.globalAlpha = 1 - brushState.opacity / 100;
+                        this.brushCtx.moveTo(brushState.lastX, brushState.lastY);
+                        this.brushCtx.lineTo(screenX, screenY);
+                        this.brushCtx.stroke();
+                        this.brushCtx.globalAlpha = 1;
+                    }
+                    
+                    // Update last position
+                    brushState.lastX = screenX;
+                    brushState.lastY = screenY;
+                }
+            }
+            
             render() {
                 // Clear canvas
                 this.ctx.fillStyle = '#ffffff';
                 this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+                
+                // Draw brush canvas layer first (behind entities)
+                if (this.brushCanvas) {
+                    this.ctx.drawImage(this.brushCanvas, 0, 0);
+                }
                 
                 if (this.wasmEngine) {
                     // Get render data from WASM and draw
@@ -825,6 +1055,10 @@
                 
                 try {
                     const entities = JSON.parse(data);
+                    
+                    // Update brush drawing for entities with brush_down
+                    this.updateBrushDrawing(entities);
+                    
                     for (const entity of entities) {
                         this.drawEntity(entity);
                     }
