@@ -89,6 +89,14 @@ pub fn init() {
     console_error_panic_hook::set_once();
 }
 
+/// Function data structure
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FunctionData {
+    pub id: String,
+    #[serde(deserialize_with = "deserialize_script", default)]
+    pub content: Option<Vec<Vec<Block>>>,
+}
+
 /// Main WASM Engine class exposed to JavaScript
 #[wasm_bindgen]
 pub struct WasmEngine {
@@ -99,6 +107,8 @@ pub struct WasmEngine {
     tick_count: u64,
     fps: u32,
     project_data: Option<ProjectData>,
+    /// Parsed functions for quick lookup
+    functions: HashMap<String, FunctionData>,
     /// Pending JavaScript actions to be consumed after tick()
     pending_js_actions: Vec<JsAction>,
 }
@@ -116,6 +126,7 @@ impl WasmEngine {
             tick_count: 0,
             fps: 60,
             project_data: None,
+            functions: HashMap::new(),
             pending_js_actions: Vec::new(),
         }
     }
@@ -146,6 +157,23 @@ impl WasmEngine {
                 self.variables.insert(var.id.clone(), value);
             }
         }
+        
+        // Initialize functions
+        self.functions.clear();
+        if let Some(funcs) = &project.functions {
+            if let Some(func_map) = funcs.as_object() {
+                for (func_id, func_value) in func_map {
+                    if let Ok(func_data) = serde_json::from_value::<FunctionData>(func_value.clone()) {
+                        web_sys::console::log_1(&format!(
+                            "[WASM] Loaded function: id={}, has_content={}",
+                            func_id, func_data.content.is_some()
+                        ).into());
+                        self.functions.insert(func_id.clone(), func_data);
+                    }
+                }
+            }
+        }
+        web_sys::console::log_1(&format!("[WASM] Loaded {} functions", self.functions.len()).into());
         
         Ok(())
     }
@@ -209,7 +237,7 @@ impl WasmEngine {
         let mut completed = Vec::new();
         
         for (idx, executor) in self.executors.iter_mut().enumerate() {
-            let result = executor.execute(&mut self.entities, &mut self.variables, &mut self.pending_js_actions);
+            let result = executor.execute(&mut self.entities, &mut self.variables, &mut self.pending_js_actions, &self.functions);
             
             // Log first few ticks for debugging
             if self.tick_count <= 5 {

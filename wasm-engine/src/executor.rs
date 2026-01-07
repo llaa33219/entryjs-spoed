@@ -1,7 +1,7 @@
 //! Executor module - handles block execution with call stack
 
 use std::collections::HashMap;
-use crate::{Block, Entity, Value, JsAction};
+use crate::{Block, Entity, Value, JsAction, FunctionData};
 
 /// Result of block execution
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -114,6 +114,7 @@ impl Executor {
         entities: &mut Vec<Entity>, 
         variables: &mut HashMap<String, Value>,
         js_actions: &mut Vec<JsAction>,
+        functions: &HashMap<String, FunctionData>,
     ) -> ExecuteResult {
         // Log current state at start of execute
         web_sys::console::log_1(&format!(
@@ -187,7 +188,7 @@ impl Executor {
 
         // Execute block
         let entity = entities.get_mut(self.entity_idx);
-        let result = self.execute_block(&block, entity, variables, js_actions);
+        let result = self.execute_block(&block, entity, variables, js_actions, functions);
 
         match result {
             ExecuteResult::Continue => {
@@ -222,8 +223,14 @@ impl Executor {
         entity: Option<&mut Entity>,
         variables: &mut HashMap<String, Value>,
         js_actions: &mut Vec<JsAction>,
+        functions: &HashMap<String, FunctionData>,
     ) -> ExecuteResult {
         let block_type = block.block_type.as_str();
+        
+        // Handle function calls (blocks starting with "func_")
+        if block_type.starts_with("func_") {
+            return self.execute_function_call(block, functions);
+        }
         
         match block_type {
             // === Event blocks (just pass through) ===
@@ -236,6 +243,16 @@ impl Executor {
             "when_scene_start" |
             "mouse_clicked" |
             "mouse_click_cancled" => ExecuteResult::Continue,
+            
+            // === Function definition blocks ===
+            // These are handled by execute_function_call which jumps directly to the function body
+            // If we reach these blocks directly (e.g., in the function content), just pass through
+            "function_create" | "function_create_value" => ExecuteResult::Continue,
+            
+            // === Function field blocks (used in function parameter definitions) ===
+            "function_field_label" |
+            "function_field_string" |
+            "function_field_boolean" => ExecuteResult::Continue,
 
             // === Movement blocks ===
             "move_direction" => {
@@ -1583,6 +1600,82 @@ impl Executor {
                 ExecuteResult::Continue
             }
         }
+    }
+
+    /// Execute a function call (func_XXXX blocks)
+    fn execute_function_call(
+        &mut self,
+        block: &Block,
+        functions: &HashMap<String, FunctionData>,
+    ) -> ExecuteResult {
+        // Extract function ID from block type ("func_XXXX" -> "XXXX")
+        let func_id = &block.block_type[5..]; // Skip "func_" prefix
+        
+        web_sys::console::log_1(&format!(
+            "[WASM] execute_function_call: func_id='{}'",
+            func_id
+        ).into());
+        
+        // Look up the function
+        if let Some(func_data) = functions.get(func_id) {
+            web_sys::console::log_1(&format!(
+                "[WASM] Found function: id={}, has_content={}",
+                func_data.id,
+                func_data.content.is_some()
+            ).into());
+            
+            if let Some(content) = &func_data.content {
+                // The function content is Vec<Vec<Block>> (threads of blocks)
+                // We need to find the function_create block and get its statements
+                if let Some(first_thread) = content.first() {
+                    if let Some(func_create_block) = first_thread.first() {
+                        web_sys::console::log_1(&format!(
+                            "[WASM] Function create block type: '{}'",
+                            func_create_block.block_type
+                        ).into());
+                        
+                        // Get the statements from function_create block
+                        // The statements contain the actual function body
+                        if let Some(statements) = &func_create_block.statements {
+                            if let Some(func_body) = statements.first() {
+                                if !func_body.is_empty() {
+                                    web_sys::console::log_1(&format!(
+                                        "[WASM] Function body has {} blocks",
+                                        func_body.len()
+                                    ).into());
+                                    
+                                    // Push current state to call stack
+                                    let frame = StackFrame {
+                                        blocks: self.blocks.clone(),
+                                        block_index: self.block_index,
+                                        iteration_count: 0,
+                                        is_loop: false,
+                                    };
+                                    self.call_stack.push(frame);
+                                    
+                                    // Set up execution of function body
+                                    self.blocks = func_body.clone();
+                                    self.block_index = 0;
+                                    self.iteration_count = 0;
+                                    
+                                    return ExecuteResult::JumpedToBlock;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            web_sys::console::log_1(&"[WASM] Function has no executable content".into());
+        } else {
+            web_sys::console::log_1(&format!(
+                "[WASM] Function not found: '{}'",
+                func_id
+            ).into());
+        }
+        
+        // Function not found or empty - just continue
+        ExecuteResult::Continue
     }
 
     // Parameter extraction helpers
