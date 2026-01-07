@@ -925,8 +925,11 @@
                     try {
                         actionsJson = this.wasmEngine.get_js_actions();
                     } catch (e) {
-                        // WASM call failed (possibly RuntimeError: unreachable) - log and continue
-                        console.warn('get_js_actions() 호출 실패:', e);
+                        // WASM call failed (possibly RuntimeError: unreachable) - log once and continue
+                        if (!this._jsActionsErrorLogged) {
+                            this._jsActionsErrorLogged = true;
+                            console.warn('get_js_actions() 호출 실패:', e);
+                        }
                         return;
                     }
                     if (!actionsJson || actionsJson === '[]') return;
@@ -937,7 +940,11 @@
                             this.processJsAction(action);
                         }
                     } catch (e) {
-                        console.error('Failed to parse JS actions:', e);
+                        // Log parse error only once to prevent console flood
+                        if (!this._jsActionsParseErrorLogged) {
+                            this._jsActionsParseErrorLogged = true;
+                            console.error('Failed to parse JS actions:', e);
+                        }
                     }
                 }
 
@@ -997,7 +1004,14 @@
                         }
                         // Other actions can be added here (sounds, clones, etc.)
                         default:
-                            console.log('Unhandled JS action:', type, data);
+                            // Suppress unhandled action logs to prevent console flood
+                            // Uncomment the following line for debugging:
+                            // if (!this._loggedUnhandledActions?.has(type)) {
+                            //     this._loggedUnhandledActions = this._loggedUnhandledActions || new Set();
+                            //     this._loggedUnhandledActions.add(type);
+                            //     console.log('Unhandled JS action:', type, data);
+                            // }
+                            break;
                     }
                 }
 
@@ -1064,7 +1078,11 @@
 
                         this.brushCtx.restore();
                     } catch (e) {
-                        console.error('Failed to handle brush stamp:', e);
+                        // Log error only once to prevent console flood
+                        if (!this._brushStampErrorLogged) {
+                            this._brushStampErrorLogged = true;
+                            console.error('Failed to handle brush stamp:', e);
+                        }
                     }
                 }
 
@@ -1272,8 +1290,11 @@
                             const renderData = this.wasmEngine.get_render_data();
                             this.drawRenderData(renderData);
                         } catch (e) {
-                            // WASM call failed (possibly RuntimeError: unreachable) - skip this frame
-                            console.warn('get_render_data() 호출 실패:', e);
+                            // WASM call failed (possibly RuntimeError: unreachable) - log once, skip frame
+                            if (!this._renderDataErrorLogged) {
+                                this._renderDataErrorLogged = true;
+                                console.warn('get_render_data() 호출 실패:', e);
+                            }
                         }
                     } else if (this.jsEngine) {
                         // Simple JS rendering
@@ -1294,7 +1315,11 @@
                             this.drawEntity(entity);
                         }
                     } catch (e) {
-                        console.error('렌더 데이터 파싱 실패:', e);
+                        // Log parse error only once to prevent console flood
+                        if (!this._renderParseErrorLogged) {
+                            this._renderParseErrorLogged = true;
+                            console.error('렌더 데이터 파싱 실패:', e);
+                        }
                     }
                 }
 
