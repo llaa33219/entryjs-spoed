@@ -24,6 +24,12 @@ pub struct Executor {
     register: HashMap<String, Value>,
     wait_frames: u32,
     iteration_count: u32,
+    // Cached entity properties for value blocks
+    cached_entity_x: f64,
+    cached_entity_y: f64,
+    cached_entity_rotation: f64,
+    cached_entity_direction: f64,
+    cached_entity_scale: f64,
 }
 
 #[derive(Clone, Debug)]
@@ -44,6 +50,33 @@ impl Executor {
             register: HashMap::new(),
             wait_frames: 0,
             iteration_count: 0,
+            cached_entity_x: 0.0,
+            cached_entity_y: 0.0,
+            cached_entity_rotation: 0.0,
+            cached_entity_direction: 90.0,
+            cached_entity_scale: 100.0,
+        }
+    }
+    
+    /// Update cached entity properties from the entity
+    fn update_cached_entity(&mut self, entity: Option<&Entity>) {
+        if let Some(e) = entity {
+            self.cached_entity_x = e.x;
+            self.cached_entity_y = e.y;
+            self.cached_entity_rotation = e.rotation;
+            self.cached_entity_direction = e.direction;
+            self.cached_entity_scale = e.get_scale();
+        }
+    }
+    
+    /// Helper to convert Value to String
+    fn value_as_string(value: &Value) -> String {
+        match value {
+            Value::String(s) => s.clone(),
+            Value::Number(n) => n.to_string(),
+            Value::Bool(b) => if *b { "true".to_string() } else { "false".to_string() },
+            Value::List(l) => format!("{:?}", l),
+            Value::Null => String::new(),
         }
     }
 
@@ -58,6 +91,9 @@ impl Executor {
             "[WASM] execute(): block_index={}, blocks.len()={}, wait_frames={}, iteration_count={}",
             self.block_index, self.blocks.len(), self.wait_frames, self.iteration_count
         ).into());
+        
+        // Update cached entity properties
+        self.update_cached_entity(entities.get(self.entity_idx));
         
         // Check if waiting
         if self.wait_frames > 0 {
@@ -248,6 +284,17 @@ impl Executor {
                 }
                 ExecuteResult::Continue
             }
+            
+            "move_to_angle" => {
+                if let Some(e) = entity {
+                    let angle = self.get_param_number(block, 0, variables);
+                    let distance = self.get_param_number(block, 1, variables);
+                    let angle_rad = (angle - 90.0).to_radians();
+                    e.x += distance * angle_rad.cos();
+                    e.y -= distance * angle_rad.sin();
+                }
+                ExecuteResult::Continue
+            }
 
             // === Looks blocks ===
             "show" => {
@@ -309,6 +356,37 @@ impl Executor {
                     let value = self.get_param_number(block, 0, variables);
                     e.set_scale(value / 100.0);
                 }
+                ExecuteResult::Continue
+            }
+            
+            "flip_x" => {
+                if let Some(e) = entity {
+                    e.scale_y = -e.scale_y;
+                }
+                ExecuteResult::Continue
+            }
+            
+            "flip_y" => {
+                if let Some(e) = entity {
+                    e.scale_x = -e.scale_x;
+                }
+                ExecuteResult::Continue
+            }
+            
+            "dialog" | "dialog_time" => {
+                // Dialog blocks - just log for now since we don't have UI
+                let message = self.get_param_string(block, 0);
+                web_sys::console::log_1(&format!("[WASM] Dialog: {}", message).into());
+                
+                if block_type == "dialog_time" {
+                    let seconds = self.get_param_number(block, 1, variables);
+                    self.wait_frames = (seconds * 60.0) as u32;
+                }
+                ExecuteResult::Continue
+            }
+            
+            "remove_dialog" => {
+                // Just continue - no UI to remove
                 ExecuteResult::Continue
             }
 
@@ -439,6 +517,64 @@ impl Executor {
             }
             
             "stop_repeat" => ExecuteResult::Break,
+            
+            "continue_repeat" => {
+                // Continue to next iteration of loop - pop back to loop start
+                while let Some(frame) = self.call_stack.pop() {
+                    if frame.is_loop {
+                        // Found the loop, restore and continue iteration
+                        self.blocks = frame.blocks;
+                        self.block_index = frame.block_index;
+                        if frame.iteration_count > 0 {
+                            self.iteration_count = frame.iteration_count;
+                        }
+                        return ExecuteResult::Continue;
+                    }
+                }
+                // No loop found, just continue
+                ExecuteResult::Continue
+            }
+            
+            "repeat_while_true" => {
+                // Get the condition and option (until/while)
+                let condition = self.get_param_bool(block, 0, variables);
+                let option = self.get_param_string(block, 1);
+                
+                // If option is "until", invert the condition
+                let should_loop = if option == "until" { !condition } else { condition };
+                
+                if should_loop {
+                    if let Some(statements) = &block.statements {
+                        if let Some(inner_blocks) = statements.first() {
+                            if !inner_blocks.is_empty() {
+                                let frame = StackFrame {
+                                    blocks: self.blocks.clone(),
+                                    block_index: self.block_index,
+                                    iteration_count: u32::MAX, // Infinite until condition changes
+                                    is_loop: true,
+                                };
+                                self.call_stack.push(frame);
+                                
+                                self.blocks = inner_blocks.clone();
+                                self.block_index = 0;
+                                self.iteration_count = 0;
+                                return ExecuteResult::JumpedToBlock;
+                            }
+                        }
+                    }
+                }
+                ExecuteResult::Continue
+            }
+            
+            "wait_until_true" => {
+                let condition = self.get_param_bool(block, 0, variables);
+                if condition {
+                    ExecuteResult::Continue
+                } else {
+                    // Stay on this block and wait
+                    ExecuteResult::Wait
+                }
+            }
             
             "stop_object" => {
                 // Stop execution
@@ -653,6 +789,106 @@ impl Executor {
                 Value::Bool(true)
             }
             
+            // Entity property blocks
+            "get_x" => Value::Number(self.cached_entity_x),
+            "get_y" => Value::Number(self.cached_entity_y),
+            "get_rotation" => Value::Number(self.cached_entity_rotation),
+            "get_direction" => Value::Number(self.cached_entity_direction),
+            "get_scale" => Value::Number(self.cached_entity_scale),
+            
+            // Coordinate blocks
+            "coordinate_mouse" => {
+                // Return 0 for mouse coordinates since we don't have mouse in WASM
+                // In a real implementation, this would get from JavaScript
+                Value::Number(0.0)
+            }
+            
+            "coordinate_object" => {
+                // Get coordinate of another object - for now return cached values
+                if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
+                    let coord = params.get(3).and_then(|v| v.as_str()).unwrap_or("x");
+                    match coord {
+                        "x" => return Value::Number(self.cached_entity_x),
+                        "y" => return Value::Number(self.cached_entity_y),
+                        "rotation" => return Value::Number(self.cached_entity_rotation),
+                        "direction" => return Value::Number(self.cached_entity_direction),
+                        "size" => return Value::Number(self.cached_entity_scale),
+                        _ => return Value::Number(0.0),
+                    }
+                }
+                Value::Number(0.0)
+            }
+            
+            // Math operations
+            "calc_operation" => {
+                if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
+                    let value = params.get(1).map(|v| self.evaluate_value(v, variables).as_number()).unwrap_or(0.0);
+                    let op = params.get(3).and_then(|v| v.as_str()).unwrap_or("round");
+                    
+                    let result = match op {
+                        "square" => value * value,
+                        "root" | "sqrt" => value.sqrt(),
+                        "sin" => (value.to_radians()).sin(),
+                        "cos" => (value.to_radians()).cos(),
+                        "tan" => (value.to_radians()).tan(),
+                        "asin" | "asin_radian" => value.asin().to_degrees(),
+                        "acos" | "acos_radian" => value.acos().to_degrees(),
+                        "atan" | "atan_radian" => value.atan().to_degrees(),
+                        "log" => value.log10(),
+                        "ln" => value.ln(),
+                        "floor" => value.floor(),
+                        "ceil" => value.ceil(),
+                        "round" => value.round(),
+                        "abs" => value.abs(),
+                        "factorial" => {
+                            let n = value as u64;
+                            let mut result = 1u64;
+                            for i in 2..=n {
+                                result = result.saturating_mul(i);
+                            }
+                            result as f64
+                        }
+                        "unnatural" => value - value.floor(), // Decimal part
+                        _ => value.round(),
+                    };
+                    return Value::Number(result);
+                }
+                Value::Number(0.0)
+            }
+            
+            // String operations
+            "length_of_string" => {
+                if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
+                    let val = params.get(1).map(|v| self.evaluate_value(v, variables)).unwrap_or(Value::Null);
+                    let s = Self::value_as_string(&val);
+                    return Value::Number(s.len() as f64);
+                }
+                Value::Number(0.0)
+            }
+            
+            "char_at" => {
+                if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
+                    let val = params.get(1).map(|v| self.evaluate_value(v, variables)).unwrap_or(Value::Null);
+                    let s = Self::value_as_string(&val);
+                    let idx = params.get(3).map(|v| self.evaluate_value(v, variables).as_number()).unwrap_or(1.0) as usize;
+                    if idx > 0 && idx <= s.len() {
+                        return Value::String(s.chars().nth(idx - 1).map(|c| c.to_string()).unwrap_or_default());
+                    }
+                }
+                Value::String(String::new())
+            }
+            
+            "combine_something" => {
+                if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
+                    let val1 = params.get(1).map(|v| self.evaluate_value(v, variables)).unwrap_or(Value::Null);
+                    let val2 = params.get(3).map(|v| self.evaluate_value(v, variables)).unwrap_or(Value::Null);
+                    let s1 = Self::value_as_string(&val1);
+                    let s2 = Self::value_as_string(&val2);
+                    return Value::String(format!("{}{}", s1, s2));
+                }
+                Value::String(String::new())
+            }
+            
             _ => Value::Null
         }
     }
@@ -667,5 +903,7 @@ mod tests {
         let executor = Executor::new(0, vec![]);
         assert_eq!(executor.entity_idx, 0);
         assert_eq!(executor.block_index, 0);
+        assert_eq!(executor.cached_entity_x, 0.0);
+        assert_eq!(executor.cached_entity_direction, 90.0);
     }
 }
