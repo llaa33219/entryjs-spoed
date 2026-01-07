@@ -5,6 +5,7 @@ use wasm_bindgen::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::cell::{Cell, RefCell};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
 mod blocks;
 mod executor;
@@ -134,6 +135,8 @@ pub struct WasmEngine {
     inner: RefCell<EngineInner>,
     /// Separate flag for stop requests that can be set even when inner is borrowed
     stop_requested: Cell<bool>,
+    /// Flag to log error only once (prevents console flood)
+    error_logged: Cell<bool>,
 }
 
 #[wasm_bindgen]
@@ -144,6 +147,7 @@ impl WasmEngine {
         WasmEngine {
             inner: RefCell::new(EngineInner::new()),
             stop_requested: Cell::new(false),
+            error_logged: Cell::new(false),
         }
     }
 
@@ -244,6 +248,7 @@ impl WasmEngine {
         
         inner.state = EngineState::Running;
         self.stop_requested.set(false);
+        self.error_logged.set(false); // Reset error flag on start
         
         // Initialize executors and fire start event
         Self::initialize_executors_inner(&mut inner);
@@ -284,6 +289,7 @@ impl WasmEngine {
         inner.tick_count = 0;
         inner.executors.clear();
         self.stop_requested.set(false);
+        self.error_logged.set(false); // Reset error flag on reset
         
         // Restore entity snapshots and clear dialog/brush state
         for entity in &mut inner.entities {
@@ -320,9 +326,6 @@ impl WasmEngine {
             return;
         }
         
-        // Debug: log tick start
-        web_sys::console::log_1(&format!("tick start: {} executors", inner.executors.len()).into());
-        
         inner.tick_count += 1;
         
         // Execute all active executors
@@ -355,34 +358,54 @@ impl WasmEngine {
                     break;
                 }
                 
-                // Debug: log before execute
-                web_sys::console::log_1(&format!("executing block for entity {}", executor.entity_idx).into());
+                // Use catch_unwind to capture panic info without crashing
+                let execute_result = catch_unwind(AssertUnwindSafe(|| {
+                    executor.execute(
+                        &mut entities, 
+                        &mut variables, 
+                        &mut pending_js_actions, 
+                        functions_ref
+                    )
+                }));
                 
-                let result = executor.execute(
-                    &mut entities, 
-                    &mut variables, 
-                    &mut pending_js_actions, 
-                    functions_ref
-                );
-                
-                // Debug: log after execute
-                web_sys::console::log_1(&format!("execute result: {:?}", result).into());
-                
-                match result {
-                    ExecuteResult::End => {
+                match execute_result {
+                    Ok(result) => {
+                        match result {
+                            ExecuteResult::End => {
+                                completed.push(idx);
+                                break;
+                            }
+                            ExecuteResult::Wait => {
+                                // Wait result - stop execution for this tick
+                                break;
+                            }
+                            ExecuteResult::Continue | ExecuteResult::JumpedToBlock | ExecuteResult::Break => {
+                                // Continue executing more blocks in the same tick
+                                execution_count += 1;
+                                if execution_count >= MAX_EXECUTIONS_PER_TICK {
+                                    break; // Safety limit reached
+                                }
+                            }
+                        }
+                    }
+                    Err(panic_info) => {
+                        // Log the panic only once to prevent console flood
+                        if !self.error_logged.get() {
+                            self.error_logged.set(true);
+                            let panic_msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
+                                s.to_string()
+                            } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                                s.clone()
+                            } else {
+                                format!("{:?}", panic_info)
+                            };
+                            web_sys::console::error_1(
+                                &format!("WASM panic in executor (entity {}): {}", executor.entity_idx, panic_msg).into()
+                            );
+                        }
+                        // Remove the panicking executor
                         completed.push(idx);
                         break;
-                    }
-                    ExecuteResult::Wait => {
-                        // Wait result - stop execution for this tick
-                        break;
-                    }
-                    ExecuteResult::Continue | ExecuteResult::JumpedToBlock | ExecuteResult::Break => {
-                        // Continue executing more blocks in the same tick
-                        execution_count += 1;
-                        if execution_count >= MAX_EXECUTIONS_PER_TICK {
-                            break; // Safety limit reached
-                        }
                     }
                 }
             }

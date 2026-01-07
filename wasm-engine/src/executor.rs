@@ -175,9 +175,6 @@ impl Executor {
             }
         };
 
-        // Debug: log block type before execution
-        web_sys::console::log_1(&format!("execute_block: {}", block.block_type).into());
-        
         // Execute block
         let entity = entities.get_mut(self.entity_idx);
         let result = self.execute_block(&block, entity, variables, js_actions, functions);
