@@ -94,21 +94,41 @@ pub fn get_block_category(block_type: &str) -> Option<BlockCategory> {
 
         // Sound blocks
         "sound_something" |
+        "sound_something_with_block" |
         "sound_something_second" |
+        "sound_something_second_with_block" |
         "sound_something_wait" |
+        "sound_something_wait_with_block" |
+        "sound_something_second_wait_with_block" |
+        "sound_from_to" |
+        "sound_from_to_and_wait" |
         "sound_volume_change" |
         "sound_volume_set" |
         "sound_speed_change" |
         "sound_speed_set" |
-        "sound_stop" => Some(BlockCategory::Sound),
+        "sound_stop" |
+        "sound_silent_all" |
+        "play_bgm" |
+        "stop_bgm" => Some(BlockCategory::Sound),
         
         // Brush blocks
         "brush_stamp" |
         "brush_down" |
         "brush_up" |
+        "start_drawing" |
+        "stop_drawing" |
+        "start_fill" |
+        "stop_fill" |
+        "set_color" |
         "set_brush_color" |
+        "set_random_color" |
+        "set_fill_color" |
         "set_brush_size" |
         "change_brush_size" |
+        "change_thickness" |
+        "set_thickness" |
+        "change_brush_transparency" |
+        "set_brush_tranparency" |
         "brush_erase_all" |
         "brush_clear" => Some(BlockCategory::Looks),
         
@@ -123,7 +143,11 @@ pub fn get_block_category(block_type: &str) -> Option<BlockCategory> {
         "reach_something" |
         "boolean_basic_operator" |
         "boolean_and_or" |
-        "boolean_not" => Some(BlockCategory::Judgement),
+        "boolean_not" |
+        "is_type" |
+        "is_boost_mode" |
+        "is_current_device_type" |
+        "is_touch_supported" => Some(BlockCategory::Judgement),
 
         // Calc blocks
         "calc_basic" |
@@ -132,10 +156,13 @@ pub fn get_block_category(block_type: &str) -> Option<BlockCategory> {
         "coordinate_object" |
         "get_sound_volume" |
         "get_sound_speed" |
+        "get_sound_duration" |
         "length_of_string" |
+        "reverse_of_string" |
         "combine_something" |
         "char_at" |
         "substring" |
+        "count_match_string" |
         "index_of_string" |
         "replace_string" |
         "change_string_case" |
@@ -144,6 +171,12 @@ pub fn get_block_category(block_type: &str) -> Option<BlockCategory> {
         "get_date" |
         "get_project_timer_value" |
         "distance_something" |
+        "change_rgb_to_hex" |
+        "change_hex_to_rgb" |
+        "get_boolean_value" |
+        "get_user_name" |
+        "get_nickname" |
+        "get_block_count" |
         "get_x" |
         "get_y" |
         "get_rotation" |
@@ -167,7 +200,9 @@ pub fn get_block_category(block_type: &str) -> Option<BlockCategory> {
         "hide_list" |
         "is_included_in_list" |
         "ask_and_wait" |
-        "get_canvas_input_value" => Some(BlockCategory::Variable),
+        "get_canvas_input_value" |
+        "set_visible_answer" |
+        "index_of_list" => Some(BlockCategory::Variable),
 
         // Function blocks
         "function_create" |
@@ -214,16 +249,25 @@ pub fn is_value_block(block_type: &str) -> bool {
         "get_direction" |
         "get_scale" |
         "get_sound_volume" |
+        "get_sound_speed" |
+        "get_sound_duration" |
         "get_project_timer_value" |
         "get_date" |
         "distance_something" |
         "length_of_string" |
+        "reverse_of_string" |
+        "count_match_string" |
         "combine_something" |
         "char_at" |
         "substring" |
         "index_of_string" |
         "replace_string" |
         "change_string_case" |
+        "change_rgb_to_hex" |
+        "change_hex_to_rgb" |
+        "get_boolean_value" |
+        "get_user_name" |
+        "get_nickname" |
         "value_of_list_index" |
         "value_of_index_from_list" |
         "length_of_list" |

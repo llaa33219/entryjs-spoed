@@ -22,7 +22,15 @@ pub enum JsAction {
     PlaySound { entity_id: usize, sound_id: String },
     PlaySoundWait { entity_id: usize, sound_id: String },
     PlaySoundFromSecond { entity_id: usize, sound_id: String, start_second: f64 },
+    PlaySoundFromTo { entity_id: usize, sound_id: String, start: f64, end: f64 },
+    PlaySoundFromToWait { entity_id: usize, sound_id: String, start: f64, end: f64 },
+    PlaySoundDuration { entity_id: usize, sound_id: String, duration: f64 },
+    PlaySoundDurationWait { entity_id: usize, sound_id: String, duration: f64 },
     StopSound,
+    StopAllSounds,
+    StopOtherSounds { entity_id: usize },
+    PlayBGM { entity_id: usize, sound_id: String },
+    StopBGM,
     SetSoundVolume { volume: f64 },
     ChangeSoundVolume { delta: f64 },
     SetSoundSpeed { speed: f64 },
@@ -51,6 +59,13 @@ pub enum JsAction {
     // Brush/Pen actions
     BrushStamp { entity_id: usize },
     BrushEraseAll,
+    StartDrawing { entity_id: usize },
+    StopDrawing { entity_id: usize },
+    StartFill { entity_id: usize },
+    StopFill { entity_id: usize },
+    SetBrushColor { entity_id: usize, color: String },
+    SetRandomColor { entity_id: usize },
+    SetFillColor { entity_id: usize, color: String },
     
     // Timer actions  
     TimerAction { action: String },  // start, stop, reset
@@ -61,6 +76,7 @@ pub enum JsAction {
     
     // Input actions
     AskAndWait { entity_id: usize, message: String },
+    SetAnswerVisible { visible: bool },
     
     // Project control
     RestartProject,

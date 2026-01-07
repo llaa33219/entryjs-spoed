@@ -589,6 +589,15 @@ impl Executor {
                 ExecuteResult::Continue
             }
             
+            "see_angle_direction" => {
+                // Set direction to a specific angle
+                if let Some(e) = entity {
+                    let angle = self.get_param_number(block, 0, variables);
+                    e.direction = angle;
+                }
+                ExecuteResult::Continue
+            }
+            
             "locate_object_time" => {
                 // Move to another object over time
                 if let Some(e) = entity {
@@ -1205,8 +1214,96 @@ impl Executor {
                 ExecuteResult::Continue
             }
             
+            "sound_something_with_block" => {
+                let sound_id = self.get_param_string(block, 0);
+                js_actions.push(JsAction::PlaySound {
+                    entity_id: self.entity_idx,
+                    sound_id,
+                });
+                ExecuteResult::Continue
+            }
+            
+            "sound_something_second_with_block" => {
+                let sound_id = self.get_param_string(block, 0);
+                let duration = self.get_param_number(block, 1, variables);
+                js_actions.push(JsAction::PlaySoundDuration {
+                    entity_id: self.entity_idx,
+                    sound_id,
+                    duration,
+                });
+                ExecuteResult::Continue
+            }
+            
+            "sound_something_wait_with_block" => {
+                let sound_id = self.get_param_string(block, 0);
+                js_actions.push(JsAction::PlaySoundWait {
+                    entity_id: self.entity_idx,
+                    sound_id,
+                });
+                // TODO: Should wait for sound to finish
+                ExecuteResult::Continue
+            }
+            
+            "sound_something_second_wait_with_block" => {
+                let sound_id = self.get_param_string(block, 0);
+                let duration = self.get_param_number(block, 1, variables);
+                js_actions.push(JsAction::PlaySoundDurationWait {
+                    entity_id: self.entity_idx,
+                    sound_id,
+                    duration,
+                });
+                // TODO: Should wait for duration
+                ExecuteResult::Continue
+            }
+            
+            "sound_from_to" => {
+                let sound_id = self.get_param_string(block, 0);
+                let start = self.get_param_number(block, 1, variables);
+                let end = self.get_param_number(block, 2, variables);
+                js_actions.push(JsAction::PlaySoundFromTo {
+                    entity_id: self.entity_idx,
+                    sound_id,
+                    start,
+                    end,
+                });
+                ExecuteResult::Continue
+            }
+            
+            "sound_from_to_and_wait" => {
+                let sound_id = self.get_param_string(block, 0);
+                let start = self.get_param_number(block, 1, variables);
+                let end = self.get_param_number(block, 2, variables);
+                js_actions.push(JsAction::PlaySoundFromToWait {
+                    entity_id: self.entity_idx,
+                    sound_id,
+                    start,
+                    end,
+                });
+                // TODO: Should wait for sound to finish
+                ExecuteResult::Continue
+            }
+            
             "sound_stop" => {
                 js_actions.push(JsAction::StopSound);
+                ExecuteResult::Continue
+            }
+            
+            "sound_silent_all" => {
+                js_actions.push(JsAction::StopAllSounds);
+                ExecuteResult::Continue
+            }
+            
+            "play_bgm" => {
+                let sound_id = self.get_param_string(block, 0);
+                js_actions.push(JsAction::PlayBGM {
+                    entity_id: self.entity_idx,
+                    sound_id,
+                });
+                ExecuteResult::Continue
+            }
+            
+            "stop_bgm" => {
+                js_actions.push(JsAction::StopBGM);
                 ExecuteResult::Continue
             }
             
@@ -1290,6 +1387,100 @@ impl Executor {
                 ExecuteResult::Continue
             }
             
+            "start_drawing" => {
+                if let Some(e) = entity {
+                    e.brush_down = true;
+                }
+                js_actions.push(JsAction::StartDrawing {
+                    entity_id: self.entity_idx,
+                });
+                ExecuteResult::Continue
+            }
+            
+            "stop_drawing" => {
+                if let Some(e) = entity {
+                    e.brush_down = false;
+                }
+                js_actions.push(JsAction::StopDrawing {
+                    entity_id: self.entity_idx,
+                });
+                ExecuteResult::Continue
+            }
+            
+            "start_fill" => {
+                js_actions.push(JsAction::StartFill {
+                    entity_id: self.entity_idx,
+                });
+                ExecuteResult::Continue
+            }
+            
+            "stop_fill" => {
+                js_actions.push(JsAction::StopFill {
+                    entity_id: self.entity_idx,
+                });
+                ExecuteResult::Continue
+            }
+            
+            "set_color" => {
+                let color = self.get_param_string(block, 0);
+                if let Some(e) = entity {
+                    e.brush_color = color.clone();
+                }
+                js_actions.push(JsAction::SetBrushColor {
+                    entity_id: self.entity_idx,
+                    color,
+                });
+                ExecuteResult::Continue
+            }
+            
+            "set_random_color" => {
+                js_actions.push(JsAction::SetRandomColor {
+                    entity_id: self.entity_idx,
+                });
+                ExecuteResult::Continue
+            }
+            
+            "set_fill_color" => {
+                let color = self.get_param_string(block, 0);
+                js_actions.push(JsAction::SetFillColor {
+                    entity_id: self.entity_idx,
+                    color,
+                });
+                ExecuteResult::Continue
+            }
+            
+            "change_thickness" => {
+                if let Some(e) = entity {
+                    let value = self.get_param_number(block, 0, variables);
+                    e.brush_size = (e.brush_size + value).max(1.0);
+                }
+                ExecuteResult::Continue
+            }
+            
+            "set_thickness" => {
+                if let Some(e) = entity {
+                    let value = self.get_param_number(block, 0, variables);
+                    e.brush_size = value.max(1.0);
+                }
+                ExecuteResult::Continue
+            }
+            
+            "change_brush_transparency" => {
+                if let Some(e) = entity {
+                    let value = self.get_param_number(block, 0, variables);
+                    e.transparency = (e.transparency + value).clamp(0.0, 100.0);
+                }
+                ExecuteResult::Continue
+            }
+            
+            "set_brush_tranparency" => {
+                if let Some(e) = entity {
+                    let value = self.get_param_number(block, 0, variables);
+                    e.transparency = value.clamp(0.0, 100.0);
+                }
+                ExecuteResult::Continue
+            }
+            
             // === Additional Looks blocks ===
             "stretch_scale_size" => {
                 if let Some(e) = entity {
@@ -1317,6 +1508,13 @@ impl Executor {
                 let var_id = self.get_param_string(block, 0);
                 let value = self.get_param_value(block, 1, variables);
                 variables.insert(var_id, value);
+                ExecuteResult::Continue
+            }
+            
+            "set_visible_answer" => {
+                let action = self.get_param_string(block, 0);
+                let visible = action == "SHOW" || action == "show";
+                js_actions.push(JsAction::SetAnswerVisible { visible });
                 ExecuteResult::Continue
             }
             
@@ -1754,6 +1952,24 @@ impl Executor {
                 Value::Number(0.0)
             }
             
+            "get_sound_volume" => {
+                // Sound volume - requires JS Entry.Utils.getVolume() access
+                // Return 100.0 as default (100%)
+                Value::Number(100.0)
+            }
+            
+            "get_sound_speed" => {
+                // Sound speed/playback rate - requires JS Entry.playbackRateValue access
+                // Return 1.0 as default (normal speed)
+                Value::Number(1.0)
+            }
+            
+            "get_sound_duration" => {
+                // Sound duration - requires JS sound object access
+                // Return 0.0 as placeholder since we can't access sound metadata from WASM
+                Value::Number(0.0)
+            }
+            
             "get_canvas_input_value" => {
                 // Answer input value - requires JS Entry.container access
                 Value::String(String::new())
@@ -1805,6 +2021,148 @@ impl Executor {
                         }
                     }
                 }
+                Value::Bool(false)
+            }
+            
+            "index_of_list" => {
+                if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
+                    let list_id = params.get(1).and_then(|v| v.as_str()).unwrap_or("");
+                    let data = params.get(3).map(|v| self.evaluate_value(v, variables)).unwrap_or(Value::Null);
+                    let data_str = Self::value_as_string(&data);
+                    
+                    if let Some(list_var) = variables.get(list_id) {
+                        if let Value::List(list) = list_var {
+                            for (idx, item) in list.iter().enumerate() {
+                                if Self::value_as_string(item) == data_str {
+                                    return Value::Number((idx + 1) as f64);
+                                }
+                            }
+                        }
+                    }
+                }
+                Value::Number(0.0)
+            }
+            
+            // String blocks
+            "reverse_of_string" => {
+                if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
+                    let val = params.get(1).map(|v| self.evaluate_value(v, variables)).unwrap_or(Value::Null);
+                    let s = Self::value_as_string(&val);
+                    return Value::String(s.chars().rev().collect());
+                }
+                Value::String(String::new())
+            }
+            
+            "count_match_string" => {
+                if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
+                    let val = params.get(0).map(|v| self.evaluate_value(v, variables)).unwrap_or(Value::Null);
+                    let s = Self::value_as_string(&val);
+                    let target_val = params.get(2).map(|v| self.evaluate_value(v, variables)).unwrap_or(Value::Null);
+                    let target = Self::value_as_string(&target_val);
+                    
+                    if target.is_empty() {
+                        return Value::Number(0.0);
+                    }
+                    let count = s.matches(&target).count();
+                    return Value::Number(count as f64);
+                }
+                Value::Number(0.0)
+            }
+            
+            // User info blocks
+            "get_user_name" => {
+                // This would require JS access - return empty string
+                Value::String(String::new())
+            }
+            
+            "get_nickname" => {
+                // This would require JS access - return empty string
+                Value::String(String::new())
+            }
+            
+            "get_block_count" => {
+                // This would require JS access - return 0
+                Value::Number(0.0)
+            }
+            
+            // Color conversion blocks
+            "change_rgb_to_hex" => {
+                if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
+                    let r = params.get(0).map(|v| self.evaluate_value(v, variables).as_number()).unwrap_or(0.0) as u8;
+                    let g = params.get(1).map(|v| self.evaluate_value(v, variables).as_number()).unwrap_or(0.0) as u8;
+                    let b = params.get(2).map(|v| self.evaluate_value(v, variables).as_number()).unwrap_or(0.0) as u8;
+                    return Value::String(format!("#{:02x}{:02x}{:02x}", r, g, b));
+                }
+                Value::String("#000000".to_string())
+            }
+            
+            "change_hex_to_rgb" => {
+                if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
+                    let hex_val = params.get(0).map(|v| self.evaluate_value(v, variables)).unwrap_or(Value::Null);
+                    let hex = Self::value_as_string(&hex_val);
+                    let color_type = params.get(1).and_then(|v| v.as_str()).unwrap_or("r");
+                    
+                    // Parse hex color
+                    let hex = hex.trim_start_matches('#');
+                    if hex.len() >= 6 {
+                        let r = u8::from_str_radix(&hex[0..2], 16).unwrap_or(0) as f64;
+                        let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(0) as f64;
+                        let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(0) as f64;
+                        
+                        return Value::Number(match color_type {
+                            "r" => r,
+                            "g" => g,
+                            "b" => b,
+                            _ => r,
+                        });
+                    }
+                }
+                Value::Number(0.0)
+            }
+            
+            "get_boolean_value" => {
+                if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
+                    let val = params.get(0).map(|v| self.evaluate_value(v, variables).as_bool()).unwrap_or(false);
+                    return Value::String(if val { "TRUE".to_string() } else { "FALSE".to_string() });
+                }
+                Value::String("FALSE".to_string())
+            }
+            
+            // Judgement blocks
+            "is_type" => {
+                if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
+                    let val = params.get(0).map(|v| self.evaluate_value(v, variables)).unwrap_or(Value::Null);
+                    let val_str = Self::value_as_string(&val);
+                    let type_check = params.get(2).and_then(|v| v.as_str()).unwrap_or("number");
+                    
+                    let result = match type_check {
+                        "number" => val_str.parse::<f64>().is_ok(),
+                        "en" => val_str.chars().all(|c| c.is_ascii_alphabetic()),
+                        "ko" => val_str.chars().all(|c| {
+                            let code = c as u32;
+                            (0x1100..=0x11FF).contains(&code) || // Hangul Jamo
+                            (0x3130..=0x318F).contains(&code) || // Hangul Compatibility Jamo
+                            (0xAC00..=0xD7AF).contains(&code)    // Hangul Syllables
+                        }),
+                        _ => false,
+                    };
+                    return Value::Bool(result);
+                }
+                Value::Bool(false)
+            }
+            
+            "is_boost_mode" => {
+                // WebGL mode - return false as we can't detect this
+                Value::Bool(false)
+            }
+            
+            "is_current_device_type" => {
+                // Device type detection - return false (would need JS)
+                Value::Bool(false)
+            }
+            
+            "is_touch_supported" => {
+                // Touch support detection - return false (would need JS)
                 Value::Bool(false)
             }
             
