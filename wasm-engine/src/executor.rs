@@ -121,12 +121,23 @@ impl Executor {
                     ).into());
                     
                     if frame.is_loop && frame.iteration_count > 0 {
-                        // More iterations remaining - set iteration_count for repeat_basic to use
-                        self.iteration_count = frame.iteration_count;
-                        web_sys::console::log_1(&format!(
-                            "[WASM] Loop iteration complete, {} remaining, will re-execute block at index {}",
-                            frame.iteration_count, self.block_index
-                        ).into());
+                        // For repeat_while_true (iteration_count == MAX), we need to re-evaluate
+                        // the condition each time. For repeat_basic, we use the remaining count.
+                        if frame.iteration_count == u32::MAX {
+                            // repeat_while_true or repeat_inf - re-execute block to check condition
+                            self.iteration_count = 0; // Reset so block re-evaluates condition
+                            web_sys::console::log_1(&format!(
+                                "[WASM] Conditional loop iteration complete, will re-check condition at block {}",
+                                self.block_index
+                            ).into());
+                        } else {
+                            // repeat_basic - use remaining count
+                            self.iteration_count = frame.iteration_count;
+                            web_sys::console::log_1(&format!(
+                                "[WASM] Loop iteration complete, {} remaining, will re-execute block at index {}",
+                                frame.iteration_count, self.block_index
+                            ).into());
+                        }
                         // Re-execute the loop block (don't increment block_index)
                         return ExecuteResult::Continue;
                     }
@@ -541,7 +552,14 @@ impl Executor {
                 let option = self.get_param_string(block, 1);
                 
                 // If option is "until", invert the condition
+                // "until" means loop UNTIL condition becomes true (loop while condition is false)
+                // "while" means loop WHILE condition is true
                 let should_loop = if option == "until" { !condition } else { condition };
+                
+                web_sys::console::log_1(&format!(
+                    "[WASM] repeat_while_true: condition={}, option='{}', should_loop={}",
+                    condition, option, should_loop
+                ).into());
                 
                 if should_loop {
                     if let Some(statements) = &block.statements {
@@ -563,6 +581,8 @@ impl Executor {
                         }
                     }
                 }
+                // Condition not met (or no longer met), exit loop
+                self.iteration_count = 0;
                 ExecuteResult::Continue
             }
             
@@ -619,7 +639,14 @@ impl Executor {
     fn get_param_number(&self, block: &Block, index: usize, variables: &HashMap<String, Value>) -> f64 {
         if let Some(params) = &block.params {
             if let Some(param) = params.get(index) {
-                return self.evaluate_value(param, variables).as_number();
+                let value = self.evaluate_value(param, variables);
+                let num = value.as_number();
+                // Debug log for troubleshooting
+                web_sys::console::log_1(&format!(
+                    "[WASM] get_param_number({}, {}): param={:?}, value={:?}, num={}",
+                    block.block_type, index, param, value, num
+                ).into());
+                return num;
             }
         }
         0.0
@@ -887,6 +914,44 @@ impl Executor {
                     return Value::String(format!("{}{}", s1, s2));
                 }
                 Value::String(String::new())
+            }
+            
+            // Collision detection - reach_something
+            "reach_something" => {
+                if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
+                    // params[1] contains the target (wall, wall_up, wall_down, wall_left, wall_right, mouse)
+                    let target = params.get(1).and_then(|v| v.as_str()).unwrap_or("");
+                    
+                    // Screen boundaries: ±240 (x), ±180 (y)
+                    // Consider entity size (using cached values)
+                    let half_width = 25.0;  // Default entity half-width
+                    let half_height = 25.0; // Default entity half-height
+                    
+                    let x = self.cached_entity_x;
+                    let y = self.cached_entity_y;
+                    
+                    let touches_left = x - half_width <= -240.0;
+                    let touches_right = x + half_width >= 240.0;
+                    let touches_up = y + half_height >= 180.0;
+                    let touches_down = y - half_height <= -180.0;
+                    
+                    let result = match target {
+                        "wall" => touches_left || touches_right || touches_up || touches_down,
+                        "wall_up" => touches_up,
+                        "wall_down" => touches_down,
+                        "wall_left" => touches_left,
+                        "wall_right" => touches_right,
+                        _ => false,
+                    };
+                    
+                    web_sys::console::log_1(&format!(
+                        "[WASM] reach_something({}): x={:.1}, y={:.1}, result={}",
+                        target, x, y, result
+                    ).into());
+                    
+                    return Value::Bool(result);
+                }
+                Value::Bool(false)
             }
             
             _ => Value::Null
