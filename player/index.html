@@ -864,6 +864,11 @@
                 }
                 
                 this.ctx.restore();
+                
+                // Draw dialog balloon (after restore to use screen coordinates)
+                if (entity.dialogMessage) {
+                    this.drawDialog(entity);
+                }
             }
             
             drawFallbackRect(entity) {
@@ -874,6 +879,121 @@
                     entity.width || 50, 
                     entity.height || 50
                 );
+            }
+            
+            // Draw dialog balloon (speak/think)
+            drawDialog(entity) {
+                const message = entity.dialogMessage;
+                const mode = entity.dialogMode || 'speak';
+                
+                this.ctx.save();
+                
+                // Calculate position in screen coordinates
+                const screenX = 240 + entity.x;
+                const screenY = 180 - entity.y;
+                
+                // Set font and measure text
+                this.ctx.font = '14px "Noto Sans KR", sans-serif';
+                const textMetrics = this.ctx.measureText(message);
+                const textWidth = textMetrics.width;
+                const textHeight = 18; // Approximate line height
+                
+                // Balloon dimensions
+                const padding = 12;
+                const balloonWidth = textWidth + padding * 2;
+                const balloonHeight = textHeight + padding * 2;
+                const balloonX = screenX - balloonWidth / 2;
+                const balloonY = screenY - (entity.height || 50) / 2 - balloonHeight - 20;
+                const radius = 10;
+                
+                if (mode === 'think') {
+                    // Think bubble: cloud-style with dots
+                    this.drawThinkBubble(balloonX, balloonY, balloonWidth, balloonHeight, radius, screenX, screenY - (entity.height || 50) / 2);
+                } else {
+                    // Speak bubble: regular balloon with tail
+                    this.drawSpeakBubble(balloonX, balloonY, balloonWidth, balloonHeight, radius, screenX, screenY - (entity.height || 50) / 2);
+                }
+                
+                // Draw text
+                this.ctx.fillStyle = '#000000';
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'middle';
+                this.ctx.fillText(message, screenX, balloonY + balloonHeight / 2);
+                
+                this.ctx.restore();
+            }
+            
+            // Draw speak balloon (with triangle tail)
+            drawSpeakBubble(x, y, width, height, radius, tailX, tailY) {
+                const ctx = this.ctx;
+                
+                // Draw rounded rectangle
+                ctx.beginPath();
+                ctx.moveTo(x + radius, y);
+                ctx.lineTo(x + width - radius, y);
+                ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+                ctx.lineTo(x + width, y + height - radius);
+                ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+                
+                // Tail (triangle pointing down)
+                const tailWidth = 10;
+                ctx.lineTo(x + width / 2 + tailWidth / 2, y + height);
+                ctx.lineTo(tailX, tailY - 5);
+                ctx.lineTo(x + width / 2 - tailWidth / 2, y + height);
+                
+                ctx.lineTo(x + radius, y + height);
+                ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+                ctx.lineTo(x, y + radius);
+                ctx.quadraticCurveTo(x, y, x + radius, y);
+                ctx.closePath();
+                
+                // Fill and stroke
+                ctx.fillStyle = '#ffffff';
+                ctx.fill();
+                ctx.strokeStyle = '#000000';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            }
+            
+            // Draw think bubble (cloud-style with dots)
+            drawThinkBubble(x, y, width, height, radius, tailX, tailY) {
+                const ctx = this.ctx;
+                
+                // Draw cloud-like rounded rectangle
+                ctx.beginPath();
+                ctx.moveTo(x + radius, y);
+                ctx.lineTo(x + width - radius, y);
+                ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+                ctx.lineTo(x + width, y + height - radius);
+                ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+                ctx.lineTo(x + radius, y + height);
+                ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+                ctx.lineTo(x, y + radius);
+                ctx.quadraticCurveTo(x, y, x + radius, y);
+                ctx.closePath();
+                
+                // Fill and stroke
+                ctx.fillStyle = '#ffffff';
+                ctx.fill();
+                ctx.strokeStyle = '#000000';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                
+                // Draw thought dots (3 circles getting smaller)
+                const dotX = tailX;
+                let dotY = y + height + 8;
+                const dotSizes = [6, 4, 3];
+                
+                for (const size of dotSizes) {
+                    ctx.beginPath();
+                    ctx.arc(dotX, dotY, size, 0, Math.PI * 2);
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fill();
+                    ctx.strokeStyle = '#000000';
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+                    dotY += size * 2 + 3;
+                }
             }
             
             // Preload sprite images
