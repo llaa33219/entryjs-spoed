@@ -1042,10 +1042,16 @@
                 }
                 
                 const renderData = this.wasmEngine.get_render_data();
-                if (!renderData || renderData === '[]') return;
+                if (!renderData || renderData === '[]') {
+                    console.log('[Fill] renderData is empty, returning');
+                    return;
+                }
                 const entities = JSON.parse(renderData);
                 const entity = entities[entityId];
-                if (!entity) return;
+                if (!entity) {
+                    console.log('[Fill] entity not found at index', entityId);
+                    return;
+                }
                 
                 const brushState = this.getBrushState(entityKey);
                 brushState.fillDown = true;
@@ -1054,6 +1060,8 @@
                 const screenX = 240 + entity.x;
                 const screenY = 180 - entity.y;
                 brushState.fillPath.push({ x: screenX, y: screenY });
+                
+                console.log('[Fill] Started fill tracking. fillDown:', brushState.fillDown, 'firstPoint:', { x: screenX, y: screenY });
             }
             
             // Handle stop fill (close and fill the polygon)
@@ -1136,10 +1144,15 @@
                             const distance = Math.sqrt(dx * dx + dy * dy);
                             if (distance >= 2) { // Minimum 2px distance between points
                                 brushState.fillPath.push({ x: screenX, y: screenY });
+                                // Log every 10 points to avoid spam
+                                if (brushState.fillPath.length % 10 === 0) {
+                                    console.log('[Fill] Path points:', brushState.fillPath.length);
+                                }
                             }
                         } else {
                             // Fallback: add first point if somehow missing
                             brushState.fillPath.push({ x: screenX, y: screenY });
+                            console.log('[Fill] Added fallback first point');
                         }
                     }
                     
