@@ -13,6 +13,59 @@ pub use blocks::*;
 pub use executor::*;
 pub use entity::*;
 
+/// Actions that need to be executed by JavaScript
+/// These are queued during WASM execution and consumed by JS after each tick
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type", content = "data")]
+pub enum JsAction {
+    // Sound actions
+    PlaySound { entity_id: usize, sound_id: String },
+    PlaySoundWait { entity_id: usize, sound_id: String },
+    PlaySoundFromSecond { entity_id: usize, sound_id: String, start_second: f64 },
+    StopSound,
+    SetSoundVolume { volume: f64 },
+    ChangeSoundVolume { delta: f64 },
+    SetSoundSpeed { speed: f64 },
+    ChangeSoundSpeed { delta: f64 },
+    
+    // Clone actions
+    CreateClone { entity_id: usize, target: String },
+    DeleteClone { entity_id: usize },
+    RemoveAllClones,
+    
+    // Message actions
+    MessageCast { message_id: String },
+    MessageCastWait { message_id: String },
+    
+    // Scene actions
+    StartScene { scene_id: String },
+    StartNextScene,
+    StartPreviousScene,
+    
+    // Variable visibility
+    ShowVariable { variable_id: String },
+    HideVariable { variable_id: String },
+    ShowList { list_id: String },
+    HideList { list_id: String },
+    
+    // Brush/Pen actions
+    BrushStamp { entity_id: usize },
+    BrushEraseAll,
+    
+    // Timer actions  
+    TimerAction { action: String },  // start, stop, reset
+    SetTimerVisible { visible: bool },
+    
+    // Object actions
+    ChangeObjectIndex { entity_id: usize, location: String },
+    
+    // Input actions
+    AskAndWait { entity_id: usize, message: String },
+    
+    // Project control
+    RestartProject,
+}
+
 /// Initialize panic hook for better error messages in browser console
 #[wasm_bindgen(start)]
 pub fn init() {
@@ -30,6 +83,8 @@ pub struct WasmEngine {
     tick_count: u64,
     fps: u32,
     project_data: Option<ProjectData>,
+    /// Pending JavaScript actions to be consumed after tick()
+    pending_js_actions: Vec<JsAction>,
 }
 
 #[wasm_bindgen]
@@ -45,6 +100,7 @@ impl WasmEngine {
             tick_count: 0,
             fps: 60,
             project_data: None,
+            pending_js_actions: Vec::new(),
         }
     }
 
@@ -133,7 +189,7 @@ impl WasmEngine {
         let mut completed = Vec::new();
         
         for (idx, executor) in self.executors.iter_mut().enumerate() {
-            let result = executor.execute(&mut self.entities, &mut self.variables);
+            let result = executor.execute(&mut self.entities, &mut self.variables, &mut self.pending_js_actions);
             
             // Log first few ticks for debugging
             if self.tick_count <= 5 {
@@ -152,6 +208,24 @@ impl WasmEngine {
         for idx in completed.into_iter().rev() {
             self.executors.remove(idx);
         }
+    }
+    
+    /// Get pending JavaScript actions as JSON and clear the queue
+    /// Call this after tick() to process any actions that require JS
+    #[wasm_bindgen]
+    pub fn get_js_actions(&mut self) -> String {
+        if self.pending_js_actions.is_empty() {
+            return "[]".to_string();
+        }
+        
+        let actions = std::mem::take(&mut self.pending_js_actions);
+        serde_json::to_string(&actions).unwrap_or_else(|_| "[]".to_string())
+    }
+    
+    /// Check if there are pending JS actions
+    #[wasm_bindgen]
+    pub fn has_pending_js_actions(&self) -> bool {
+        !self.pending_js_actions.is_empty()
     }
 
     /// Get render data as JSON string for JavaScript to draw

@@ -221,6 +221,30 @@ export class WasmEngine {
         const ret = wasm.wasmengine_get_tick(this.__wbg_ptr);
         return BigInt.asUintN(64, ret);
     }
+    /**
+     * Get pending JavaScript actions as JSON string and clear the queue
+     * @returns {string}
+     */
+    get_js_actions() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.wasmengine_get_js_actions(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * Check if there are pending JS actions
+     * @returns {boolean}
+     */
+    has_pending_js_actions() {
+        const ret = wasm.wasmengine_has_pending_js_actions(this.__wbg_ptr);
+        return ret !== 0;
+    }
 }
 if (Symbol.dispose) WasmEngine.prototype[Symbol.dispose] = WasmEngine.prototype.free;
 

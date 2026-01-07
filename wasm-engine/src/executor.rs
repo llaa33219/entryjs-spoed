@@ -1,7 +1,7 @@
 //! Executor module - handles block execution with call stack
 
 use std::collections::HashMap;
-use crate::{Block, Entity, Value};
+use crate::{Block, Entity, Value, JsAction};
 
 /// Result of block execution
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -36,6 +36,15 @@ pub struct Executor {
     pub cached_mouse_y: f64,
     pub mouse_clicked: bool,
     pub pressed_keys: Vec<u32>,
+    
+    // Timed animation state
+    timed_animation_frames: u32,
+    timed_dx: f64,
+    timed_dy: f64,
+    timed_d_rotation: f64,
+    timed_d_direction: f64,
+    timed_target_x: f64,
+    timed_target_y: f64,
 }
 
 #[derive(Clone, Debug)]
@@ -66,6 +75,14 @@ impl Executor {
             cached_mouse_y: 0.0,
             mouse_clicked: false,
             pressed_keys: Vec::new(),
+            
+            timed_animation_frames: 0,
+            timed_dx: 0.0,
+            timed_dy: 0.0,
+            timed_d_rotation: 0.0,
+            timed_d_direction: 0.0,
+            timed_target_x: 0.0,
+            timed_target_y: 0.0,
         }
     }
     
@@ -95,7 +112,8 @@ impl Executor {
     pub fn execute(
         &mut self, 
         entities: &mut Vec<Entity>, 
-        variables: &mut HashMap<String, Value>
+        variables: &mut HashMap<String, Value>,
+        js_actions: &mut Vec<JsAction>,
     ) -> ExecuteResult {
         // Log current state at start of execute
         web_sys::console::log_1(&format!(
@@ -169,7 +187,7 @@ impl Executor {
 
         // Execute block
         let entity = entities.get_mut(self.entity_idx);
-        let result = self.execute_block(&block, entity, variables);
+        let result = self.execute_block(&block, entity, variables, js_actions);
 
         match result {
             ExecuteResult::Continue => {
@@ -203,6 +221,7 @@ impl Executor {
         block: &Block,
         entity: Option<&mut Entity>,
         variables: &mut HashMap<String, Value>,
+        js_actions: &mut Vec<JsAction>,
     ) -> ExecuteResult {
         let block_type = block.block_type.as_str();
         
@@ -211,8 +230,12 @@ impl Executor {
             "when_run_button_click" | 
             "when_some_key_pressed" |
             "when_object_click" |
+            "when_object_click_canceled" |
             "when_clone_start" |
-            "when_message_cast" => ExecuteResult::Continue,
+            "when_message_cast" |
+            "when_scene_start" |
+            "mouse_clicked" |
+            "mouse_click_cancled" => ExecuteResult::Continue,
 
             // === Movement blocks ===
             "move_direction" => {
@@ -317,6 +340,302 @@ impl Executor {
                 }
                 ExecuteResult::Continue
             }
+            
+            "move_xy_time" => {
+                if let Some(e) = entity {
+                    // Check if we're in the middle of a timed animation
+                    if self.timed_animation_frames > 0 {
+                        // Apply delta movement
+                        e.x += self.timed_dx;
+                        e.y += self.timed_dy;
+                        self.timed_animation_frames -= 1;
+                        
+                        if self.timed_animation_frames == 0 {
+                            // Animation complete, move to next block
+                            return ExecuteResult::Continue;
+                        } else {
+                            return ExecuteResult::Wait;
+                        }
+                    } else {
+                        // Start the timed animation
+                        let time_value = self.get_param_number(block, 0, variables);
+                        let x_value = self.get_param_number(block, 1, variables);
+                        let y_value = self.get_param_number(block, 2, variables);
+                        
+                        let frame_count = (time_value * 60.0).floor().max(1.0) as u32;
+                        self.timed_dx = x_value / frame_count as f64;
+                        self.timed_dy = y_value / frame_count as f64;
+                        self.timed_animation_frames = frame_count;
+                        
+                        // Apply first frame
+                        e.x += self.timed_dx;
+                        e.y += self.timed_dy;
+                        self.timed_animation_frames -= 1;
+                        
+                        if self.timed_animation_frames == 0 {
+                            return ExecuteResult::Continue;
+                        }
+                        return ExecuteResult::Wait;
+                    }
+                }
+                ExecuteResult::Continue
+            }
+            
+            "locate_xy_time" => {
+                if let Some(e) = entity {
+                    // Check if we're in the middle of a timed animation
+                    if self.timed_animation_frames > 0 {
+                        // Move towards target
+                        let dx = (self.timed_target_x - e.x) / self.timed_animation_frames as f64;
+                        let dy = (self.timed_target_y - e.y) / self.timed_animation_frames as f64;
+                        e.x += dx;
+                        e.y += dy;
+                        self.timed_animation_frames -= 1;
+                        
+                        if self.timed_animation_frames == 0 {
+                            // Snap to exact target
+                            e.x = self.timed_target_x;
+                            e.y = self.timed_target_y;
+                            return ExecuteResult::Continue;
+                        } else {
+                            return ExecuteResult::Wait;
+                        }
+                    } else {
+                        // Start the timed animation
+                        let time_value = self.get_param_number(block, 0, variables);
+                        let x_value = self.get_param_number(block, 1, variables);
+                        let y_value = self.get_param_number(block, 2, variables);
+                        
+                        let frame_count = (time_value * 60.0).floor().max(1.0) as u32;
+                        self.timed_target_x = x_value;
+                        self.timed_target_y = y_value;
+                        self.timed_animation_frames = frame_count;
+                        
+                        // Apply first frame
+                        let dx = (self.timed_target_x - e.x) / frame_count as f64;
+                        let dy = (self.timed_target_y - e.y) / frame_count as f64;
+                        e.x += dx;
+                        e.y += dy;
+                        self.timed_animation_frames -= 1;
+                        
+                        if self.timed_animation_frames == 0 {
+                            e.x = self.timed_target_x;
+                            e.y = self.timed_target_y;
+                            return ExecuteResult::Continue;
+                        }
+                        return ExecuteResult::Wait;
+                    }
+                }
+                ExecuteResult::Continue
+            }
+            
+            "rotate_by_time" => {
+                if let Some(e) = entity {
+                    // Check if we're in the middle of a timed animation
+                    if self.timed_animation_frames > 0 {
+                        // Apply delta rotation
+                        e.rotation += self.timed_d_rotation;
+                        self.timed_animation_frames -= 1;
+                        
+                        if self.timed_animation_frames == 0 {
+                            return ExecuteResult::Continue;
+                        } else {
+                            return ExecuteResult::Wait;
+                        }
+                    } else {
+                        // Start the timed animation
+                        let time_value = self.get_param_number(block, 0, variables);
+                        let angle_value = self.get_param_number(block, 1, variables);
+                        
+                        let frame_count = (time_value * 60.0).floor().max(1.0) as u32;
+                        self.timed_d_rotation = angle_value / frame_count as f64;
+                        self.timed_animation_frames = frame_count;
+                        
+                        // Apply first frame
+                        e.rotation += self.timed_d_rotation;
+                        self.timed_animation_frames -= 1;
+                        
+                        if self.timed_animation_frames == 0 {
+                            return ExecuteResult::Continue;
+                        }
+                        return ExecuteResult::Wait;
+                    }
+                }
+                ExecuteResult::Continue
+            }
+            
+            "direction_relative_duration" => {
+                if let Some(e) = entity {
+                    // Check if we're in the middle of a timed animation
+                    if self.timed_animation_frames > 0 {
+                        // Apply delta direction
+                        e.direction += self.timed_d_direction;
+                        self.timed_animation_frames -= 1;
+                        
+                        if self.timed_animation_frames == 0 {
+                            return ExecuteResult::Continue;
+                        } else {
+                            return ExecuteResult::Wait;
+                        }
+                    } else {
+                        // Start the timed animation
+                        let time_value = self.get_param_number(block, 0, variables);
+                        let direction_value = self.get_param_number(block, 1, variables);
+                        
+                        let frame_count = (time_value * 60.0).floor().max(1.0) as u32;
+                        self.timed_d_direction = direction_value / frame_count as f64;
+                        self.timed_animation_frames = frame_count;
+                        
+                        // Apply first frame
+                        e.direction += self.timed_d_direction;
+                        self.timed_animation_frames -= 1;
+                        
+                        if self.timed_animation_frames == 0 {
+                            return ExecuteResult::Continue;
+                        }
+                        return ExecuteResult::Wait;
+                    }
+                }
+                ExecuteResult::Continue
+            }
+            
+            "bounce_wall" => {
+                if let Some(e) = entity {
+                    // Screen boundaries: ±240 (x), ±180 (y)
+                    let half_width = e.width * e.scale_x.abs() / 2.0;
+                    let half_height = e.height * e.scale_y.abs() / 2.0;
+                    
+                    // Calculate current movement angle (reserved for future use)
+                    let _angle = (e.rotation + e.direction) % 360.0;
+                    
+                    // Check wall collisions and bounce
+                    let touches_right = e.x + half_width >= 240.0;
+                    let touches_left = e.x - half_width <= -240.0;
+                    let touches_up = e.y + half_height >= 180.0;
+                    let touches_down = e.y - half_height <= -180.0;
+                    
+                    // Horizontal bounce (left/right walls)
+                    if touches_left || touches_right {
+                        // Reflect direction horizontally: new_direction = -direction + 360
+                        e.direction = (-e.direction + 360.0) % 360.0;
+                        
+                        // Keep entity in bounds
+                        if touches_right {
+                            e.x = 240.0 - half_width - 1.0;
+                        } else {
+                            e.x = -240.0 + half_width + 1.0;
+                        }
+                    }
+                    
+                    // Vertical bounce (up/down walls)
+                    if touches_up || touches_down {
+                        // Reflect direction vertically: new_direction = -direction + 180
+                        e.direction = (-e.direction + 180.0) % 360.0;
+                        
+                        // Keep entity in bounds
+                        if touches_up {
+                            e.y = 180.0 - half_height - 1.0;
+                        } else {
+                            e.y = -180.0 + half_height + 1.0;
+                        }
+                    }
+                }
+                ExecuteResult::Continue
+            }
+            
+            "locate" => {
+                // Move to another object or mouse position
+                // This requires knowing target entity position - for now, move to mouse
+                if let Some(e) = entity {
+                    let target = self.get_param_string(block, 0);
+                    if target == "mouse" {
+                        e.x = self.cached_mouse_x;
+                        e.y = self.cached_mouse_y;
+                    }
+                    // For other objects, we'd need access to all entities
+                }
+                ExecuteResult::Continue
+            }
+            
+            "see_angle_object" => {
+                // Look at another object or mouse
+                if let Some(e) = entity {
+                    let target = self.get_param_string(block, 0);
+                    let target_x: f64;
+                    let target_y: f64;
+                    
+                    if target == "mouse" {
+                        target_x = self.cached_mouse_x;
+                        target_y = self.cached_mouse_y;
+                    } else {
+                        // For other objects, we'd need entity lookup
+                        // Default to current position (no change)
+                        target_x = e.x;
+                        target_y = e.y;
+                    }
+                    
+                    let dx = target_x - e.x;
+                    let dy = target_y - e.y;
+                    
+                    if dx != 0.0 || dy != 0.0 {
+                        let angle = if dx >= 0.0 {
+                            (-dy.atan2(dx)).to_degrees() + 90.0
+                        } else {
+                            (-dy.atan2(dx)).to_degrees() + 270.0
+                        };
+                        e.direction = angle;
+                    }
+                }
+                ExecuteResult::Continue
+            }
+            
+            "locate_object_time" => {
+                // Move to another object over time
+                if let Some(e) = entity {
+                    if self.timed_animation_frames > 0 {
+                        // Move towards target
+                        e.x += self.timed_dx;
+                        e.y += self.timed_dy;
+                        self.timed_animation_frames -= 1;
+                        
+                        if self.timed_animation_frames == 0 {
+                            e.x = self.timed_target_x;
+                            e.y = self.timed_target_y;
+                            return ExecuteResult::Continue;
+                        }
+                        return ExecuteResult::Wait;
+                    } else {
+                        let time_value = self.get_param_number(block, 0, variables);
+                        let target = self.get_param_string(block, 1);
+                        
+                        let (target_x, target_y) = if target == "mouse" {
+                            (self.cached_mouse_x, self.cached_mouse_y)
+                        } else {
+                            // For other objects, default to current position
+                            (e.x, e.y)
+                        };
+                        
+                        let frame_count = (time_value * 60.0).floor().max(1.0) as u32;
+                        self.timed_target_x = target_x;
+                        self.timed_target_y = target_y;
+                        self.timed_dx = (target_x - e.x) / frame_count as f64;
+                        self.timed_dy = (target_y - e.y) / frame_count as f64;
+                        self.timed_animation_frames = frame_count;
+                        
+                        e.x += self.timed_dx;
+                        e.y += self.timed_dy;
+                        self.timed_animation_frames -= 1;
+                        
+                        if self.timed_animation_frames == 0 {
+                            e.x = self.timed_target_x;
+                            e.y = self.timed_target_y;
+                            return ExecuteResult::Continue;
+                        }
+                        return ExecuteResult::Wait;
+                    }
+                }
+                ExecuteResult::Continue
+            }
 
             // === Looks blocks ===
             "show" => {
@@ -340,6 +659,24 @@ impl Executor {
                 ExecuteResult::Continue
             }
             
+            "change_to_previous_shape" => {
+                if let Some(e) = entity {
+                    e.prev_picture();
+                }
+                ExecuteResult::Continue
+            }
+            
+            "change_to_some_shape" => {
+                if let Some(e) = entity {
+                    // Get the picture ID from params
+                    let picture_id = self.get_param_string(block, 0);
+                    if !picture_id.is_empty() {
+                        e.set_picture(&picture_id);
+                    }
+                }
+                ExecuteResult::Continue
+            }
+            
             "set_effect" => {
                 if let Some(e) = entity {
                     let effect = self.get_param_string(block, 0);
@@ -358,9 +695,54 @@ impl Executor {
                 ExecuteResult::Continue
             }
             
-            "clear_effect" => {
+            "clear_effect" | "erase_all_effects" => {
                 if let Some(e) = entity {
                     e.clear_effects();
+                }
+                ExecuteResult::Continue
+            }
+            
+            "add_effect_amount" => {
+                // This is different from change_effect - it adds to different effect types
+                if let Some(e) = entity {
+                    let effect = self.get_param_string(block, 0);
+                    let value = self.get_param_number(block, 1, variables);
+                    // In Entry.js, add_effect_amount works with color/brightness/transparency
+                    // using a different mapping than set_effect
+                    match effect.as_str() {
+                        "color" => {
+                            // color maps to hsv effect
+                            e.color_effect += value;
+                        }
+                        "brightness" => {
+                            e.brightness += value;
+                        }
+                        "transparency" => {
+                            e.transparency = (e.transparency + value).clamp(0.0, 100.0);
+                        }
+                        _ => {}
+                    }
+                }
+                ExecuteResult::Continue
+            }
+            
+            "change_effect_amount" => {
+                // This sets the effect to an absolute value
+                if let Some(e) = entity {
+                    let effect = self.get_param_string(block, 0);
+                    let value = self.get_param_number(block, 1, variables);
+                    match effect.as_str() {
+                        "color" => {
+                            e.color_effect = value;
+                        }
+                        "brightness" => {
+                            e.brightness = value;
+                        }
+                        "transparency" => {
+                            e.transparency = value.clamp(0.0, 100.0);
+                        }
+                        _ => {}
+                    }
                 }
                 ExecuteResult::Continue
             }
@@ -392,6 +774,16 @@ impl Executor {
                 if let Some(e) = entity {
                     e.scale_x = -e.scale_x;
                 }
+                ExecuteResult::Continue
+            }
+            
+            "change_object_index" => {
+                // Change z-index (layer order) - handled by JavaScript side
+                let location = self.get_param_string(block, 0);
+                js_actions.push(JsAction::ChangeObjectIndex {
+                    entity_id: self.entity_idx,
+                    location,
+                });
                 ExecuteResult::Continue
             }
             
@@ -632,6 +1024,292 @@ impl Executor {
             "stop_object" => {
                 // Stop execution
                 ExecuteResult::End
+            }
+            
+            "restart_project" => {
+                js_actions.push(JsAction::RestartProject);
+                ExecuteResult::End
+            }
+            
+            "create_clone" => {
+                let target = self.get_param_string(block, 0);
+                js_actions.push(JsAction::CreateClone {
+                    entity_id: self.entity_idx,
+                    target,
+                });
+                ExecuteResult::Continue
+            }
+            
+            "delete_clone" => {
+                js_actions.push(JsAction::DeleteClone {
+                    entity_id: self.entity_idx,
+                });
+                ExecuteResult::End
+            }
+            
+            "remove_all_clones" => {
+                js_actions.push(JsAction::RemoveAllClones);
+                ExecuteResult::Continue
+            }
+            
+            "message_cast" => {
+                let message_id = self.get_param_string(block, 0);
+                js_actions.push(JsAction::MessageCast { message_id });
+                ExecuteResult::Continue
+            }
+            
+            "message_cast_wait" => {
+                let message_id = self.get_param_string(block, 0);
+                js_actions.push(JsAction::MessageCastWait { message_id });
+                // This would need to wait for message handlers to complete
+                ExecuteResult::Continue
+            }
+            
+            "start_scene" => {
+                let scene_id = self.get_param_string(block, 0);
+                js_actions.push(JsAction::StartScene { scene_id });
+                ExecuteResult::End
+            }
+            
+            "start_neighbor_scene" => {
+                let direction = self.get_param_string(block, 0);
+                if direction == "next" {
+                    js_actions.push(JsAction::StartNextScene);
+                } else {
+                    js_actions.push(JsAction::StartPreviousScene);
+                }
+                ExecuteResult::End
+            }
+            
+            // === List blocks ===
+            "add_value_to_list" => {
+                // Lists are handled via variables HashMap for now
+                let list_id = self.get_param_string(block, 1);
+                let value = self.get_param_value(block, 0, variables);
+                
+                if let Some(list_var) = variables.get_mut(&list_id) {
+                    if let Value::List(list) = list_var {
+                        list.push(value);
+                    }
+                }
+                ExecuteResult::Continue
+            }
+            
+            "remove_value_from_list" => {
+                let list_id = self.get_param_string(block, 1);
+                let index = self.get_param_number(block, 0, variables) as usize;
+                
+                if let Some(list_var) = variables.get_mut(&list_id) {
+                    if let Value::List(list) = list_var {
+                        if index > 0 && index <= list.len() {
+                            list.remove(index - 1);
+                        }
+                    }
+                }
+                ExecuteResult::Continue
+            }
+            
+            "insert_value_to_list" => {
+                let list_id = self.get_param_string(block, 1);
+                let value = self.get_param_value(block, 0, variables);
+                let index = self.get_param_number(block, 2, variables) as usize;
+                
+                if let Some(list_var) = variables.get_mut(&list_id) {
+                    if let Value::List(list) = list_var {
+                        if index > 0 && index <= list.len() + 1 {
+                            list.insert(index - 1, value);
+                        }
+                    }
+                }
+                ExecuteResult::Continue
+            }
+            
+            "change_value_list_index" => {
+                let list_id = self.get_param_string(block, 0);
+                let index = self.get_param_number(block, 1, variables) as usize;
+                let value = self.get_param_value(block, 2, variables);
+                
+                if let Some(list_var) = variables.get_mut(&list_id) {
+                    if let Value::List(list) = list_var {
+                        if index > 0 && index <= list.len() {
+                            list[index - 1] = value;
+                        }
+                    }
+                }
+                ExecuteResult::Continue
+            }
+            
+            "show_variable" => {
+                let variable_id = self.get_param_string(block, 0);
+                js_actions.push(JsAction::ShowVariable { variable_id });
+                ExecuteResult::Continue
+            }
+            
+            "hide_variable" => {
+                let variable_id = self.get_param_string(block, 0);
+                js_actions.push(JsAction::HideVariable { variable_id });
+                ExecuteResult::Continue
+            }
+            
+            "show_list" => {
+                let list_id = self.get_param_string(block, 0);
+                js_actions.push(JsAction::ShowList { list_id });
+                ExecuteResult::Continue
+            }
+            
+            "hide_list" => {
+                let list_id = self.get_param_string(block, 0);
+                js_actions.push(JsAction::HideList { list_id });
+                ExecuteResult::Continue
+            }
+            
+            "ask_and_wait" => {
+                let message = self.get_param_value(block, 0, variables);
+                let message_str = Self::value_as_string(&message);
+                js_actions.push(JsAction::AskAndWait {
+                    entity_id: self.entity_idx,
+                    message: message_str,
+                });
+                // TODO: This should wait for user input - needs wait mechanism
+                ExecuteResult::Continue
+            }
+            
+            // === Sound blocks (require JS Audio handling) ===
+            "sound_something" => {
+                let sound_id = self.get_param_string(block, 0);
+                js_actions.push(JsAction::PlaySound {
+                    entity_id: self.entity_idx,
+                    sound_id,
+                });
+                ExecuteResult::Continue
+            }
+            
+            "sound_something_wait" => {
+                let sound_id = self.get_param_string(block, 0);
+                js_actions.push(JsAction::PlaySoundWait {
+                    entity_id: self.entity_idx,
+                    sound_id,
+                });
+                // TODO: Should wait for sound to finish playing
+                ExecuteResult::Continue
+            }
+            
+            "sound_something_second" => {
+                let sound_id = self.get_param_string(block, 0);
+                let start_second = self.get_param_number(block, 1, variables);
+                js_actions.push(JsAction::PlaySoundFromSecond {
+                    entity_id: self.entity_idx,
+                    sound_id,
+                    start_second,
+                });
+                ExecuteResult::Continue
+            }
+            
+            "sound_stop" => {
+                js_actions.push(JsAction::StopSound);
+                ExecuteResult::Continue
+            }
+            
+            "sound_volume_change" => {
+                let delta = self.get_param_number(block, 0, variables);
+                js_actions.push(JsAction::ChangeSoundVolume { delta });
+                ExecuteResult::Continue
+            }
+            
+            "sound_volume_set" => {
+                let volume = self.get_param_number(block, 0, variables);
+                js_actions.push(JsAction::SetSoundVolume { volume });
+                ExecuteResult::Continue
+            }
+            
+            "sound_speed_change" => {
+                let delta = self.get_param_number(block, 0, variables);
+                js_actions.push(JsAction::ChangeSoundSpeed { delta });
+                ExecuteResult::Continue
+            }
+            
+            "sound_speed_set" => {
+                let speed = self.get_param_number(block, 0, variables);
+                js_actions.push(JsAction::SetSoundSpeed { speed });
+                ExecuteResult::Continue
+            }
+            
+            // === Timer blocks ===
+            "choose_project_timer_action" => {
+                let action = self.get_param_string(block, 1);
+                js_actions.push(JsAction::TimerAction { action });
+                ExecuteResult::Continue
+            }
+            
+            "set_visible_project_timer" => {
+                let action = self.get_param_string(block, 1);
+                let visible = action == "SHOW" || action == "show";
+                js_actions.push(JsAction::SetTimerVisible { visible });
+                ExecuteResult::Continue
+            }
+            
+            // === Brush/Pen blocks ===
+            "brush_stamp" => {
+                js_actions.push(JsAction::BrushStamp {
+                    entity_id: self.entity_idx,
+                });
+                ExecuteResult::Continue
+            }
+            
+            "brush_down" | "brush_up" => {
+                if let Some(e) = entity {
+                    e.brush_down = block_type == "brush_down";
+                }
+                ExecuteResult::Continue
+            }
+            
+            "set_brush_color" => {
+                if let Some(e) = entity {
+                    let color = self.get_param_string(block, 0);
+                    if !color.is_empty() {
+                        e.brush_color = color;
+                    }
+                }
+                ExecuteResult::Continue
+            }
+            
+            "set_brush_size" | "change_brush_size" => {
+                if let Some(e) = entity {
+                    let value = self.get_param_number(block, 0, variables);
+                    if block_type == "set_brush_size" {
+                        e.brush_size = value.max(1.0);
+                    } else {
+                        e.brush_size = (e.brush_size + value).max(1.0);
+                    }
+                }
+                ExecuteResult::Continue
+            }
+            
+            "brush_erase_all" | "brush_clear" => {
+                js_actions.push(JsAction::BrushEraseAll);
+                ExecuteResult::Continue
+            }
+            
+            // === Additional Looks blocks ===
+            "stretch_scale_size" => {
+                if let Some(e) = entity {
+                    let dimension = self.get_param_string(block, 0);
+                    let value = self.get_param_number(block, 1, variables);
+                    if dimension == "WIDTH" {
+                        e.scale_x += value / 100.0;
+                    } else {
+                        e.scale_y += value / 100.0;
+                    }
+                }
+                ExecuteResult::Continue
+            }
+            
+            "reset_scale_size" => {
+                if let Some(e) = entity {
+                    e.scale_x = 1.0;
+                    e.scale_y = 1.0;
+                }
+                ExecuteResult::Continue
             }
 
             // === Variable blocks ===
@@ -950,6 +1628,186 @@ impl Executor {
                 Value::String(String::new())
             }
             
+            "substring" => {
+                if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
+                    let val = params.get(1).map(|v| self.evaluate_value(v, variables)).unwrap_or(Value::Null);
+                    let s = Self::value_as_string(&val);
+                    let start = params.get(3).map(|v| self.evaluate_value(v, variables).as_number()).unwrap_or(1.0) as usize;
+                    let end = params.get(5).map(|v| self.evaluate_value(v, variables).as_number()).unwrap_or(1.0) as usize;
+                    
+                    if start > 0 && end > 0 && start <= s.len() && end <= s.len() {
+                        let min_idx = start.min(end) - 1;
+                        let max_idx = start.max(end);
+                        let chars: Vec<char> = s.chars().collect();
+                        if max_idx <= chars.len() {
+                            return Value::String(chars[min_idx..max_idx].iter().collect());
+                        }
+                    }
+                }
+                Value::String(String::new())
+            }
+            
+            "index_of_string" => {
+                if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
+                    let val = params.get(1).map(|v| self.evaluate_value(v, variables)).unwrap_or(Value::Null);
+                    let s = Self::value_as_string(&val);
+                    let target_val = params.get(3).map(|v| self.evaluate_value(v, variables)).unwrap_or(Value::Null);
+                    let target = Self::value_as_string(&target_val);
+                    
+                    if let Some(idx) = s.find(&target) {
+                        return Value::Number((idx + 1) as f64);
+                    }
+                    return Value::Number(0.0);
+                }
+                Value::Number(0.0)
+            }
+            
+            "replace_string" => {
+                if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
+                    let val = params.get(1).map(|v| self.evaluate_value(v, variables)).unwrap_or(Value::Null);
+                    let s = Self::value_as_string(&val);
+                    let old_val = params.get(3).map(|v| self.evaluate_value(v, variables)).unwrap_or(Value::Null);
+                    let old_word = Self::value_as_string(&old_val);
+                    let new_val = params.get(5).map(|v| self.evaluate_value(v, variables)).unwrap_or(Value::Null);
+                    let new_word = Self::value_as_string(&new_val);
+                    
+                    return Value::String(s.replace(&old_word, &new_word));
+                }
+                Value::String(String::new())
+            }
+            
+            "change_string_case" => {
+                if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
+                    let val = params.get(1).map(|v| self.evaluate_value(v, variables)).unwrap_or(Value::Null);
+                    let s = Self::value_as_string(&val);
+                    let case_type = params.get(3).and_then(|v| v.as_str()).unwrap_or("toUpperCase");
+                    
+                    return Value::String(match case_type {
+                        "toUpperCase" => s.to_uppercase(),
+                        "toLowerCase" => s.to_lowercase(),
+                        _ => s,
+                    });
+                }
+                Value::String(String::new())
+            }
+            
+            "quotient_and_mod" => {
+                if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
+                    let left = params.get(1).map(|v| self.evaluate_value(v, variables).as_number()).unwrap_or(0.0);
+                    let right = params.get(3).map(|v| self.evaluate_value(v, variables).as_number()).unwrap_or(1.0);
+                    let op = params.get(5).and_then(|v| v.as_str()).unwrap_or("QUOTIENT");
+                    
+                    if right != 0.0 {
+                        return Value::Number(match op {
+                            "QUOTIENT" => (left / right).floor(),
+                            "MOD" => left - right * (left / right).floor(),
+                            _ => 0.0,
+                        });
+                    }
+                }
+                Value::Number(0.0)
+            }
+            
+            "get_date" => {
+                // Note: This requires JS Date - return placeholder
+                // In real implementation, this would use js_sys::Date
+                if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
+                    let date_type = params.get(1).and_then(|v| v.as_str()).unwrap_or("YEAR");
+                    let date = js_sys::Date::new_0();
+                    
+                    return Value::Number(match date_type {
+                        "YEAR" => date.get_full_year() as f64,
+                        "MONTH" => (date.get_month() + 1) as f64,
+                        "DAY" => date.get_date() as f64,
+                        "HOUR" => date.get_hours() as f64,
+                        "MINUTE" => date.get_minutes() as f64,
+                        "SECOND" => date.get_seconds() as f64,
+                        "DAY_OF_WEEK" => date.get_day() as f64,
+                        _ => 0.0,
+                    });
+                }
+                Value::Number(0.0)
+            }
+            
+            "distance_something" => {
+                // Calculate distance to mouse or another object
+                if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
+                    let target = params.get(1).and_then(|v| v.as_str()).unwrap_or("mouse");
+                    
+                    let (target_x, target_y) = if target == "mouse" {
+                        (self.cached_mouse_x, self.cached_mouse_y)
+                    } else {
+                        // For other objects, would need entity lookup
+                        (self.cached_entity_x, self.cached_entity_y)
+                    };
+                    
+                    let dx = self.cached_entity_x - target_x;
+                    let dy = self.cached_entity_y - target_y;
+                    return Value::Number((dx * dx + dy * dy).sqrt());
+                }
+                Value::Number(0.0)
+            }
+            
+            "get_project_timer_value" => {
+                // Timer value - requires JS Entry.engine access
+                // Return 0 as placeholder
+                Value::Number(0.0)
+            }
+            
+            "get_canvas_input_value" => {
+                // Answer input value - requires JS Entry.container access
+                Value::String(String::new())
+            }
+            
+            // List value blocks
+            "value_of_index_from_list" | "value_of_list_index" => {
+                if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
+                    let list_id = params.get(1).and_then(|v| v.as_str()).unwrap_or("");
+                    let index = params.get(3).map(|v| self.evaluate_value(v, variables).as_number()).unwrap_or(1.0) as usize;
+                    
+                    if let Some(list_var) = variables.get(list_id) {
+                        if let Value::List(list) = list_var {
+                            if index > 0 && index <= list.len() {
+                                return list[index - 1].clone();
+                            }
+                        }
+                    }
+                }
+                Value::Null
+            }
+            
+            "length_of_list" => {
+                if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
+                    let list_id = params.get(1).and_then(|v| v.as_str()).unwrap_or("");
+                    
+                    if let Some(list_var) = variables.get(list_id) {
+                        if let Value::List(list) = list_var {
+                            return Value::Number(list.len() as f64);
+                        }
+                    }
+                }
+                Value::Number(0.0)
+            }
+            
+            "is_included_in_list" => {
+                if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
+                    let list_id = params.get(1).and_then(|v| v.as_str()).unwrap_or("");
+                    let data = params.get(3).map(|v| self.evaluate_value(v, variables)).unwrap_or(Value::Null);
+                    let data_str = Self::value_as_string(&data);
+                    
+                    if let Some(list_var) = variables.get(list_id) {
+                        if let Value::List(list) = list_var {
+                            for item in list {
+                                if Self::value_as_string(item) == data_str {
+                                    return Value::Bool(true);
+                                }
+                            }
+                        }
+                    }
+                }
+                Value::Bool(false)
+            }
+            
             // Collision detection - reach_something
             "reach_something" => {
                 if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
@@ -1061,5 +1919,8 @@ mod tests {
         assert_eq!(executor.block_index, 0);
         assert_eq!(executor.cached_entity_x, 0.0);
         assert_eq!(executor.cached_entity_direction, 90.0);
+        assert_eq!(executor.timed_animation_frames, 0);
+        assert_eq!(executor.timed_dx, 0.0);
+        assert_eq!(executor.timed_dy, 0.0);
     }
 }

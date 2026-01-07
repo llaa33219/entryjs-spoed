@@ -1,6 +1,68 @@
 /* tslint:disable */
 /* eslint-disable */
 
+/**
+ * Types of actions that WASM needs JavaScript to execute
+ * Note: entity_id is a numeric index from WASM, which needs to be mapped
+ * to Entry.js object IDs using the entity ID mapping.
+ */
+export interface JsActionPlaySound { type: 'PlaySound'; data: { entity_id: number; sound_id: string } }
+export interface JsActionPlaySoundWait { type: 'PlaySoundWait'; data: { entity_id: number; sound_id: string } }
+export interface JsActionPlaySoundFromSecond { type: 'PlaySoundFromSecond'; data: { entity_id: number; sound_id: string; start_second: number } }
+export interface JsActionStopSound { type: 'StopSound'; data?: undefined }
+export interface JsActionSetSoundVolume { type: 'SetSoundVolume'; data: { volume: number } }
+export interface JsActionChangeSoundVolume { type: 'ChangeSoundVolume'; data: { delta: number } }
+export interface JsActionSetSoundSpeed { type: 'SetSoundSpeed'; data: { speed: number } }
+export interface JsActionChangeSoundSpeed { type: 'ChangeSoundSpeed'; data: { delta: number } }
+export interface JsActionCreateClone { type: 'CreateClone'; data: { entity_id: number; target: string } }
+export interface JsActionDeleteClone { type: 'DeleteClone'; data: { entity_id: number } }
+export interface JsActionRemoveAllClones { type: 'RemoveAllClones'; data?: undefined }
+export interface JsActionMessageCast { type: 'MessageCast'; data: { message_id: string } }
+export interface JsActionMessageCastWait { type: 'MessageCastWait'; data: { message_id: string } }
+export interface JsActionStartScene { type: 'StartScene'; data: { scene_id: string } }
+export interface JsActionStartNextScene { type: 'StartNextScene'; data?: undefined }
+export interface JsActionStartPreviousScene { type: 'StartPreviousScene'; data?: undefined }
+export interface JsActionShowVariable { type: 'ShowVariable'; data: { variable_id: string } }
+export interface JsActionHideVariable { type: 'HideVariable'; data: { variable_id: string } }
+export interface JsActionShowList { type: 'ShowList'; data: { list_id: string } }
+export interface JsActionHideList { type: 'HideList'; data: { list_id: string } }
+export interface JsActionBrushStamp { type: 'BrushStamp'; data: { entity_id: number } }
+export interface JsActionBrushEraseAll { type: 'BrushEraseAll'; data?: undefined }
+export interface JsActionTimerAction { type: 'TimerAction'; data: { action: string } }
+export interface JsActionSetTimerVisible { type: 'SetTimerVisible'; data: { visible: boolean } }
+export interface JsActionChangeObjectIndex { type: 'ChangeObjectIndex'; data: { entity_id: number; location: string } }
+export interface JsActionAskAndWait { type: 'AskAndWait'; data: { entity_id: number; message: string } }
+export interface JsActionRestartProject { type: 'RestartProject'; data?: undefined }
+
+export type JsActionType =
+  | JsActionPlaySound
+  | JsActionPlaySoundWait
+  | JsActionPlaySoundFromSecond
+  | JsActionStopSound
+  | JsActionSetSoundVolume
+  | JsActionChangeSoundVolume
+  | JsActionSetSoundSpeed
+  | JsActionChangeSoundSpeed
+  | JsActionCreateClone
+  | JsActionDeleteClone
+  | JsActionRemoveAllClones
+  | JsActionMessageCast
+  | JsActionMessageCastWait
+  | JsActionStartScene
+  | JsActionStartNextScene
+  | JsActionStartPreviousScene
+  | JsActionShowVariable
+  | JsActionHideVariable
+  | JsActionShowList
+  | JsActionHideList
+  | JsActionBrushStamp
+  | JsActionBrushEraseAll
+  | JsActionTimerAction
+  | JsActionSetTimerVisible
+  | JsActionChangeObjectIndex
+  | JsActionAskAndWait
+  | JsActionRestartProject;
+
 export class WasmEngine {
   free(): void;
   [Symbol.dispose](): void;
@@ -24,6 +86,16 @@ export class WasmEngine {
    * Get render data as JSON string for JavaScript to draw
    */
   get_render_data(): string;
+  /**
+   * Get pending JavaScript actions as JSON string and clear the queue.
+   * Call this after tick() to process any actions that require JS execution.
+   * @returns JSON array of JsAction objects
+   */
+  get_js_actions(): string;
+  /**
+   * Check if there are pending JS actions
+   */
+  has_pending_js_actions(): boolean;
   /**
    * Create a new WASM engine instance
    */
@@ -62,6 +134,8 @@ export interface InitOutput {
   readonly __wbg_wasmengine_free: (a: number, b: number) => void;
   readonly wasmengine_get_render_data: (a: number) => [number, number];
   readonly wasmengine_get_tick: (a: number) => bigint;
+  readonly wasmengine_get_js_actions: (a: number) => [number, number];
+  readonly wasmengine_has_pending_js_actions: (a: number) => number;
   readonly wasmengine_is_running: (a: number) => number;
   readonly wasmengine_load_project: (a: number, b: number, c: number) => [number, number];
   readonly wasmengine_new: () => number;

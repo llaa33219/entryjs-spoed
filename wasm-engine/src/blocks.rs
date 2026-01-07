@@ -23,7 +23,9 @@ pub fn get_block_category(block_type: &str) -> Option<BlockCategory> {
         "when_object_click_canceled" |
         "when_message_cast" |
         "when_scene_start" |
-        "when_clone_start" => Some(BlockCategory::Start),
+        "when_clone_start" |
+        "mouse_clicked" |
+        "mouse_click_cancled" => Some(BlockCategory::Start),
 
         // Flow blocks
         "wait_second" |
@@ -39,7 +41,11 @@ pub fn get_block_category(block_type: &str) -> Option<BlockCategory> {
         "restart_project" |
         "create_clone" |
         "delete_clone" |
-        "remove_all_clones" => Some(BlockCategory::Flow),
+        "remove_all_clones" |
+        "message_cast" |
+        "message_cast_wait" |
+        "start_scene" |
+        "start_neighbor_scene" => Some(BlockCategory::Flow),
 
         // Moving blocks
         "move_direction" |
@@ -59,6 +65,7 @@ pub fn get_block_category(block_type: &str) -> Option<BlockCategory> {
         "rotate_absolute" |
         "direction_absolute" |
         "see_angle_object" |
+        "see_angle_direction" |
         "move_to_angle" |
         "bounce_wall" => Some(BlockCategory::Moving),
 
@@ -74,10 +81,15 @@ pub fn get_block_category(block_type: &str) -> Option<BlockCategory> {
         "set_effect" |
         "change_effect" |
         "clear_effect" |
+        "erase_all_effects" |
+        "add_effect_amount" |
+        "change_effect_amount" |
         "change_scale_size" |
         "set_scale_size" |
         "flip_x" |
         "flip_y" |
+        "stretch_scale_size" |
+        "reset_scale_size" |
         "change_object_index" => Some(BlockCategory::Looks),
 
         // Sound blocks
@@ -89,6 +101,20 @@ pub fn get_block_category(block_type: &str) -> Option<BlockCategory> {
         "sound_speed_change" |
         "sound_speed_set" |
         "sound_stop" => Some(BlockCategory::Sound),
+        
+        // Brush blocks
+        "brush_stamp" |
+        "brush_down" |
+        "brush_up" |
+        "set_brush_color" |
+        "set_brush_size" |
+        "change_brush_size" |
+        "brush_erase_all" |
+        "brush_clear" => Some(BlockCategory::Looks),
+        
+        // Timer blocks  
+        "choose_project_timer_action" |
+        "set_visible_project_timer" => Some(BlockCategory::Calc),
 
         // Judgement blocks
         "is_clicked" |
@@ -114,8 +140,10 @@ pub fn get_block_category(block_type: &str) -> Option<BlockCategory> {
         "replace_string" |
         "change_string_case" |
         "calc_operation" |
+        "quotient_and_mod" |
         "get_date" |
         "get_project_timer_value" |
+        "distance_something" |
         "get_x" |
         "get_y" |
         "get_rotation" |
@@ -129,6 +157,7 @@ pub fn get_block_category(block_type: &str) -> Option<BlockCategory> {
         "hide_variable" |
         "get_variable" |
         "value_of_list_index" |
+        "value_of_index_from_list" |
         "add_value_to_list" |
         "remove_value_from_list" |
         "insert_value_to_list" |
@@ -136,7 +165,9 @@ pub fn get_block_category(block_type: &str) -> Option<BlockCategory> {
         "length_of_list" |
         "show_list" |
         "hide_list" |
-        "is_included_in_list" => Some(BlockCategory::Variable),
+        "is_included_in_list" |
+        "ask_and_wait" |
+        "get_canvas_input_value" => Some(BlockCategory::Variable),
 
         // Function blocks
         "function_create" |
@@ -166,12 +197,14 @@ pub fn is_executable_block(block_type: &str) -> bool {
 pub fn is_value_block(block_type: &str) -> bool {
     matches!(block_type,
         "number" |
+        "angle" |
         "text" |
         "True" |
         "False" |
         "calc_basic" |
         "calc_rand" |
         "calc_operation" |
+        "quotient_and_mod" |
         "get_variable" |
         "coordinate_mouse" |
         "coordinate_object" |
@@ -182,16 +215,25 @@ pub fn is_value_block(block_type: &str) -> bool {
         "get_scale" |
         "get_sound_volume" |
         "get_project_timer_value" |
+        "get_date" |
+        "distance_something" |
         "length_of_string" |
         "combine_something" |
         "char_at" |
         "substring" |
+        "index_of_string" |
+        "replace_string" |
+        "change_string_case" |
         "value_of_list_index" |
+        "value_of_index_from_list" |
         "length_of_list" |
+        "is_included_in_list" |
+        "get_canvas_input_value" |
         "boolean_basic_operator" |
         "boolean_and_or" |
         "boolean_not" |
         "is_clicked" |
+        "is_object_clicked" |
         "is_press_some_key" |
         "reach_something"
     )

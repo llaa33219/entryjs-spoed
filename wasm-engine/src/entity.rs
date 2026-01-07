@@ -270,6 +270,24 @@ impl Entity {
         self.current_picture_id = Some(self.pictures[next_idx].clone());
     }
     
+    pub fn prev_picture(&mut self) {
+        if self.pictures.is_empty() {
+            return;
+        }
+        
+        let current_idx = self.current_picture_id
+            .as_ref()
+            .and_then(|id| self.pictures.iter().position(|p| p == id))
+            .unwrap_or(0);
+        
+        let prev_idx = if current_idx == 0 {
+            self.pictures.len() - 1
+        } else {
+            current_idx - 1
+        };
+        self.current_picture_id = Some(self.pictures[prev_idx].clone());
+    }
+    
     // Getters for blocks
     pub fn get_x(&self) -> f64 {
         self.x
