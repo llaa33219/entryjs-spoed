@@ -702,7 +702,8 @@ impl Executor {
 
     fn evaluate_block(&self, block_type: &str, obj: &serde_json::Map<String, serde_json::Value>, variables: &HashMap<String, Value>) -> Value {
         match block_type {
-            "number" => {
+            "number" | "angle" => {
+                // Both "number" and "angle" blocks have the same structure
                 if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
                     if let Some(val) = params.first() {
                         if let Some(s) = val.as_str() {
