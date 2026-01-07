@@ -30,6 +30,12 @@ pub struct Executor {
     cached_entity_rotation: f64,
     cached_entity_direction: f64,
     cached_entity_scale: f64,
+    
+    // Input state (set from JavaScript)
+    pub cached_mouse_x: f64,
+    pub cached_mouse_y: f64,
+    pub mouse_clicked: bool,
+    pub pressed_keys: Vec<u32>,
 }
 
 #[derive(Clone, Debug)]
@@ -55,6 +61,11 @@ impl Executor {
             cached_entity_rotation: 0.0,
             cached_entity_direction: 90.0,
             cached_entity_scale: 100.0,
+            
+            cached_mouse_x: 0.0,
+            cached_mouse_y: 0.0,
+            mouse_clicked: false,
+            pressed_keys: Vec::new(),
         }
     }
     
@@ -385,19 +396,41 @@ impl Executor {
             }
             
             "dialog" | "dialog_time" => {
-                // Dialog blocks - just log for now since we don't have UI
-                let message = self.get_param_string(block, 0);
-                web_sys::console::log_1(&format!("[WASM] Dialog: {}", message).into());
-                
-                if block_type == "dialog_time" {
-                    let seconds = self.get_param_number(block, 1, variables);
-                    self.wait_frames = (seconds * 60.0) as u32;
+                if let Some(e) = entity {
+                    // Get message from params
+                    let message = self.get_param_value(block, 0, variables);
+                    let message_str = Self::value_as_string(&message);
+                    
+                    // Get mode (speak/think) - different param index for dialog vs dialog_time
+                    let mode = if block_type == "dialog_time" {
+                        self.get_param_string(block, 2)  // dialog_time: params[2] is option
+                    } else {
+                        self.get_param_string(block, 1)  // dialog: params[1] is option
+                    };
+                    let mode = if mode.is_empty() { "speak".to_string() } else { mode };
+                    
+                    // Set dialog state on entity
+                    e.dialog_message = Some(message_str.clone());
+                    e.dialog_mode = Some(mode.clone());
+                    
+                    web_sys::console::log_1(&format!(
+                        "[WASM] Dialog({}): {}", mode, message_str
+                    ).into());
+                    
+                    if block_type == "dialog_time" {
+                        let seconds = self.get_param_number(block, 1, variables);
+                        self.wait_frames = (seconds * 60.0) as u32;
+                    }
                 }
                 ExecuteResult::Continue
             }
             
             "remove_dialog" => {
-                // Just continue - no UI to remove
+                if let Some(e) = entity {
+                    e.dialog_message = None;
+                    e.dialog_mode = None;
+                    web_sys::console::log_1(&"[WASM] Dialog removed".into());
+                }
                 ExecuteResult::Continue
             }
 
@@ -920,7 +953,7 @@ impl Executor {
             // Collision detection - reach_something
             "reach_something" => {
                 if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
-                    // params[1] contains the target (wall, wall_up, wall_down, wall_left, wall_right, mouse)
+                    // params[1] contains the target (wall, wall_up, wall_down, wall_left, wall_right, mouse, or sprite ID)
                     let target = params.get(1).and_then(|v| v.as_str()).unwrap_or("");
                     
                     // Screen boundaries: ±240 (x), ±180 (y)
@@ -942,7 +975,18 @@ impl Executor {
                         "wall_down" => touches_down,
                         "wall_left" => touches_left,
                         "wall_right" => touches_right,
-                        _ => false,
+                        "mouse" => {
+                            // Check if mouse is within entity bounds (simple AABB)
+                            let mx = self.cached_mouse_x;
+                            let my = self.cached_mouse_y;
+                            mx >= x - half_width && mx <= x + half_width &&
+                            my >= y - half_height && my <= y + half_height
+                        }
+                        _ => {
+                            // Assume it's a sprite/object ID - collision would need entities list
+                            // For now, return false (would need to pass entities to evaluate_block)
+                            false
+                        }
                     };
                     
                     web_sys::console::log_1(&format!(
@@ -951,6 +995,31 @@ impl Executor {
                     ).into());
                     
                     return Value::Bool(result);
+                }
+                Value::Bool(false)
+            }
+            
+            // Input detection blocks
+            "is_clicked" => {
+                Value::Bool(self.mouse_clicked)
+            }
+            
+            "is_object_clicked" => {
+                // Would need to track which object is clicked - for now return false
+                Value::Bool(false)
+            }
+            
+            "is_press_some_key" => {
+                if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
+                    // Get key code from params
+                    let keycode = params.get(0)
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| s.parse::<u32>().ok())
+                        .or_else(|| params.get(0).and_then(|v| v.as_f64()).map(|n| n as u32))
+                        .unwrap_or(0);
+                    
+                    let pressed = self.pressed_keys.contains(&keycode);
+                    return Value::Bool(pressed);
                 }
                 Value::Bool(false)
             }

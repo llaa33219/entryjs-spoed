@@ -9,9 +9,17 @@ export class WasmEngine {
    */
   is_running(): boolean;
   /**
+   * Update pressed keys from JavaScript
+   */
+  update_keys(keys: Uint32Array): void;
+  /**
    * Load a project from JSON string
    */
   load_project(json: string): void;
+  /**
+   * Update mouse state from JavaScript
+   */
+  update_mouse(x: number, y: number, clicked: boolean): void;
   /**
    * Get render data as JSON string for JavaScript to draw
    */
@@ -61,6 +69,8 @@ export interface InitOutput {
   readonly wasmengine_start: (a: number) => void;
   readonly wasmengine_stop: (a: number) => void;
   readonly wasmengine_tick: (a: number) => void;
+  readonly wasmengine_update_keys: (a: number, b: number, c: number) => void;
+  readonly wasmengine_update_mouse: (a: number, b: number, c: number, d: number) => void;
   readonly init: () => void;
   readonly __wbindgen_free: (a: number, b: number, c: number) => void;
   readonly __wbindgen_malloc: (a: number, b: number) => number;

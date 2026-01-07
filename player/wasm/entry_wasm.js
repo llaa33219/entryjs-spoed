@@ -13,12 +13,27 @@ function getStringFromWasm0(ptr, len) {
     return decodeText(ptr, len);
 }
 
+let cachedUint32ArrayMemory0 = null;
+function getUint32ArrayMemory0() {
+    if (cachedUint32ArrayMemory0 === null || cachedUint32ArrayMemory0.byteLength === 0) {
+        cachedUint32ArrayMemory0 = new Uint32Array(wasm.memory.buffer);
+    }
+    return cachedUint32ArrayMemory0;
+}
+
 let cachedUint8ArrayMemory0 = null;
 function getUint8ArrayMemory0() {
     if (cachedUint8ArrayMemory0 === null || cachedUint8ArrayMemory0.byteLength === 0) {
         cachedUint8ArrayMemory0 = new Uint8Array(wasm.memory.buffer);
     }
     return cachedUint8ArrayMemory0;
+}
+
+function passArray32ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 4, 4) >>> 0;
+    getUint32ArrayMemory0().set(arg, ptr / 4);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
 }
 
 function passStringToWasm0(arg, malloc, realloc) {
@@ -120,6 +135,15 @@ export class WasmEngine {
         return ret !== 0;
     }
     /**
+     * Update pressed keys from JavaScript
+     * @param {Uint32Array} keys
+     */
+    update_keys(keys) {
+        const ptr0 = passArray32ToWasm0(keys, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.wasmengine_update_keys(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
      * Load a project from JSON string
      * @param {string} json
      */
@@ -130,6 +154,15 @@ export class WasmEngine {
         if (ret[1]) {
             throw takeFromExternrefTable0(ret[0]);
         }
+    }
+    /**
+     * Update mouse state from JavaScript
+     * @param {number} x
+     * @param {number} y
+     * @param {boolean} clicked
+     */
+    update_mouse(x, y, clicked) {
+        wasm.wasmengine_update_mouse(this.__wbg_ptr, x, y, clicked);
     }
     /**
      * Get render data as JSON string for JavaScript to draw
@@ -287,6 +320,7 @@ function __wbg_finalize_init(instance, module) {
     wasm = instance.exports;
     __wbg_init.__wbindgen_wasm_module = module;
     cachedDataViewMemory0 = null;
+    cachedUint32ArrayMemory0 = null;
     cachedUint8ArrayMemory0 = null;
 
 

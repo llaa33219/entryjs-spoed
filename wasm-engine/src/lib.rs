@@ -184,6 +184,25 @@ impl WasmEngine {
     pub fn get_tick(&self) -> u64 {
         self.tick_count
     }
+    
+    /// Update mouse state from JavaScript
+    #[wasm_bindgen]
+    pub fn update_mouse(&mut self, x: f64, y: f64, clicked: bool) {
+        for executor in &mut self.executors {
+            executor.cached_mouse_x = x;
+            executor.cached_mouse_y = y;
+            executor.mouse_clicked = clicked;
+        }
+    }
+    
+    /// Update pressed keys from JavaScript
+    #[wasm_bindgen]
+    pub fn update_keys(&mut self, keys: &[u32]) {
+        let keys_vec: Vec<u32> = keys.to_vec();
+        for executor in &mut self.executors {
+            executor.pressed_keys = keys_vec.clone();
+        }
+    }
 
     /// Fire an event to all entities
     fn fire_event(&mut self, event_name: &str) {
@@ -489,6 +508,10 @@ pub struct RenderEntity {
     pub color: String,
     #[serde(rename = "pictureId")]
     pub picture_id: Option<String>,
+    #[serde(rename = "dialogMessage")]
+    pub dialog_message: Option<String>,
+    #[serde(rename = "dialogMode")]
+    pub dialog_mode: Option<String>,
 }
 
 impl From<&Entity> for RenderEntity {
@@ -506,6 +529,8 @@ impl From<&Entity> for RenderEntity {
             visible: e.visible,
             color: "#4a90d9".to_string(),
             picture_id: e.current_picture_id.clone(),
+            dialog_message: e.dialog_message.clone(),
+            dialog_mode: e.dialog_mode.clone(),
         }
     }
 }
