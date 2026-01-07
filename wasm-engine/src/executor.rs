@@ -1625,52 +1625,107 @@ impl Executor {
             ).into());
             
             if let Some(content) = &func_data.content {
+                web_sys::console::log_1(&format!(
+                    "[WASM] Function content has {} threads",
+                    content.len()
+                ).into());
+                
                 // The function content is Vec<Vec<Block>> (threads of blocks)
                 // We need to find the function_create block and get its statements
                 if let Some(first_thread) = content.first() {
+                    web_sys::console::log_1(&format!(
+                        "[WASM] First thread has {} blocks",
+                        first_thread.len()
+                    ).into());
+                    
                     if let Some(func_create_block) = first_thread.first() {
                         web_sys::console::log_1(&format!(
-                            "[WASM] Function create block type: '{}'",
-                            func_create_block.block_type
+                            "[WASM] Function create block type: '{}', has_statements: {}",
+                            func_create_block.block_type,
+                            func_create_block.statements.is_some()
                         ).into());
                         
-                        // Get the statements from function_create block
-                        // The statements contain the actual function body
+                        // Try to get function body from statements first
+                        let mut func_body: Option<Vec<Block>> = None;
+                        
                         if let Some(statements) = &func_create_block.statements {
-                            if let Some(func_body) = statements.first() {
-                                if !func_body.is_empty() {
+                            web_sys::console::log_1(&format!(
+                                "[WASM] Statements has {} statement lists",
+                                statements.len()
+                            ).into());
+                            
+                            if let Some(body) = statements.first() {
+                                if !body.is_empty() {
+                                    func_body = Some(body.clone());
                                     web_sys::console::log_1(&format!(
-                                        "[WASM] Function body has {} blocks",
-                                        func_body.len()
+                                        "[WASM] Found function body in statements: {} blocks",
+                                        body.len()
                                     ).into());
-                                    
-                                    // Push current state to call stack
-                                    let frame = StackFrame {
-                                        blocks: self.blocks.clone(),
-                                        block_index: self.block_index,
-                                        iteration_count: 0,
-                                        is_loop: false,
-                                    };
-                                    self.call_stack.push(frame);
-                                    
-                                    // Set up execution of function body
-                                    self.blocks = func_body.clone();
-                                    self.block_index = 0;
-                                    self.iteration_count = 0;
-                                    
-                                    return ExecuteResult::JumpedToBlock;
                                 }
                             }
                         }
+                        
+                        // If statements is empty, check if the function body is stored
+                        // as subsequent blocks in the thread (Entry.js format before load() processes it)
+                        if func_body.is_none() && first_thread.len() > 1 {
+                            // The function body blocks are stored after the function_create block
+                            let body: Vec<Block> = first_thread.iter().skip(1).cloned().collect();
+                            if !body.is_empty() {
+                                func_body = Some(body.clone());
+                                web_sys::console::log_1(&format!(
+                                    "[WASM] Found function body as subsequent blocks: {} blocks",
+                                    body.len()
+                                ).into());
+                                for (i, blk) in body.iter().enumerate() {
+                                    web_sys::console::log_1(&format!(
+                                        "[WASM]   Block {}: type='{}'",
+                                        i, blk.block_type
+                                    ).into());
+                                }
+                            }
+                        }
+                        
+                        // Execute the function body if found
+                        if let Some(body) = func_body {
+                            web_sys::console::log_1(&format!(
+                                "[WASM] Executing function body with {} blocks",
+                                body.len()
+                            ).into());
+                            
+                            // Push current state to call stack
+                            let frame = StackFrame {
+                                blocks: self.blocks.clone(),
+                                block_index: self.block_index,
+                                iteration_count: 0,
+                                is_loop: false,
+                            };
+                            self.call_stack.push(frame);
+                            
+                            // Set up execution of function body
+                            self.blocks = body;
+                            self.block_index = 0;
+                            self.iteration_count = 0;
+                            
+                            return ExecuteResult::JumpedToBlock;
+                        } else {
+                            web_sys::console::log_1(&"[WASM] Function body is empty or not found".into());
+                        }
+                    } else {
+                        web_sys::console::log_1(&"[WASM] No function_create block in first thread".into());
                     }
+                } else {
+                    web_sys::console::log_1(&"[WASM] No first thread in content".into());
                 }
+            } else {
+                web_sys::console::log_1(&"[WASM] Function content is None".into());
             }
             
             web_sys::console::log_1(&"[WASM] Function has no executable content".into());
         } else {
             web_sys::console::log_1(&format!(
-                "[WASM] Function not found: '{}'",
-                func_id
+                "[WASM] Function not found: '{}'. Available functions: {:?}",
+                func_id,
+                functions.keys().collect::<Vec<_>>()
             ).into());
         }
         

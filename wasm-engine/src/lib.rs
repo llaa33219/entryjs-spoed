@@ -161,19 +161,57 @@ impl WasmEngine {
         // Initialize functions
         self.functions.clear();
         if let Some(funcs) = &project.functions {
-            if let Some(func_map) = funcs.as_object() {
-                for (func_id, func_value) in func_map {
+            // Handle array format (from getFunctionJSON())
+            if let Some(func_array) = funcs.as_array() {
+                web_sys::console::log_1(&format!(
+                    "[WASM] Loading functions from array format, {} items",
+                    func_array.len()
+                ).into());
+                for func_value in func_array {
                     if let Ok(func_data) = serde_json::from_value::<FunctionData>(func_value.clone()) {
                         web_sys::console::log_1(&format!(
-                            "[WASM] Loaded function: id={}, has_content={}",
-                            func_id, func_data.content.is_some()
+                            "[WASM] Loaded function from array: id={}, has_content={}",
+                            func_data.id, func_data.content.is_some()
                         ).into());
-                        self.functions.insert(func_id.clone(), func_data);
+                        self.functions.insert(func_data.id.clone(), func_data);
+                    } else {
+                        web_sys::console::log_1(&format!(
+                            "[WASM] Failed to parse function from array: {:?}",
+                            func_value
+                        ).into());
                     }
                 }
             }
+            // Handle object format (legacy or alternative format)
+            else if let Some(func_map) = funcs.as_object() {
+                web_sys::console::log_1(&format!(
+                    "[WASM] Loading functions from object format, {} items",
+                    func_map.len()
+                ).into());
+                for (func_id, func_value) in func_map {
+                    if let Ok(func_data) = serde_json::from_value::<FunctionData>(func_value.clone()) {
+                        // Use func_data.id for consistency with execute_function_call lookup
+                        let key = if func_data.id.is_empty() { func_id.clone() } else { func_data.id.clone() };
+                        web_sys::console::log_1(&format!(
+                            "[WASM] Loaded function from object: key={}, id={}, has_content={}",
+                            func_id, func_data.id, func_data.content.is_some()
+                        ).into());
+                        self.functions.insert(key, func_data);
+                    } else {
+                        web_sys::console::log_1(&format!(
+                            "[WASM] Failed to parse function from object: key={}, value={:?}",
+                            func_id, func_value
+                        ).into());
+                    }
+                }
+            } else {
+                web_sys::console::log_1(&format!(
+                    "[WASM] Unknown functions format: {:?}",
+                    funcs
+                ).into());
+            }
         }
-        web_sys::console::log_1(&format!("[WASM] Loaded {} functions", self.functions.len()).into());
+        web_sys::console::log_1(&format!("[WASM] Loaded {} functions total", self.functions.len()).into());
         
         Ok(())
     }
