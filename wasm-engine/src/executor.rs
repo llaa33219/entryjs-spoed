@@ -1005,8 +1005,29 @@ impl Executor {
             }
             
             "is_object_clicked" => {
-                // Would need to track which object is clicked - for now return false
-                Value::Bool(false)
+                // Check if mouse is clicked AND mouse is within entity bounds
+                if self.mouse_clicked {
+                    let half_width = 25.0;  // Default entity half-width
+                    let half_height = 25.0; // Default entity half-height
+                    let x = self.cached_entity_x;
+                    let y = self.cached_entity_y;
+                    let mx = self.cached_mouse_x;
+                    let my = self.cached_mouse_y;
+                    
+                    let clicked = mx >= x - half_width && mx <= x + half_width &&
+                                  my >= y - half_height && my <= y + half_height;
+                    
+                    if clicked {
+                        web_sys::console::log_1(&format!(
+                            "[WASM] is_object_clicked: true (mouse at {:.1},{:.1}, entity at {:.1},{:.1})",
+                            mx, my, x, y
+                        ).into());
+                    }
+                    
+                    Value::Bool(clicked)
+                } else {
+                    Value::Bool(false)
+                }
             }
             
             "is_press_some_key" => {
