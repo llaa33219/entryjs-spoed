@@ -632,6 +632,12 @@
                 this.brushCanvas.height = 360;
                 this.brushCtx = this.brushCanvas.getContext('2d');
                 
+                // Initialize fill canvas (separate layer for real-time fill preview)
+                this.fillCanvas = document.createElement('canvas');
+                this.fillCanvas.width = 480;
+                this.fillCanvas.height = 360;
+                this.fillCtx = this.fillCanvas.getContext('2d');
+                
                 // Scale canvas to fit screen
                 this.resizeCanvas();
                 window.addEventListener('resize', () => this.resizeCanvas());
@@ -816,6 +822,10 @@
                 if (this.brushCtx) {
                     this.brushCtx.clearRect(0, 0, this.brushCanvas.width, this.brushCanvas.height);
                 }
+                // Clear fill canvas on restart
+                if (this.fillCtx) {
+                    this.fillCtx.clearRect(0, 0, this.fillCanvas.width, this.fillCanvas.height);
+                }
                 this.brushStates.clear();
                 setTimeout(() => this.start(), 100);
             }
@@ -858,14 +868,9 @@
                 }
                 if (!actionsJson || actionsJson === '[]') return;
                 
-                // DEBUG: Log received actions
-                console.log('[JS] Received actions:', actionsJson);
-                
                 try {
                     const actions = JSON.parse(actionsJson);
-                    console.log('[JS] Parsed actions count:', actions.length);
                     for (const action of actions) {
-                        console.log('[JS] Processing action:', action.type, action.data);
                         this.processJsAction(action);
                     }
                 } catch (e) {
@@ -1031,72 +1036,42 @@
             
             // Handle start fill (begin tracking polygon path)
             handleStartFill(entityId) {
-                console.log('[Fill] handleStartFill called with entityId:', entityId);
-                
                 // Get current entity position and add as first point (like moveTo in Entry.js)
                 const entityKey = this.getEntityId(entityId);
-                console.log('[Fill] entityKey:', entityKey);
-                if (entityKey === null) {
-                    console.log('[Fill] entityKey is null, returning');
-                    return;
-                }
+                if (entityKey === null) return;
                 
                 const renderData = this.wasmEngine.get_render_data();
-                if (!renderData || renderData === '[]') {
-                    console.log('[Fill] renderData is empty, returning');
-                    return;
-                }
+                if (!renderData || renderData === '[]') return;
                 const entities = JSON.parse(renderData);
                 const entity = entities[entityId];
-                if (!entity) {
-                    console.log('[Fill] entity not found at index', entityId);
-                    return;
-                }
+                if (!entity) return;
                 
                 const brushState = this.getBrushState(entityKey);
                 brushState.fillDown = true;
                 brushState.fillPath = []; // Reset path
                 
+                // Clear fillCanvas for new fill operation
+                this.fillCtx.clearRect(0, 0, this.fillCanvas.width, this.fillCanvas.height);
+                
                 const screenX = 240 + entity.x;
                 const screenY = 180 - entity.y;
                 brushState.fillPath.push({ x: screenX, y: screenY });
-                
-                console.log('[Fill] Started fill tracking. fillDown:', brushState.fillDown, 'firstPoint:', { x: screenX, y: screenY });
             }
             
             // Handle stop fill (close and fill the polygon)
             handleStopFill(entityId) {
-                console.log('[Fill] handleStopFill called with entityId:', entityId);
-                
                 const entityKey = this.getEntityId(entityId);
-                console.log('[Fill] entityKey:', entityKey);
-                if (entityKey === null) {
-                    console.log('[Fill] entityKey is null, returning');
-                    return;
-                }
+                if (entityKey === null) return;
                 
                 const brushState = this.getBrushState(entityKey);
-                console.log('[Fill] brushState.fillDown:', brushState.fillDown, 'fillPath.length:', brushState.fillPath.length);
                 
-                if (!brushState.fillDown || brushState.fillPath.length < 3) {
-                    // Need at least 3 points to make a polygon
-                    console.log('[Fill] Not enough points or fillDown is false, skipping fill');
-                    brushState.fillDown = false;
-                    brushState.fillPath = [];
-                    return;
+                if (brushState.fillPath.length >= 3) {
+                    // Copy final polygon from fillCanvas to brushCanvas (permanent)
+                    this.brushCtx.drawImage(this.fillCanvas, 0, 0);
                 }
                 
-                // Draw filled polygon on brush canvas
-                this.brushCtx.beginPath();
-                this.brushCtx.moveTo(brushState.fillPath[0].x, brushState.fillPath[0].y);
-                
-                for (let i = 1; i < brushState.fillPath.length; i++) {
-                    this.brushCtx.lineTo(brushState.fillPath[i].x, brushState.fillPath[i].y);
-                }
-                
-                this.brushCtx.closePath();
-                this.brushCtx.fillStyle = brushState.fillColor;
-                this.brushCtx.fill();
+                // Clear fillCanvas (preview layer)
+                this.fillCtx.clearRect(0, 0, this.fillCanvas.width, this.fillCanvas.height);
                 
                 // Reset fill state
                 brushState.fillDown = false;
@@ -1109,6 +1084,28 @@
                 if (entityKey === null) return;
                 const brushState = this.getBrushState(entityKey);
                 brushState.fillColor = color;
+            }
+            
+            // Draw real-time fill preview on fillCanvas
+            drawFillPreview(entityKey) {
+                const brushState = this.brushStates.get(entityKey);
+                if (!brushState || !brushState.fillDown || brushState.fillPath.length < 3) {
+                    return;
+                }
+                
+                // Clear fillCanvas and redraw the polygon
+                this.fillCtx.clearRect(0, 0, this.fillCanvas.width, this.fillCanvas.height);
+                
+                this.fillCtx.beginPath();
+                this.fillCtx.moveTo(brushState.fillPath[0].x, brushState.fillPath[0].y);
+                
+                for (let i = 1; i < brushState.fillPath.length; i++) {
+                    this.fillCtx.lineTo(brushState.fillPath[i].x, brushState.fillPath[i].y);
+                }
+                
+                this.fillCtx.closePath();
+                this.fillCtx.fillStyle = brushState.fillColor;
+                this.fillCtx.fill();
             }
             
             // Draw brush lines for entities that have brush_down
@@ -1138,21 +1135,24 @@
                     if (brushState.fillDown) {
                         // Add point to fill path with minimum distance threshold to prevent memory bloat
                         const lastPoint = brushState.fillPath[brushState.fillPath.length - 1];
+                        let pointAdded = false;
                         if (lastPoint) {
                             const dx = screenX - lastPoint.x;
                             const dy = screenY - lastPoint.y;
                             const distance = Math.sqrt(dx * dx + dy * dy);
                             if (distance >= 2) { // Minimum 2px distance between points
                                 brushState.fillPath.push({ x: screenX, y: screenY });
-                                // Log every 10 points to avoid spam
-                                if (brushState.fillPath.length % 10 === 0) {
-                                    console.log('[Fill] Path points:', brushState.fillPath.length);
-                                }
+                                pointAdded = true;
                             }
                         } else {
                             // Fallback: add first point if somehow missing
                             brushState.fillPath.push({ x: screenX, y: screenY });
-                            console.log('[Fill] Added fallback first point');
+                            pointAdded = true;
+                        }
+                        
+                        // Draw real-time fill preview only when a point is added
+                        if (pointAdded && this.fillCtx) {
+                            this.drawFillPreview(entityKey);
                         }
                     }
                     
@@ -1191,6 +1191,11 @@
                 // Draw brush canvas layer first (behind entities)
                 if (this.brushCanvas) {
                     this.ctx.drawImage(this.brushCanvas, 0, 0);
+                }
+                
+                // Draw fill canvas layer (real-time fill preview)
+                if (this.fillCanvas) {
+                    this.ctx.drawImage(this.fillCanvas, 0, 0);
                 }
                 
                 if (this.wasmEngine) {
