@@ -392,6 +392,14 @@ impl WasmEngine {
                     break;
                 }
                 
+                let current_block_type = executor.get_current_block_type();
+                if current_block_type.starts_with("func_") {
+                    web_sys::console::log_1(&format!(
+                        "[EXEC] func call: {}, call_stack_len: {}, block_idx: {}",
+                        current_block_type, executor.call_stack_len(), executor.current_block_index()
+                    ).into());
+                }
+                
                 let execute_result = catch_unwind(AssertUnwindSafe(|| {
                     executor.execute(
                         &mut entities, 

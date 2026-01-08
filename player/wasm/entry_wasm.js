@@ -307,9 +307,6 @@ function __wbg_get_imports() {
             wasm.__wbindgen_free(deferred0_0, deferred0_1, 1);
         }
     };
-    imports.wbg.__wbg_error_7bc7d576a6aaf855 = function(arg0) {
-        console.error(arg0);
-    };
     imports.wbg.__wbg_getDate_b8071ea9fc4f6838 = function(arg0) {
         const ret = arg0.getDate();
         return ret;

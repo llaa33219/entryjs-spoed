@@ -117,8 +117,21 @@ impl Executor {
             Value::Null => String::new(),
         }
     }
+    
+    pub fn get_current_block_type(&self) -> String {
+        self.blocks.get(self.block_index)
+            .map(|b| b.block_type.clone())
+            .unwrap_or_default()
+    }
+    
+    pub fn call_stack_len(&self) -> usize {
+        self.call_stack.len()
+    }
+    
+    pub fn current_block_index(&self) -> usize {
+        self.block_index
+    }
 
-    /// Execute one step
     pub fn execute(
         &mut self, 
         entities: &mut Vec<Entity>, 
@@ -126,7 +139,6 @@ impl Executor {
         js_actions: &mut Vec<JsAction>,
         functions: &HashMap<String, FunctionData>,
     ) -> ExecuteResult {
-        // Update cached entity properties
         self.update_cached_entity(entities.get(self.entity_idx));
         
         // Check if waiting
@@ -1566,10 +1578,6 @@ impl Executor {
         };
         
         if self.call_stack.len() >= MAX_CALL_STACK_DEPTH {
-            web_sys::console::error_1(&format!(
-                "[FUNC] MAX_CALL_STACK_DEPTH reached! func_id={}",
-                func_id
-            ).into());
             return ExecuteResult::End;
         }
         
