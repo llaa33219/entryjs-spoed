@@ -848,9 +848,8 @@
                                 }
                             }
 
-                            // Start and fire scene start event
-                            this.wasmEngine.start();
-                            this.wasmEngine.fire_scene_start();
+                            // Start scene (fires only when_scene_start, not when_run_button_click)
+                            this.wasmEngine.start_scene();
 
                             console.log(
                                 `WASM 엔진에 장면 로드 완료: ${sceneObjects.length}개 오브젝트`

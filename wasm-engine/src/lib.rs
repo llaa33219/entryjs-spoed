@@ -245,7 +245,7 @@ impl WasmEngine {
         Ok(())
     }
 
-    /// Start the engine
+    /// Start the engine (fires both "start" and "when_scene_start" events)
     #[wasm_bindgen]
     pub fn start(&self) {
         // Use try_borrow_mut to avoid panic if already borrowed (e.g., during tick)
@@ -263,6 +263,24 @@ impl WasmEngine {
         
         Self::initialize_executors_inner(&mut inner);
         Self::fire_event_inner(&mut inner, "start");
+        Self::fire_event_inner(&mut inner, "when_scene_start");
+    }
+
+    /// Start the engine for scene transition (fires only "when_scene_start", not "start")
+    #[wasm_bindgen]
+    pub fn start_scene(&self) {
+        let mut inner = match self.inner.try_borrow_mut() {
+            Ok(inner) => inner,
+            Err(_) => {
+                return;
+            }
+        };
+        
+        inner.state = EngineState::Running;
+        self.stop_requested.set(false);
+        self.error_logged.set(false);
+        
+        Self::initialize_executors_inner(&mut inner);
         Self::fire_event_inner(&mut inner, "when_scene_start");
     }
 

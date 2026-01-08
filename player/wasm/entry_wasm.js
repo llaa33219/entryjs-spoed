@@ -136,6 +136,12 @@ export class WasmEngine {
         return ret !== 0;
     }
     /**
+     * Start the engine for scene transition (fires only "when_scene_start", not "start")
+     */
+    start_scene() {
+        wasm.wasmengine_start_scene(this.__wbg_ptr);
+    }
+    /**
      * Update pressed keys from JavaScript
      * @param {Uint32Array} keys
      */
@@ -276,7 +282,7 @@ export class WasmEngine {
         wasm.wasmengine_reset(this.__wbg_ptr);
     }
     /**
-     * Start the engine
+     * Start the engine (fires both "start" and "when_scene_start" events)
      */
     start() {
         wasm.wasmengine_start(this.__wbg_ptr);
