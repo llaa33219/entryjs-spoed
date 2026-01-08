@@ -1603,7 +1603,12 @@ Entry.setBasicBrush = function (sprite) {
 
     shape.entity = sprite;
     const selectedObjectContainer = Entry.stage.selectedObjectContainer;
-    selectedObjectContainer.addChildAt(shape, selectedObjectContainer.getChildIndex(sprite.object));
+    const objectIndex = selectedObjectContainer.getChildIndex(sprite.object);
+    if (objectIndex >= 0) {
+        selectedObjectContainer.addChildAt(shape, objectIndex);
+    } else {
+        selectedObjectContainer.addChild(shape);
+    }
 
     sprite.brush = brush;
 
@@ -1629,7 +1634,12 @@ Entry.setCloneBrush = function (sprite, parentBrush) {
     const shape = GEHelper.brushHelper.newShape(brush);
     shape.entity = sprite;
     const selectedObjectContainer = Entry.stage.selectedObjectContainer;
-    selectedObjectContainer.addChildAt(shape, selectedObjectContainer.getChildIndex(sprite.object));
+    const objectIndex = selectedObjectContainer.getChildIndex(sprite.object);
+    if (objectIndex >= 0) {
+        selectedObjectContainer.addChildAt(shape, objectIndex);
+    } else {
+        selectedObjectContainer.addChild(shape);
+    }
 
     brush.stop = parentBrush.stop;
 
@@ -1652,7 +1662,12 @@ Entry.setBasicPaint = function (sprite) {
     }
     shape.entity = sprite;
     const selectedObjectContainer = Entry.stage.selectedObjectContainer;
-    selectedObjectContainer.addChildAt(shape, selectedObjectContainer.getChildIndex(sprite.object));
+    const objectIndex = selectedObjectContainer.getChildIndex(sprite.object);
+    if (objectIndex >= 0) {
+        selectedObjectContainer.addChildAt(shape, objectIndex);
+    } else {
+        selectedObjectContainer.addChild(shape);
+    }
     sprite.paint = paint;
     sprite.paintShapes.push(shape);
 };
