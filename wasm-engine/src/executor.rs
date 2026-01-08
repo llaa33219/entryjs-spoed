@@ -1603,6 +1603,15 @@ impl Executor {
                         }
                         
                         if let Some(body) = func_body {
+                            if self.call_stack.len() < 5 {
+                                web_sys::console::log_1(&format!(
+                                    "[FUNC BODY] func_id={}, body_len={}, first_block={}",
+                                    func_id,
+                                    body.len(),
+                                    body.first().map(|b| b.block_type.as_str()).unwrap_or("none")
+                                ).into());
+                            }
+                            
                             let frame = StackFrame {
                                 blocks: Rc::clone(&self.blocks),
                                 block_index: self.block_index,
