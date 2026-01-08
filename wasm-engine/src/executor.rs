@@ -1398,7 +1398,7 @@ impl Executor {
             }
             
             "brush_erase_all" | "brush_clear" => {
-                js_actions.push(JsAction::BrushEraseAll);
+                js_actions.push(JsAction::BrushEraseAll { entity_id: self.entity_idx });
                 ExecuteResult::Continue
             }
             

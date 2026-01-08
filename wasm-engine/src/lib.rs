@@ -60,7 +60,7 @@ pub enum JsAction {
     
     // Brush/Pen actions
     BrushStamp { entity_id: usize },
-    BrushEraseAll,
+    BrushEraseAll { entity_id: usize },
     StartDrawing { entity_id: usize, x: f64, y: f64 },
     StopDrawing { entity_id: usize },
     BrushLineTo { entity_id: usize, x: f64, y: f64 },

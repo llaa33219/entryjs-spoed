@@ -1317,7 +1317,8 @@
                             break;
                         }
                         case 'BrushEraseAll': {
-                            this.handleBrushEraseAll();
+                            const entityId = data.entity_id;
+                            this.handleBrushEraseAll(entityId);
                             break;
                         }
                         case 'StartDrawing': {
@@ -1489,10 +1490,22 @@
                     }
                 }
 
-                handleBrushEraseAll() {
-                    for (const [entityId, canvas] of this.brushCanvases) {
-                        const ctx = this.brushContexts.get(entityId);
+                handleBrushEraseAll(entityId) {
+                    const entityKey = this.getEntityId(entityId);
+                    if (entityKey === null) return;
+
+                    // Clear brush canvas for this entity
+                    const canvas = this.brushCanvases.get(entityKey);
+                    if (canvas) {
+                        const ctx = this.brushContexts.get(entityKey);
                         ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    }
+
+                    // Reset fill state for this entity
+                    const brushState = this.brushStates.get(entityKey);
+                    if (brushState) {
+                        brushState.fillPath = [];
+                        brushState.fillDown = false;
                     }
                 }
 
