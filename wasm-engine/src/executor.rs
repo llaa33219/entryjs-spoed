@@ -1081,12 +1081,15 @@ impl Executor {
             
             "remove_value_from_list" => {
                 let list_id = self.get_param_string(block, 1);
-                let index = self.get_param_number(block, 0, variables) as usize;
+                let index_f64 = self.get_param_number(block, 0, variables);
                 
-                if let Some(list_var) = variables.get_mut(&list_id) {
-                    if let Value::List(list) = list_var {
-                        if index > 0 && index <= list.len() {
-                            list.remove(index - 1);
+                if index_f64.is_finite() && index_f64 >= 1.0 {
+                    let index = index_f64 as usize;
+                    if let Some(list_var) = variables.get_mut(&list_id) {
+                        if let Value::List(list) = list_var {
+                            if index <= list.len() {
+                                list.remove(index - 1);
+                            }
                         }
                     }
                 }
@@ -1096,12 +1099,15 @@ impl Executor {
             "insert_value_to_list" => {
                 let list_id = self.get_param_string(block, 1);
                 let value = self.get_param_value(block, 0, variables);
-                let index = self.get_param_number(block, 2, variables) as usize;
+                let index_f64 = self.get_param_number(block, 2, variables);
                 
-                if let Some(list_var) = variables.get_mut(&list_id) {
-                    if let Value::List(list) = list_var {
-                        if index > 0 && index <= list.len() + 1 {
-                            list.insert(index - 1, value);
+                if index_f64.is_finite() && index_f64 >= 1.0 {
+                    let index = index_f64 as usize;
+                    if let Some(list_var) = variables.get_mut(&list_id) {
+                        if let Value::List(list) = list_var {
+                            if index <= list.len() + 1 {
+                                list.insert(index - 1, value);
+                            }
                         }
                     }
                 }
@@ -1110,16 +1116,17 @@ impl Executor {
             
             "change_value_list_index" => {
                 let list_id = self.get_param_string(block, 0);
-                let index = self.get_param_number(block, 1, variables) as usize;
+                let index_f64 = self.get_param_number(block, 1, variables);
                 let value = self.get_param_value(block, 2, variables);
                 
-                if let Some(list_var) = variables.get_mut(&list_id) {
-                    if let Value::List(list) = list_var {
-                        // Use safe bounds checking before assignment
-                        if index > 0 {
-                            let actual_idx = index - 1;
-                            if actual_idx < list.len() {
-                                list[actual_idx] = value;
+                // Safe conversion: check for valid positive integer before casting
+                if index_f64.is_finite() && index_f64 >= 1.0 {
+                    let index = index_f64 as usize;
+                    if let Some(list_var) = variables.get_mut(&list_id) {
+                        if let Value::List(list) = list_var {
+                            // Use safe get_mut() instead of direct indexing to prevent panic
+                            if let Some(item) = list.get_mut(index - 1) {
+                                *item = value;
                             }
                         }
                     }
@@ -1942,9 +1949,14 @@ impl Executor {
             "char_at" => {
                 let val = eval_param(1);
                 let s = Self::value_as_string(&val);
-                let idx = eval_param_num(3) as usize;
-                if idx > 0 && idx <= s.len() {
-                    Value::String(s.chars().nth(idx - 1).map(|c| c.to_string()).unwrap_or_default())
+                let idx_f64 = eval_param_num(3);
+                if idx_f64.is_finite() && idx_f64 >= 1.0 {
+                    let idx = idx_f64 as usize;
+                    if idx <= s.chars().count() {
+                        Value::String(s.chars().nth(idx - 1).map(|c| c.to_string()).unwrap_or_default())
+                    } else {
+                        Value::String(String::new())
+                    }
                 } else {
                     Value::String(String::new())
                 }
@@ -1961,16 +1973,17 @@ impl Executor {
             "substring" => {
                 let val = eval_param(1);
                 let s = Self::value_as_string(&val);
-                let start = eval_param_num(3) as usize;
-                let end = eval_param_num(5) as usize;
+                let start_f64 = eval_param_num(3);
+                let end_f64 = eval_param_num(5);
                 
-                if start > 0 && end > 0 {
+                if start_f64.is_finite() && end_f64.is_finite() && start_f64 >= 1.0 && end_f64 >= 1.0 {
+                    let start = start_f64 as usize;
+                    let end = end_f64 as usize;
                     let min_idx = start.min(end).saturating_sub(1);
                     let max_idx = start.max(end);
                     let chars: Vec<char> = s.chars().collect();
-                    // Use safe slicing with bounds check
                     if min_idx < chars.len() && max_idx <= chars.len() {
-                        return Value::String(chars.get(min_idx..max_idx).map(|s| s.iter().collect()).unwrap_or_default());
+                        return Value::String(chars.get(min_idx..max_idx).map(|slice| slice.iter().collect()).unwrap_or_default());
                     }
                 }
                 Value::String(String::new())
@@ -2061,11 +2074,11 @@ impl Executor {
             
             "value_of_index_from_list" | "value_of_list_index" => {
                 let list_id = eval_param_str(1);
-                let index = eval_param_num(3) as usize;
-                if let Some(list_var) = variables.get(&list_id) {
-                    if let Value::List(list) = list_var {
-                        // Use safe access with get() instead of direct indexing
-                        if index > 0 {
+                let index_f64 = eval_param_num(3);
+                if index_f64.is_finite() && index_f64 >= 1.0 {
+                    let index = index_f64 as usize;
+                    if let Some(list_var) = variables.get(&list_id) {
+                        if let Value::List(list) = list_var {
                             if let Some(item) = list.get(index - 1) {
                                 return item.clone();
                             }
