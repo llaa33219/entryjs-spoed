@@ -32,9 +32,6 @@ export class WasmEngine {
    */
   stop(): void;
   tick(): void;
-  /**
-   * Reset the engine to initial state
-   */
   reset(): void;
   /**
    * Start the engine

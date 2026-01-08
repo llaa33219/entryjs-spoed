@@ -99,11 +99,11 @@ pub struct FunctionData {
     pub content: Option<Vec<Vec<Block>>>,
 }
 
-/// Inner mutable state wrapped in RefCell
 struct EngineInner {
     state: EngineState,
     entities: Vec<Entity>,
     variables: HashMap<String, Value>,
+    variables_snapshot: HashMap<String, Value>,
     executors: Vec<Executor>,
     tick_count: u64,
     fps: u32,
@@ -118,6 +118,7 @@ impl EngineInner {
             state: EngineState::Stopped,
             entities: Vec::new(),
             variables: HashMap::new(),
+            variables_snapshot: HashMap::new(),
             executors: Vec::new(),
             tick_count: 0,
             fps: 60,
@@ -278,14 +279,11 @@ impl WasmEngine {
         };
     }
 
-    /// Reset the engine to initial state
     #[wasm_bindgen]
     pub fn reset(&self) {
-        // Use try_borrow_mut to avoid panic if already borrowed
         let mut inner = match self.inner.try_borrow_mut() {
             Ok(inner) => inner,
             Err(_) => {
-                // Already borrowed, can't reset now - set stop flag instead
                 self.stop_requested.set(true);
                 return;
             }
@@ -294,20 +292,20 @@ impl WasmEngine {
         inner.state = EngineState::Stopped;
         inner.tick_count = 0;
         inner.executors.clear();
-        inner.pending_js_actions.clear(); // Clear pending actions to prevent stale data
+        inner.pending_js_actions.clear();
         self.stop_requested.set(false);
-        self.error_logged.set(false); // Reset error flag on reset
+        self.error_logged.set(false);
         
-        // Restore entity snapshots and clear dialog/brush state
         for entity in &mut inner.entities {
             entity.restore_snapshot();
             entity.dialog_message = None;
             entity.dialog_mode = None;
-            // Reset brush state
             entity.brush_down = false;
             entity.brush_size = 1.0;
             entity.brush_color = "#ff0000".to_string();
         }
+        
+        inner.variables = inner.variables_snapshot.clone();
     }
     
     /// Check if the engine is currently executing a tick (always returns false now since we handle this internally)
@@ -477,8 +475,10 @@ impl WasmEngine {
                 Err(_) => return "[]".to_string(),
             };
             
+            // Reverse order: first object in data should be rendered last (on top/front)
             let render_entities: Vec<RenderEntity> = inner.entities
                 .iter()
+                .rev()  // Reverse iteration so first object appears on top
                 .filter(|e| e.visible)
                 .map(|e| RenderEntity::from(e))
                 .collect();
@@ -567,10 +567,10 @@ impl WasmEngine {
 
     fn initialize_executors_inner(inner: &mut EngineInner) {
         inner.executors.clear();
-        // Take snapshots of all entities
         for entity in &mut inner.entities {
             entity.take_snapshot();
         }
+        inner.variables_snapshot = inner.variables.clone();
     }
 }
 

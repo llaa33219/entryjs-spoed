@@ -220,9 +220,6 @@ export class WasmEngine {
     tick() {
         wasm.wasmengine_tick(this.__wbg_ptr);
     }
-    /**
-     * Reset the engine to initial state
-     */
     reset() {
         wasm.wasmengine_reset(this.__wbg_ptr);
     }
