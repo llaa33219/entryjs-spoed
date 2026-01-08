@@ -435,47 +435,49 @@ impl WasmEngine {
         }
     }
     
-    /// Get pending JavaScript actions as JSON and clear the queue
-    /// Call this after tick() to process any actions that require JS
     #[wasm_bindgen]
     pub fn get_js_actions(&self) -> String {
-        let mut inner = match self.inner.try_borrow_mut() {
-            Ok(inner) => inner,
-            Err(_) => return "[]".to_string(),
-        };
-        
-        if inner.pending_js_actions.is_empty() {
-            return "[]".to_string();
-        }
-        
-        let actions = std::mem::take(&mut inner.pending_js_actions);
-        serde_json::to_string(&actions).unwrap_or_else(|_| "[]".to_string())
+        catch_unwind(AssertUnwindSafe(|| {
+            let mut inner = match self.inner.try_borrow_mut() {
+                Ok(inner) => inner,
+                Err(_) => return "[]".to_string(),
+            };
+            
+            if inner.pending_js_actions.is_empty() {
+                return "[]".to_string();
+            }
+            
+            let actions = std::mem::take(&mut inner.pending_js_actions);
+            serde_json::to_string(&actions).unwrap_or_else(|_| "[]".to_string())
+        })).unwrap_or_else(|_| "[]".to_string())
     }
     
-    /// Check if there are pending JS actions
     #[wasm_bindgen]
     pub fn has_pending_js_actions(&self) -> bool {
-        match self.inner.try_borrow() {
-            Ok(inner) => !inner.pending_js_actions.is_empty(),
-            Err(_) => false,
-        }
+        catch_unwind(AssertUnwindSafe(|| {
+            match self.inner.try_borrow() {
+                Ok(inner) => !inner.pending_js_actions.is_empty(),
+                Err(_) => false,
+            }
+        })).unwrap_or(false)
     }
 
-    /// Get render data as JSON string for JavaScript to draw
     #[wasm_bindgen]
     pub fn get_render_data(&self) -> String {
-        let inner = match self.inner.try_borrow() {
-            Ok(inner) => inner,
-            Err(_) => return "[]".to_string(),
-        };
-        
-        let render_entities: Vec<RenderEntity> = inner.entities
-            .iter()
-            .filter(|e| e.visible)
-            .map(|e| RenderEntity::from(e))
-            .collect();
-        
-        serde_json::to_string(&render_entities).unwrap_or_else(|_| "[]".to_string())
+        catch_unwind(AssertUnwindSafe(|| {
+            let inner = match self.inner.try_borrow() {
+                Ok(inner) => inner,
+                Err(_) => return "[]".to_string(),
+            };
+            
+            let render_entities: Vec<RenderEntity> = inner.entities
+                .iter()
+                .filter(|e| e.visible)
+                .map(|e| RenderEntity::from(e))
+                .collect();
+            
+            serde_json::to_string(&render_entities).unwrap_or_else(|_| "[]".to_string())
+        })).unwrap_or_else(|_| "[]".to_string())
     }
 
     /// Check if engine is running

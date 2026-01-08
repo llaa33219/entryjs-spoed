@@ -20,18 +20,8 @@ export class WasmEngine {
    * Update mouse state from JavaScript
    */
   update_mouse(x: number, y: number, clicked: boolean): void;
-  /**
-   * Get pending JavaScript actions as JSON and clear the queue
-   * Call this after tick() to process any actions that require JS
-   */
   get_js_actions(): string;
-  /**
-   * Get render data as JSON string for JavaScript to draw
-   */
   get_render_data(): string;
-  /**
-   * Check if there are pending JS actions
-   */
   has_pending_js_actions(): boolean;
   /**
    * Create a new WASM engine instance

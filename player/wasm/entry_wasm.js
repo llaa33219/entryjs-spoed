@@ -166,8 +166,6 @@ export class WasmEngine {
         wasm.wasmengine_update_mouse(this.__wbg_ptr, x, y, clicked);
     }
     /**
-     * Get pending JavaScript actions as JSON and clear the queue
-     * Call this after tick() to process any actions that require JS
      * @returns {string}
      */
     get_js_actions() {
@@ -183,7 +181,6 @@ export class WasmEngine {
         }
     }
     /**
-     * Get render data as JSON string for JavaScript to draw
      * @returns {string}
      */
     get_render_data() {
@@ -199,7 +196,6 @@ export class WasmEngine {
         }
     }
     /**
-     * Check if there are pending JS actions
      * @returns {boolean}
      */
     has_pending_js_actions() {
