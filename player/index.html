@@ -229,6 +229,12 @@
                     this.brushContexts = new Map(); // entity_id -> context
                     this.brushStates = new Map(); // entity_id -> BrushState
                     this.entityOrder = []; // entity order for z-index (first = bottom)
+
+                    // Scene management
+                    this.scenes = []; // Array of scene objects {id, name}
+                    this.currentSceneId = null; // Currently active scene ID
+                    this.allObjects = []; // All objects from project (parsed)
+                    this.sceneObjectsMap = new Map(); // sceneId -> array of objects
                 }
 
                 async initialize() {
@@ -659,21 +665,15 @@
                         throw new Error('프로젝트 데이터가 없습니다');
                     }
 
-                    // Parse project data
-                    let objects;
-                    try {
-                        objects =
-                            typeof this.projectData.objects === 'string'
-                                ? JSON.parse(this.projectData.objects)
-                                : this.projectData.objects;
-                        console.log(
-                            'objects 파싱 완료:',
-                            objects ? `${objects.length}개 오브젝트` : 'null/undefined'
-                        );
-                    } catch (parseError) {
-                        console.error('objects JSON 파싱 실패:', parseError);
-                        throw new Error(`objects 파싱 실패: ${parseError.message || parseError}`);
-                    }
+                    // Initialize scene management first
+                    this.initializeScenes(this.projectData);
+
+                    // Get objects for current scene (or all objects if no scenes)
+                    let objects = this.getCurrentSceneObjects();
+                    console.log(
+                        'objects 준비 완료:',
+                        objects ? `${objects.length}개 오브젝트 (현재 장면)` : 'null/undefined'
+                    );
 
                     // Initialize canvas size
                     this.canvas.width = 480;
@@ -728,25 +728,265 @@
                     };
                 }
 
-                // playentry.org API에서 받은 데이터를 WASM 엔진용으로 변환
-                // objects, variables, functions 등이 문자열로 되어 있으면 파싱
-                prepareProjectForWasm(projectData) {
-                    const prepared = { ...projectData };
-
-                    // objects 필드 파싱 (문자열 -> 배열)
-                    if (typeof prepared.objects === 'string') {
+                // Initialize scene management from project data
+                initializeScenes(projectData) {
+                    // Parse scenes
+                    let scenes = projectData.scenes;
+                    if (typeof scenes === 'string') {
                         try {
-                            prepared.objects = JSON.parse(prepared.objects);
-                            console.log(
-                                'objects 문자열 파싱 완료:',
-                                prepared.objects.length,
-                                '개 오브젝트'
-                            );
+                            scenes = JSON.parse(scenes);
                         } catch (e) {
-                            console.error('objects 파싱 실패:', e);
-                            prepared.objects = [];
+                            console.warn('scenes 파싱 실패:', e);
+                            scenes = [];
                         }
                     }
+                    this.scenes = scenes || [];
+
+                    // Parse all objects
+                    let objects = projectData.objects;
+                    if (typeof objects === 'string') {
+                        try {
+                            objects = JSON.parse(objects);
+                        } catch (e) {
+                            console.warn('objects 파싱 실패:', e);
+                            objects = [];
+                        }
+                    }
+                    this.allObjects = objects || [];
+
+                    // Build scene -> objects mapping
+                    this.sceneObjectsMap.clear();
+                    for (const scene of this.scenes) {
+                        this.sceneObjectsMap.set(scene.id, []);
+                    }
+
+                    for (const obj of this.allObjects) {
+                        const sceneId = obj.scene;
+                        if (sceneId && this.sceneObjectsMap.has(sceneId)) {
+                            this.sceneObjectsMap.get(sceneId).push(obj);
+                        } else if (this.scenes.length > 0) {
+                            // Default to first scene if no scene specified
+                            const firstSceneId = this.scenes[0].id;
+                            if (!this.sceneObjectsMap.has(firstSceneId)) {
+                                this.sceneObjectsMap.set(firstSceneId, []);
+                            }
+                            this.sceneObjectsMap.get(firstSceneId).push(obj);
+                        }
+                    }
+
+                    // Set initial scene (first scene)
+                    if (this.scenes.length > 0) {
+                        this.currentSceneId = this.scenes[0].id;
+                    }
+
+                    console.log(`장면 초기화 완료: ${this.scenes.length}개 장면`);
+                    for (const scene of this.scenes) {
+                        const objCount = this.sceneObjectsMap.get(scene.id)?.length || 0;
+                        console.log(`  - ${scene.name} (${scene.id}): ${objCount}개 오브젝트`);
+                    }
+                }
+
+                // Get objects for current scene
+                getCurrentSceneObjects() {
+                    if (!this.currentSceneId) {
+                        return this.allObjects;
+                    }
+                    return this.sceneObjectsMap.get(this.currentSceneId) || [];
+                }
+
+                // Switch to a specific scene by ID
+                switchToScene(sceneId) {
+                    const scene = this.scenes.find((s) => s.id === sceneId);
+                    if (!scene) {
+                        console.warn(`장면을 찾을 수 없음: ${sceneId}`);
+                        return false;
+                    }
+
+                    console.log(`장면 전환: ${scene.name} (${sceneId})`);
+                    this.currentSceneId = sceneId;
+
+                    // Get objects for the new scene
+                    const sceneObjects = this.getCurrentSceneObjects();
+
+                    // Update entity order for the new scene
+                    this.entityOrder = [];
+                    for (let i = sceneObjects.length - 1; i >= 0; i--) {
+                        this.entityOrder.push(i);
+                    }
+
+                    // Reload WASM engine with new scene's objects
+                    if (this.isWasmEngineValid()) {
+                        try {
+                            // Save current variable state before switching
+                            let savedVariables = null;
+                            if (typeof this.wasmEngine.get_variables === 'function') {
+                                try {
+                                    savedVariables = this.wasmEngine.get_variables();
+                                } catch (e) {
+                                    console.warn('변수 상태 저장 실패:', e);
+                                }
+                            }
+
+                            // Create project data for just this scene
+                            const sceneProjectData = this.createSceneProjectData(sceneId);
+
+                            // Stop current execution
+                            this.wasmEngine.stop();
+
+                            // Load new scene data
+                            this.wasmEngine.load_project(JSON.stringify(sceneProjectData));
+
+                            // Restore variable state after loading new scene
+                            if (
+                                savedVariables &&
+                                typeof this.wasmEngine.set_variables === 'function'
+                            ) {
+                                try {
+                                    this.wasmEngine.set_variables(savedVariables);
+                                } catch (e) {
+                                    console.warn('변수 상태 복원 실패:', e);
+                                }
+                            }
+
+                            // Start and fire scene start event
+                            this.wasmEngine.start();
+                            this.wasmEngine.fire_scene_start();
+
+                            console.log(
+                                `WASM 엔진에 장면 로드 완료: ${sceneObjects.length}개 오브젝트`
+                            );
+                        } catch (e) {
+                            console.error('장면 전환 중 WASM 오류:', e);
+                            return false;
+                        }
+                    }
+
+                    // Preload images for new scene
+                    this.preloadSceneImages(sceneObjects);
+
+                    return true;
+                }
+
+                // Create project data for a specific scene
+                createSceneProjectData(sceneId) {
+                    const sceneObjects = this.sceneObjectsMap.get(sceneId) || [];
+
+                    // Parse and prepare objects (same as prepareProjectForWasm but for specific scene)
+                    const preparedObjects = sceneObjects.map((obj) => {
+                        const newObj = { ...obj };
+                        if (typeof newObj.script === 'string') {
+                            try {
+                                newObj.script = JSON.parse(newObj.script);
+                            } catch (e) {
+                                newObj.script = [];
+                            }
+                        }
+                        return newObj;
+                    });
+
+                    // Get variables and functions from original project
+                    let variables = this.projectData.variables;
+                    if (typeof variables === 'string') {
+                        try {
+                            variables = JSON.parse(variables);
+                        } catch (e) {
+                            variables = [];
+                        }
+                    }
+
+                    let functions = this.projectData.functions;
+                    if (typeof functions === 'string') {
+                        try {
+                            functions = JSON.parse(functions);
+                        } catch (e) {
+                            functions = [];
+                        }
+                    }
+
+                    let messages = this.projectData.messages;
+                    if (typeof messages === 'string') {
+                        try {
+                            messages = JSON.parse(messages);
+                        } catch (e) {
+                            messages = [];
+                        }
+                    }
+
+                    return {
+                        id: this.projectData.id,
+                        name: this.projectData.name,
+                        speed: this.projectData.speed || 60,
+                        objects: preparedObjects,
+                        variables: variables || [],
+                        functions: functions || [],
+                        messages: messages || [],
+                        scenes: this.scenes,
+                    };
+                }
+
+                // Preload images for a set of objects
+                async preloadSceneImages(objects) {
+                    for (const obj of objects) {
+                        if (obj.sprite?.pictures) {
+                            for (const pic of obj.sprite.pictures) {
+                                if (pic.id && !imageCache.has(pic.id)) {
+                                    this.loadPictureImage(pic);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Load a single picture image
+                loadPictureImage(pic) {
+                    if (!pic.fileurl && !pic.filename) return;
+
+                    let originalUrl = pic.fileurl;
+                    if (!originalUrl && pic.filename) {
+                        originalUrl = `uploads/${pic.filename.substring(0, 2)}/${pic.filename.substring(2, 4)}/image/${pic.filename}.png`;
+                    }
+
+                    let proxyUrl;
+                    if (originalUrl.startsWith('http://') || originalUrl.startsWith('https://')) {
+                        proxyUrl = originalUrl
+                            .replace('https://playentry.org/', '/api/playentry/image/')
+                            .replace('http://playentry.org/', '/api/playentry/image/');
+                    } else {
+                        proxyUrl = `/api/playentry/image/${originalUrl}`;
+                    }
+
+                    const img = new Image();
+                    img.onload = () => console.log(`이미지 로드 완료: ${pic.id}`);
+                    img.onerror = () => console.warn(`이미지 로드 실패: ${pic.id}`);
+                    img.src = proxyUrl;
+                    imageCache.set(pic.id, img);
+                }
+
+                // Switch to next scene
+                switchToNextScene() {
+                    const currentIndex = this.scenes.findIndex((s) => s.id === this.currentSceneId);
+                    if (currentIndex >= 0 && currentIndex < this.scenes.length - 1) {
+                        return this.switchToScene(this.scenes[currentIndex + 1].id);
+                    }
+                    console.log('다음 장면이 없습니다');
+                    return false;
+                }
+
+                // Switch to previous scene
+                switchToPreviousScene() {
+                    const currentIndex = this.scenes.findIndex((s) => s.id === this.currentSceneId);
+                    if (currentIndex > 0) {
+                        return this.switchToScene(this.scenes[currentIndex - 1].id);
+                    }
+                    console.log('이전 장면이 없습니다');
+                    return false;
+                }
+
+                // playentry.org API에서 받은 데이터를 WASM 엔진용으로 변환
+                // objects, variables, functions 등이 문자열로 되어 있으면 파싱
+                // 현재 장면의 오브젝트만 포함
+                prepareProjectForWasm(projectData) {
+                    const prepared = { ...projectData };
 
                     // variables 필드 파싱
                     if (typeof prepared.variables === 'string') {
@@ -797,12 +1037,11 @@
                         }
                     }
 
-                    // 각 object 안의 script 필드도 파싱 (이중 문자열화 된 경우)
-                    if (Array.isArray(prepared.objects)) {
-                        prepared.objects = prepared.objects.map((obj) => {
+                    // 현재 장면의 오브젝트만 사용 (장면이 초기화된 경우)
+                    if (this.currentSceneId && this.sceneObjectsMap.size > 0) {
+                        const sceneObjects = this.getCurrentSceneObjects();
+                        prepared.objects = sceneObjects.map((obj) => {
                             const newObj = { ...obj };
-
-                            // script가 문자열이면 파싱
                             if (typeof newObj.script === 'string') {
                                 try {
                                     newObj.script = JSON.parse(newObj.script);
@@ -811,9 +1050,43 @@
                                     newObj.script = [];
                                 }
                             }
-
                             return newObj;
                         });
+                        console.log(
+                            'objects 현재 장면 필터링 완료:',
+                            prepared.objects.length,
+                            '개 오브젝트'
+                        );
+                    } else {
+                        // 장면 초기화 전이면 전체 오브젝트 사용
+                        if (typeof prepared.objects === 'string') {
+                            try {
+                                prepared.objects = JSON.parse(prepared.objects);
+                            } catch (e) {
+                                console.error('objects 파싱 실패:', e);
+                                prepared.objects = [];
+                            }
+                        }
+
+                        if (Array.isArray(prepared.objects)) {
+                            prepared.objects = prepared.objects.map((obj) => {
+                                const newObj = { ...obj };
+                                if (typeof newObj.script === 'string') {
+                                    try {
+                                        newObj.script = JSON.parse(newObj.script);
+                                    } catch (e) {
+                                        console.warn('object script 파싱 실패:', obj.id, e);
+                                        newObj.script = [];
+                                    }
+                                }
+                                return newObj;
+                            });
+                        }
+                        console.log(
+                            'objects 문자열 파싱 완료:',
+                            prepared.objects?.length || 0,
+                            '개 오브젝트'
+                        );
                     }
 
                     return prepared;
@@ -873,14 +1146,23 @@
                 restart() {
                     this.stop();
 
-                    // Clear brush canvas on restart
-                    if (this.brushCtx) {
-                        this.brushCtx.clearRect(
-                            0,
-                            0,
-                            this.brushCanvas.width,
-                            this.brushCanvas.height
-                        );
+                    // Reset to first scene
+                    if (this.scenes.length > 0) {
+                        this.currentSceneId = this.scenes[0].id;
+                        // Update entity order for first scene
+                        const sceneObjects = this.getCurrentSceneObjects();
+                        this.entityOrder = [];
+                        for (let i = sceneObjects.length - 1; i >= 0; i--) {
+                            this.entityOrder.push(i);
+                        }
+                    }
+
+                    // Clear all brush canvases on restart
+                    for (const [entityId, canvas] of this.brushCanvases) {
+                        const ctx = this.brushContexts.get(entityId);
+                        if (ctx) {
+                            ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        }
                     }
                     // Clear fill canvas on restart
                     if (this.fillCtx) {
@@ -1087,6 +1369,23 @@
                         case 'FillLineTo': {
                             const { entity_id, x, y } = data;
                             this.handleFillLineTo(entity_id, x, y);
+                            break;
+                        }
+                        // Scene actions
+                        case 'StartScene': {
+                            const sceneId = data.scene_id;
+                            console.log('StartScene 액션 수신:', sceneId);
+                            this.switchToScene(sceneId);
+                            break;
+                        }
+                        case 'StartNextScene': {
+                            console.log('StartNextScene 액션 수신');
+                            this.switchToNextScene();
+                            break;
+                        }
+                        case 'StartPreviousScene': {
+                            console.log('StartPreviousScene 액션 수신');
+                            this.switchToPreviousScene();
                             break;
                         }
                         default:

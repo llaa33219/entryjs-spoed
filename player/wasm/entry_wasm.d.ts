@@ -21,6 +21,16 @@ export class WasmEngine {
    */
   update_mouse(x: number, y: number, clicked: boolean): void;
   /**
+   * Get current variables state as JSON string
+   * Used for preserving variable state across scene transitions
+   */
+  get_variables(): string;
+  /**
+   * Set variables state from JSON string
+   * Used for restoring variable state after scene transitions
+   */
+  set_variables(json: string): void;
+  /**
    * Fire key press event with specific key code
    */
   fire_key_event(key_code: number): void;
@@ -80,12 +90,14 @@ export interface InitOutput {
   readonly wasmengine_get_js_actions: (a: number) => [number, number];
   readonly wasmengine_get_render_data: (a: number) => [number, number];
   readonly wasmengine_get_tick: (a: number) => bigint;
+  readonly wasmengine_get_variables: (a: number) => [number, number];
   readonly wasmengine_has_pending_js_actions: (a: number) => number;
   readonly wasmengine_is_busy: (a: number) => number;
   readonly wasmengine_is_running: (a: number) => number;
   readonly wasmengine_load_project: (a: number, b: number, c: number) => [number, number];
   readonly wasmengine_new: () => number;
   readonly wasmengine_reset: (a: number) => void;
+  readonly wasmengine_set_variables: (a: number, b: number, c: number) => void;
   readonly wasmengine_start: (a: number) => void;
   readonly wasmengine_stop: (a: number) => void;
   readonly wasmengine_tick: (a: number) => void;

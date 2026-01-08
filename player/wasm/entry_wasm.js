@@ -166,6 +166,33 @@ export class WasmEngine {
         wasm.wasmengine_update_mouse(this.__wbg_ptr, x, y, clicked);
     }
     /**
+     * Get current variables state as JSON string
+     * Used for preserving variable state across scene transitions
+     * @returns {string}
+     */
+    get_variables() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.wasmengine_get_variables(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * Set variables state from JSON string
+     * Used for restoring variable state after scene transitions
+     * @param {string} json
+     */
+    set_variables(json) {
+        const ptr0 = passStringToWasm0(json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.wasmengine_set_variables(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
      * Fire key press event with specific key code
      * @param {number} key_code
      */

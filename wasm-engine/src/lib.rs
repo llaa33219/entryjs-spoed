@@ -507,6 +507,34 @@ impl WasmEngine {
         }
     }
     
+    /// Get current variables state as JSON string
+    /// Used for preserving variable state across scene transitions
+    #[wasm_bindgen]
+    pub fn get_variables(&self) -> String {
+        catch_unwind(AssertUnwindSafe(|| {
+            let inner = match self.inner.try_borrow() {
+                Ok(inner) => inner,
+                Err(_) => return "{}".to_string(),
+            };
+            
+            serde_json::to_string(&inner.variables).unwrap_or_else(|_| "{}".to_string())
+        })).unwrap_or_else(|_| "{}".to_string())
+    }
+    
+    /// Set variables state from JSON string
+    /// Used for restoring variable state after scene transitions
+    #[wasm_bindgen]
+    pub fn set_variables(&self, json: &str) {
+        let mut inner = match self.inner.try_borrow_mut() {
+            Ok(inner) => inner,
+            Err(_) => return,
+        };
+        
+        if let Ok(variables) = serde_json::from_str::<HashMap<String, Value>>(json) {
+            inner.variables = variables;
+        }
+    }
+    
     /// Update mouse state from JavaScript
     #[wasm_bindgen]
     pub fn update_mouse(&self, x: f64, y: f64, clicked: bool) {
