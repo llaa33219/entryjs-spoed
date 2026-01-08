@@ -1081,8 +1081,12 @@ impl Executor {
                     let index = index_f64 as usize;
                     if let Some(list_var) = variables.get_mut(&list_id) {
                         if let Value::List(list) = list_var {
-                            if index <= list.len() {
-                                list.remove(index - 1);
+                            // Safe bounds check: index is 1-based, so index-1 must be < list.len()
+                            if index >= 1 && index <= list.len() {
+                                // Double-check with get() before remove to prevent panic
+                                if list.get(index - 1).is_some() {
+                                    list.remove(index - 1);
+                                }
                             }
                         }
                     }
@@ -1099,8 +1103,9 @@ impl Executor {
                     let index = index_f64 as usize;
                     if let Some(list_var) = variables.get_mut(&list_id) {
                         if let Value::List(list) = list_var {
-                            if index <= list.len() + 1 {
-                                list.insert(index - 1, value);
+                            let insert_pos = index - 1;
+                            if insert_pos <= list.len() {
+                                list.insert(insert_pos, value);
                             }
                         }
                     }
@@ -1933,10 +1938,9 @@ impl Executor {
                         continue;
                     }
                     
-                    let result = if op.starts_with("calc_basic:") {
+                    let result = if let Some(op_type) = op.strip_prefix("calc_basic:") {
                         let right = value_stack.pop().unwrap_or(Value::Number(0.0)).as_number();
                         let left = value_stack.pop().unwrap_or(Value::Number(0.0)).as_number();
-                        let op_type = &op[11..];
                         Value::Number(match op_type {
                             "PLUS" | "+" => left + right,
                             "MINUS" | "-" => left - right,
@@ -1949,10 +1953,9 @@ impl Executor {
                         let min = value_stack.pop().unwrap_or(Value::Number(0.0)).as_number();
                         let random = js_sys::Math::random();
                         Value::Number(min + random * (max - min))
-                    } else if op.starts_with("boolean_basic:") {
+                    } else if let Some(op_type) = op.strip_prefix("boolean_basic:") {
                         let right = value_stack.pop().unwrap_or(Value::Number(0.0)).as_number();
                         let left = value_stack.pop().unwrap_or(Value::Number(0.0)).as_number();
-                        let op_type = &op[14..];
                         Value::Bool(match op_type {
                             "EQUAL" | "==" => (left - right).abs() < f64::EPSILON,
                             "NOT_EQUAL" | "!=" => (left - right).abs() >= f64::EPSILON,
@@ -1962,10 +1965,9 @@ impl Executor {
                             "LESS_OR_EQUAL" | "<=" => left <= right,
                             _ => false,
                         })
-                    } else if op.starts_with("boolean_and_or:") {
+                    } else if let Some(op_type) = op.strip_prefix("boolean_and_or:") {
                         let right = value_stack.pop().unwrap_or(Value::Bool(false)).as_bool();
                         let left = value_stack.pop().unwrap_or(Value::Bool(false)).as_bool();
-                        let op_type = &op[15..];
                         Value::Bool(match op_type {
                             "AND" => left && right,
                             "OR" => left || right,
@@ -1974,9 +1976,8 @@ impl Executor {
                     } else if op == "boolean_not" {
                         let val = value_stack.pop().unwrap_or(Value::Bool(false)).as_bool();
                         Value::Bool(!val)
-                    } else if op.starts_with("calc_op:") {
+                    } else if let Some(op_type) = op.strip_prefix("calc_op:") {
                         let val = value_stack.pop().unwrap_or(Value::Number(0.0)).as_number();
-                        let op_type = &op[8..];
                         Value::Number(match op_type {
                             "square" => val * val,
                             "root" | "sqrt" => val.sqrt(),
