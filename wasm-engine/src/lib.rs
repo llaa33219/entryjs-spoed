@@ -313,11 +313,33 @@ impl WasmEngine {
     /// Execute one tick of the engine
     #[wasm_bindgen]
     pub fn tick(&self) {
+        // Wrap entire tick in catch_unwind to ensure RefCell borrow is always released
+        let tick_result = catch_unwind(AssertUnwindSafe(|| {
+            self.tick_inner()
+        }));
+        
+        if let Err(panic_info) = tick_result {
+            if !self.error_logged.get() {
+                self.error_logged.set(true);
+                let panic_msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
+                    s.to_string()
+                } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                    s.clone()
+                } else {
+                    format!("{:?}", panic_info)
+                };
+                web_sys::console::error_1(
+                    &format!("WASM tick panic: {}", panic_msg).into()
+                );
+            }
+        }
+    }
+    
+    fn tick_inner(&self) {
         // Use try_borrow_mut to prevent recursive tick calls
         let mut inner = match self.inner.try_borrow_mut() {
             Ok(inner) => inner,
             Err(_) => {
-                // Already in a tick, skip this call
                 return;
             }
         };
@@ -328,37 +350,27 @@ impl WasmEngine {
         
         inner.tick_count += 1;
         
-        // Execute all active executors
         let mut completed = Vec::new();
-        const MAX_EXECUTIONS_PER_TICK: u32 = 1_000_000; // Safety limit to prevent infinite loops
+        const MAX_EXECUTIONS_PER_TICK: u32 = 1_000_000;
         
-        // Take mutable fields out to avoid borrow conflicts
-        // This allows us to pass mutable references to separate fields
         let mut executors = std::mem::take(&mut inner.executors);
         let mut entities = std::mem::take(&mut inner.entities);
         let mut variables = std::mem::take(&mut inner.variables);
         let mut pending_js_actions = std::mem::take(&mut inner.pending_js_actions);
-        // Note: functions is borrowed immutably, no need to clone
-        // We'll put it back in inner first so we can borrow it
         let functions_ref = &inner.functions;
         
         for (idx, executor) in executors.iter_mut().enumerate() {
-            // Check if engine was stopped during execution
             if inner.state != EngineState::Running || self.stop_requested.get() {
                 break;
             }
             
-            // Execute blocks continuously until Wait or End result
-            // This ensures function calls and other non-waiting blocks execute without delay
             let mut execution_count = 0u32;
             
             loop {
-                // Check stop condition inside loop
                 if inner.state != EngineState::Running || self.stop_requested.get() {
                     break;
                 }
                 
-                // Use catch_unwind to capture panic info without crashing
                 let execute_result = catch_unwind(AssertUnwindSafe(|| {
                     executor.execute(
                         &mut entities, 
@@ -376,20 +388,17 @@ impl WasmEngine {
                                 break;
                             }
                             ExecuteResult::Wait => {
-                                // Wait result - stop execution for this tick
                                 break;
                             }
                             ExecuteResult::Continue | ExecuteResult::JumpedToBlock | ExecuteResult::Break => {
-                                // Continue executing more blocks in the same tick
                                 execution_count += 1;
                                 if execution_count >= MAX_EXECUTIONS_PER_TICK {
-                                    break; // Safety limit reached
+                                    break;
                                 }
                             }
                         }
                     }
                     Err(panic_info) => {
-                        // Log the panic only once to prevent console flood
                         if !self.error_logged.get() {
                             self.error_logged.set(true);
                             let panic_msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
@@ -403,7 +412,6 @@ impl WasmEngine {
                                 &format!("WASM panic in executor (entity {}): {}", executor.entity_idx, panic_msg).into()
                             );
                         }
-                        // Remove the panicking executor
                         completed.push(idx);
                         break;
                     }
@@ -411,18 +419,15 @@ impl WasmEngine {
             }
         }
         
-        // Remove completed executors (in reverse order to maintain indices)
         for idx in completed.into_iter().rev() {
             executors.remove(idx);
         }
         
-        // Put all fields back
         inner.executors = executors;
         inner.entities = entities;
         inner.variables = variables;
         inner.pending_js_actions = pending_js_actions;
         
-        // Handle stop request
         if self.stop_requested.get() {
             inner.state = EngineState::Stopped;
             inner.executors.clear();
