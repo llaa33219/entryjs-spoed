@@ -500,10 +500,11 @@ impl WasmEngine {
             };
             
             // Reverse order: first object in data should be rendered last (on top/front)
+            // Include hidden objects if they have active brush or fill (for pen/fill indicators)
             let render_entities: Vec<RenderEntity> = inner.entities
                 .iter()
-                .rev()  // Reverse iteration so first object appears on top
-                .filter(|e| e.visible)
+                .rev()
+                .filter(|e| e.visible || e.brush_down || e.fill_down)
                 .map(|e| RenderEntity::from(e))
                 .collect();
             
@@ -948,6 +949,11 @@ pub struct RenderEntity {
     pub brush_color: String,
     #[serde(rename = "brushSize")]
     pub brush_size: f64,
+    // Fill state
+    #[serde(rename = "fillDown")]
+    pub fill_down: bool,
+    #[serde(rename = "fillColor")]
+    pub fill_color: String,
 }
 
 impl From<&Entity> for RenderEntity {
@@ -970,6 +976,8 @@ impl From<&Entity> for RenderEntity {
             brush_down: e.brush_down,
             brush_color: e.brush_color.clone(),
             brush_size: e.brush_size,
+            fill_down: e.fill_down,
+            fill_color: e.fill_color.clone(),
         }
     }
 }
