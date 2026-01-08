@@ -1371,6 +1371,16 @@
                             this.handleFillLineTo(entity_id, x, y);
                             break;
                         }
+                        case 'BrushPath': {
+                            const { entity_id, points } = data;
+                            this.handleBrushPath(entity_id, points);
+                            break;
+                        }
+                        case 'FillPath': {
+                            const { entity_id, points } = data;
+                            this.handleFillPath(entity_id, points);
+                            break;
+                        }
                         // Scene actions
                         case 'StartScene': {
                             const sceneId = data.scene_id;
@@ -1606,6 +1616,65 @@
                     } else {
                         brushState.fillPath.push({ x: screenX, y: screenY });
                     }
+                }
+
+                handleBrushPath(entityId, points) {
+                    const entityKey = this.getEntityId(entityId);
+                    if (entityKey === null) return;
+                    const brushState = this.getBrushState(entityKey);
+                    const ctx = this.getBrushCtx(entityId);
+
+                    if (points.length === 0) return;
+
+                    ctx.beginPath();
+                    ctx.strokeStyle = brushState.color;
+                    ctx.lineWidth = brushState.size;
+                    ctx.lineCap = 'round';
+                    ctx.lineJoin = 'round';
+                    ctx.globalAlpha = 1 - brushState.opacity / 100;
+
+                    if (brushState.lastX !== null && brushState.lastY !== null) {
+                        ctx.moveTo(brushState.lastX, brushState.lastY);
+                    } else {
+                        const [firstX, firstY] = points[0];
+                        ctx.moveTo(240 + firstX, 180 - firstY);
+                    }
+
+                    for (const [x, y] of points) {
+                        const screenX = 240 + x;
+                        const screenY = 180 - y;
+                        ctx.lineTo(screenX, screenY);
+                    }
+                    ctx.stroke();
+                    ctx.globalAlpha = 1;
+
+                    const lastPoint = points[points.length - 1];
+                    brushState.lastX = 240 + lastPoint[0];
+                    brushState.lastY = 180 - lastPoint[1];
+                }
+
+                handleFillPath(entityId, points) {
+                    const entityKey = this.getEntityId(entityId);
+                    if (entityKey === null) return;
+                    const brushState = this.getBrushState(entityKey);
+                    if (!brushState.fillDown) return;
+
+                    for (const [x, y] of points) {
+                        const screenX = 240 + x;
+                        const screenY = 180 - y;
+                        const lastPoint = brushState.fillPath[brushState.fillPath.length - 1];
+                        if (lastPoint) {
+                            const dx = screenX - lastPoint.x;
+                            const dy = screenY - lastPoint.y;
+                            const distance = Math.sqrt(dx * dx + dy * dy);
+                            if (distance >= 2) {
+                                brushState.fillPath.push({ x: screenX, y: screenY });
+                            }
+                        } else {
+                            brushState.fillPath.push({ x: screenX, y: screenY });
+                        }
+                    }
+                    this.drawFillPreview(entityKey);
                 }
 
                 // Draw real-time fill preview on fillCanvas
