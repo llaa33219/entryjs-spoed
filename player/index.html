@@ -892,53 +892,64 @@
                     this._jsActionsParseErrorLogged = false;
                     this._brushStampErrorLogged = false;
                     this._renderErrorLogged = false;
+                    this._renderDataErrorLogged = false;
+                    this._tickErrorLogged = false;
+                    this._renderErrorCount = 0;
 
-                    // WASM 엔진 완전 재생성 (reset만으로는 내부 상태 불일치 발생 가능)
-                    if (this.wasmEngine && this.projectData && WasmEngine) {
+                    // WASM 엔진 reset (재생성보다 안전)
+                    if (this.wasmEngine && this.wasmInitialized) {
                         try {
-                            // 기존 엔진 정리
-                            this.wasmEngine.stop();
-
-                            // 새 엔진 인스턴스 생성
-                            this.wasmEngine = new WasmEngine();
-
-                            // 프로젝트 다시 로드
-                            const projectForWasm = this.prepareProjectForWasm(this.projectData);
-                            this.wasmEngine.load_project(JSON.stringify(projectForWasm));
-
-                            console.log('WASM 엔진 재생성 완료');
+                            // 먼저 reset 시도
+                            this.wasmEngine.reset();
+                            console.log('WASM 엔진 reset 완료');
                         } catch (e) {
-                            console.error('WASM 엔진 재생성 실패:', e);
-                            // 폴백: 기존 reset 방식 시도
-                            try {
-                                if (this.wasmEngine) {
-                                    this.wasmEngine.reset();
+                            console.error('WASM reset 실패:', e);
+                            // reset 실패 시 엔진 재생성 시도
+                            if (this.projectData && WasmEngine) {
+                                try {
+                                    // 기존 엔진 명시적 해제
+                                    try {
+                                        this.wasmEngine.free();
+                                    } catch (freeError) {
+                                        // free 실패는 무시 (이미 해제되었을 수 있음)
+                                    }
+
+                                    // 새 엔진 생성
+                                    this.wasmEngine = new WasmEngine();
+                                    const projectForWasm = this.prepareProjectForWasm(
+                                        this.projectData
+                                    );
+                                    this.wasmEngine.load_project(JSON.stringify(projectForWasm));
+                                    console.log('WASM 엔진 재생성 완료');
+                                } catch (recreateError) {
+                                    console.error('WASM 엔진 재생성 실패:', recreateError);
+                                    this.wasmEngine = null;
+                                    this.wasmInitialized = false;
                                 }
-                            } catch (resetError) {
-                                console.error('WASM reset도 실패:', resetError);
+                            } else {
                                 this.wasmEngine = null;
                                 this.wasmInitialized = false;
                             }
-                        }
-                    } else if (this.wasmEngine) {
-                        // projectData가 없으면 기존 방식으로 reset
-                        try {
-                            this.wasmEngine.reset();
-                        } catch (e) {
-                            console.error('WASM reset 실패:', e);
-                            this.wasmEngine = null;
-                            this.wasmInitialized = false;
                         }
                     }
 
                     setTimeout(() => this.start(), 100);
                 }
 
+                isWasmEngineValid() {
+                    return (
+                        this.wasmEngine &&
+                        this.wasmInitialized &&
+                        this.wasmEngine.__wbg_ptr !== 0 &&
+                        this.wasmEngine.__wbg_ptr !== undefined
+                    );
+                }
+
                 gameLoop() {
                     if (!this.isRunning) return;
 
                     // Update mouse state in WASM engine
-                    if (this.wasmEngine && this.wasmInitialized) {
+                    if (this.isWasmEngineValid()) {
                         try {
                             this.wasmEngine.update_mouse(
                                 this.mouseX,
@@ -979,8 +990,8 @@
 
                 // Handle JS actions from WASM engine
                 handleJsActions() {
-                    // Guard: check WASM engine exists and is fully initialized
-                    if (!this.wasmEngine || !this.wasmInitialized) return;
+                    // Guard: check WASM engine exists and pointer is valid
+                    if (!this.isWasmEngineValid()) return;
 
                     // Check if get_js_actions function exists (WASM may not have it exported)
                     if (typeof this.wasmEngine.get_js_actions !== 'function') {
@@ -1092,18 +1103,28 @@
                 // Convert entity index to entity.id by looking up in render data
                 // Note: entity.id from WASM is a number (usize), not a string
                 getEntityId(entityIndex) {
-                    const renderData = this.wasmEngine.get_render_data();
-                    if (!renderData || renderData === '[]') return null;
-                    const entities = JSON.parse(renderData);
-                    const entity = entities[entityIndex];
-                    // Return null only if entity doesn't exist, not if id is 0
-                    return entity != null ? entity.id : null;
+                    if (!this.isWasmEngineValid()) return null;
+                    try {
+                        const renderData = this.wasmEngine.get_render_data();
+                        if (!renderData || renderData === '[]') return null;
+                        const entities = JSON.parse(renderData);
+                        const entity = entities[entityIndex];
+                        return entity != null ? entity.id : null;
+                    } catch (e) {
+                        return null;
+                    }
                 }
 
                 // Handle brush stamp (copy entity image to brush canvas)
                 handleBrushStamp(entityId) {
+                    if (!this.isWasmEngineValid()) return;
                     // Get current render data to find entity position
-                    const renderData = this.wasmEngine.get_render_data();
+                    let renderData;
+                    try {
+                        renderData = this.wasmEngine.get_render_data();
+                    } catch (e) {
+                        return;
+                    }
                     if (!renderData) return;
 
                     try {
@@ -1350,7 +1371,7 @@
                         this.ctx.drawImage(this.fillCanvas, 0, 0);
                     }
 
-                    if (this.wasmEngine && this.wasmInitialized) {
+                    if (this.isWasmEngineValid()) {
                         // Get render data from WASM and draw
                         try {
                             const renderData = this.wasmEngine.get_render_data();
