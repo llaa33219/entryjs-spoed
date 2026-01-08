@@ -46,6 +46,10 @@ pub struct Entity {
     // Dialog state
     pub dialog_message: Option<String>,
     pub dialog_mode: Option<String>,  // "speak", "think", "yell"
+    
+    // Frame-based path buffers for brush/fill (accumulated during frame, flushed at frame end)
+    pub frame_brush_path: Vec<(f64, f64)>,
+    pub frame_fill_path: Vec<(f64, f64)>,
 }
 
 #[derive(Clone, Debug)]
@@ -111,6 +115,9 @@ impl Entity {
             
             dialog_message: None,
             dialog_mode: None,
+            
+            frame_brush_path: Vec::new(),
+            frame_fill_path: Vec::new(),
         }
     }
     
@@ -354,6 +361,8 @@ mod tests {
             fill_color: "#ff0000".to_string(),
             dialog_message: None,
             dialog_mode: None,
+            frame_brush_path: Vec::new(),
+            frame_fill_path: Vec::new(),
         }
     }
 

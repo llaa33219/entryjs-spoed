@@ -250,7 +250,7 @@ impl Executor {
                 if let Some(e) = entity {
                     let value = self.get_param_number(block, 0, variables);
                     e.move_direction(value);
-                    self.emit_brush_and_fill_line_to(e, js_actions);
+                    self.accumulate_brush_and_fill_path(e);
                 }
                 ExecuteResult::Continue
             }
@@ -259,7 +259,7 @@ impl Executor {
                 if let Some(e) = entity {
                     let value = self.get_param_number(block, 0, variables);
                     e.move_x(value);
-                    self.emit_brush_and_fill_line_to(e, js_actions);
+                    self.accumulate_brush_and_fill_path(e);
                 }
                 ExecuteResult::Continue
             }
@@ -268,7 +268,7 @@ impl Executor {
                 if let Some(e) = entity {
                     let value = self.get_param_number(block, 0, variables);
                     e.move_y(value);
-                    self.emit_brush_and_fill_line_to(e, js_actions);
+                    self.accumulate_brush_and_fill_path(e);
                 }
                 ExecuteResult::Continue
             }
@@ -277,7 +277,7 @@ impl Executor {
                 if let Some(e) = entity {
                     let value = self.get_param_number(block, 0, variables);
                     e.set_x(value);
-                    self.emit_brush_and_fill_line_to(e, js_actions);
+                    self.accumulate_brush_and_fill_path(e);
                 }
                 ExecuteResult::Continue
             }
@@ -286,7 +286,7 @@ impl Executor {
                 if let Some(e) = entity {
                     let value = self.get_param_number(block, 0, variables);
                     e.set_y(value);
-                    self.emit_brush_and_fill_line_to(e, js_actions);
+                    self.accumulate_brush_and_fill_path(e);
                 }
                 ExecuteResult::Continue
             }
@@ -296,7 +296,7 @@ impl Executor {
                     let x = self.get_param_number(block, 0, variables);
                     let y = self.get_param_number(block, 1, variables);
                     e.set_xy(x, y);
-                    self.emit_brush_and_fill_line_to(e, js_actions);
+                    self.accumulate_brush_and_fill_path(e);
                 }
                 ExecuteResult::Continue
             }
@@ -1689,20 +1689,12 @@ impl Executor {
         }
     }
 
-    fn emit_brush_and_fill_line_to(&self, entity: &Entity, js_actions: &mut Vec<JsAction>) {
+    fn accumulate_brush_and_fill_path(&self, entity: &mut Entity) {
         if entity.brush_down {
-            js_actions.push(JsAction::BrushLineTo {
-                entity_id: self.entity_idx,
-                x: entity.x,
-                y: entity.y,
-            });
+            entity.frame_brush_path.push((entity.x, entity.y));
         }
         if entity.fill_down {
-            js_actions.push(JsAction::FillLineTo {
-                entity_id: self.entity_idx,
-                x: entity.x,
-                y: entity.y,
-            });
+            entity.frame_fill_path.push((entity.x, entity.y));
         }
     }
 

@@ -64,9 +64,11 @@ pub enum JsAction {
     StartDrawing { entity_id: usize, x: f64, y: f64 },
     StopDrawing { entity_id: usize },
     BrushLineTo { entity_id: usize, x: f64, y: f64 },
+    BrushPath { entity_id: usize, points: Vec<(f64, f64)> },
     StartFill { entity_id: usize, x: f64, y: f64 },
     StopFill { entity_id: usize },
     FillLineTo { entity_id: usize, x: f64, y: f64 },
+    FillPath { entity_id: usize, points: Vec<(f64, f64)> },
     SetBrushColor { entity_id: usize, color: String },
     SetRandomColor { entity_id: usize },
     SetFillColor { entity_id: usize, color: String },
@@ -450,6 +452,23 @@ impl WasmEngine {
         
         for idx in completed.into_iter().rev() {
             executors.remove(idx);
+        }
+        
+        for entity in &mut entities {
+            if !entity.frame_brush_path.is_empty() {
+                let points = std::mem::take(&mut entity.frame_brush_path);
+                pending_js_actions.push(JsAction::BrushPath {
+                    entity_id: entity.id,
+                    points,
+                });
+            }
+            if !entity.frame_fill_path.is_empty() {
+                let points = std::mem::take(&mut entity.frame_fill_path);
+                pending_js_actions.push(JsAction::FillPath {
+                    entity_id: entity.id,
+                    points,
+                });
+            }
         }
         
         inner.executors = executors;
