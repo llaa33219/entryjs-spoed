@@ -562,9 +562,102 @@ impl WasmEngine {
     fn is_event_block_inner(block_type: &str, event_name: &str) -> bool {
         match event_name {
             "start" => block_type == "when_run_button_click",
-            "mouse_clicked" => block_type == "when_some_key_pressed" || block_type == "when_object_click",
+            "keyPress" => block_type == "when_some_key_pressed",
+            "mouse_clicked" => block_type == "mouse_clicked",
+            "mouse_click_cancled" => block_type == "mouse_click_cancled",
+            "when_scene_start" => block_type == "when_scene_start",
             _ => false,
         }
+    }
+    
+    /// Fire key press event with specific key code
+    #[wasm_bindgen]
+    pub fn fire_key_event(&self, key_code: u32) {
+        let mut inner = match self.inner.try_borrow_mut() {
+            Ok(inner) => inner,
+            Err(_) => return,
+        };
+        
+        if inner.state != EngineState::Running {
+            return;
+        }
+        
+        if let Some(project) = &inner.project_data.clone() {
+            if let Some(objects) = &project.objects {
+                for (entity_idx, obj) in objects.iter().enumerate() {
+                    if let Some(scripts) = &obj.script {
+                        for thread in scripts.iter() {
+                            if let Some(first_block) = thread.first() {
+                                if first_block.block_type == "when_some_key_pressed" {
+                                    // Check if this block's key matches the pressed key
+                                    if let Some(params) = &first_block.params {
+                                        if let Some(key_param) = params.get(1) {
+                                            let block_key = key_param.as_str()
+                                                .and_then(|s| s.parse::<u32>().ok())
+                                                .or_else(|| key_param.as_f64().map(|n| n as u32))
+                                                .unwrap_or(0);
+                                            
+                                            if block_key == key_code {
+                                                let executor = Executor::new(
+                                                    entity_idx,
+                                                    thread.clone(),
+                                                );
+                                                inner.executors.push(executor);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    /// Fire mouse clicked event
+    #[wasm_bindgen]
+    pub fn fire_mouse_clicked(&self) {
+        let mut inner = match self.inner.try_borrow_mut() {
+            Ok(inner) => inner,
+            Err(_) => return,
+        };
+        
+        if inner.state != EngineState::Running {
+            return;
+        }
+        
+        Self::fire_event_inner(&mut inner, "mouse_clicked");
+    }
+    
+    /// Fire mouse click cancelled event
+    #[wasm_bindgen]
+    pub fn fire_mouse_click_cancled(&self) {
+        let mut inner = match self.inner.try_borrow_mut() {
+            Ok(inner) => inner,
+            Err(_) => return,
+        };
+        
+        if inner.state != EngineState::Running {
+            return;
+        }
+        
+        Self::fire_event_inner(&mut inner, "mouse_click_cancled");
+    }
+    
+    /// Fire scene start event
+    #[wasm_bindgen]
+    pub fn fire_scene_start(&self) {
+        let mut inner = match self.inner.try_borrow_mut() {
+            Ok(inner) => inner,
+            Err(_) => return,
+        };
+        
+        if inner.state != EngineState::Running {
+            return;
+        }
+        
+        Self::fire_event_inner(&mut inner, "when_scene_start");
     }
 
     fn initialize_executors_inner(inner: &mut EngineInner) {

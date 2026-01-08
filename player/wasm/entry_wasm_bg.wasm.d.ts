@@ -2,6 +2,10 @@
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
 export const __wbg_wasmengine_free: (a: number, b: number) => void;
+export const wasmengine_fire_key_event: (a: number, b: number) => void;
+export const wasmengine_fire_mouse_click_cancled: (a: number) => void;
+export const wasmengine_fire_mouse_clicked: (a: number) => void;
+export const wasmengine_fire_scene_start: (a: number) => void;
 export const wasmengine_get_js_actions: (a: number) => [number, number];
 export const wasmengine_get_render_data: (a: number) => [number, number];
 export const wasmengine_get_tick: (a: number) => bigint;

@@ -20,9 +20,25 @@ export class WasmEngine {
    * Update mouse state from JavaScript
    */
   update_mouse(x: number, y: number, clicked: boolean): void;
+  /**
+   * Fire key press event with specific key code
+   */
+  fire_key_event(key_code: number): void;
   get_js_actions(): string;
   get_render_data(): string;
+  /**
+   * Fire scene start event
+   */
+  fire_scene_start(): void;
+  /**
+   * Fire mouse clicked event
+   */
+  fire_mouse_clicked(): void;
   has_pending_js_actions(): boolean;
+  /**
+   * Fire mouse click cancelled event
+   */
+  fire_mouse_click_cancled(): void;
   /**
    * Create a new WASM engine instance
    */
@@ -57,6 +73,10 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 export interface InitOutput {
   readonly memory: WebAssembly.Memory;
   readonly __wbg_wasmengine_free: (a: number, b: number) => void;
+  readonly wasmengine_fire_key_event: (a: number, b: number) => void;
+  readonly wasmengine_fire_mouse_click_cancled: (a: number) => void;
+  readonly wasmengine_fire_mouse_clicked: (a: number) => void;
+  readonly wasmengine_fire_scene_start: (a: number) => void;
   readonly wasmengine_get_js_actions: (a: number) => [number, number];
   readonly wasmengine_get_render_data: (a: number) => [number, number];
   readonly wasmengine_get_tick: (a: number) => bigint;

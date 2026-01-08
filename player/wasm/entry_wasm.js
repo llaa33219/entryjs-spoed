@@ -166,6 +166,13 @@ export class WasmEngine {
         wasm.wasmengine_update_mouse(this.__wbg_ptr, x, y, clicked);
     }
     /**
+     * Fire key press event with specific key code
+     * @param {number} key_code
+     */
+    fire_key_event(key_code) {
+        wasm.wasmengine_fire_key_event(this.__wbg_ptr, key_code);
+    }
+    /**
      * @returns {string}
      */
     get_js_actions() {
@@ -196,11 +203,29 @@ export class WasmEngine {
         }
     }
     /**
+     * Fire scene start event
+     */
+    fire_scene_start() {
+        wasm.wasmengine_fire_scene_start(this.__wbg_ptr);
+    }
+    /**
+     * Fire mouse clicked event
+     */
+    fire_mouse_clicked() {
+        wasm.wasmengine_fire_mouse_clicked(this.__wbg_ptr);
+    }
+    /**
      * @returns {boolean}
      */
     has_pending_js_actions() {
         const ret = wasm.wasmengine_has_pending_js_actions(this.__wbg_ptr);
         return ret !== 0;
+    }
+    /**
+     * Fire mouse click cancelled event
+     */
+    fire_mouse_click_cancled() {
+        wasm.wasmengine_fire_mouse_click_cancled(this.__wbg_ptr);
     }
     /**
      * Create a new WASM engine instance

@@ -1976,7 +1976,12 @@ impl Executor {
                                     "get_rotation" => value_stack.push(Value::Number(self.cached_entity_rotation)),
                                     "get_direction" => value_stack.push(Value::Number(self.cached_entity_direction)),
                                     "get_scale" => value_stack.push(Value::Number(self.cached_entity_scale)),
-                                    "coordinate_mouse" | "mouse_x" => value_stack.push(Value::Number(self.cached_mouse_x)),
+                                    "coordinate_mouse" => {
+                                        let coord = params.and_then(|p| p.get(1)).and_then(|v| v.as_str()).unwrap_or("x");
+                                        let value = if coord == "y" { self.cached_mouse_y } else { self.cached_mouse_x };
+                                        value_stack.push(Value::Number(value));
+                                    }
+                                    "mouse_x" => value_stack.push(Value::Number(self.cached_mouse_x)),
                                     "mouse_y" => value_stack.push(Value::Number(self.cached_mouse_y)),
                                     "is_clicked" => value_stack.push(Value::Bool(self.mouse_clicked)),
                                     _ => {
