@@ -47,7 +47,6 @@ pub struct Executor {
     pub mouse_clicked: bool,
     pub pressed_keys: Vec<u32>,
     
-    // Timed animation state
     timed_animation_frames: u32,
     timed_dx: f64,
     timed_dy: f64,
@@ -55,6 +54,7 @@ pub struct Executor {
     timed_d_direction: f64,
     timed_target_x: f64,
     timed_target_y: f64,
+    func_params: HashMap<String, Value>,
 }
 
 #[derive(Clone, Debug)]
@@ -63,6 +63,7 @@ struct StackFrame {
     block_index: usize,
     iteration_count: u32,
     is_loop: bool,
+    func_params: Option<HashMap<String, Value>>,
 }
 
 impl Executor {
@@ -93,6 +94,7 @@ impl Executor {
             timed_d_direction: 0.0,
             timed_target_x: 0.0,
             timed_target_y: 0.0,
+            func_params: HashMap::new(),
         }
     }
     
@@ -151,28 +153,23 @@ impl Executor {
         let block = match self.get_current_block() {
             Some(b) => b.clone(),
             None => {
-                // Try to pop from call stack
                 if let Some(frame) = self.call_stack.pop() {
                     self.blocks = Rc::clone(&frame.blocks);
                     self.block_index = frame.block_index;
                     
+                    if let Some(prev_params) = frame.func_params {
+                        self.func_params = prev_params;
+                    }
+                    
                     if frame.is_loop && frame.iteration_count > 0 {
-                        // For repeat_while_true (iteration_count == MAX), we need to re-evaluate
-                        // the condition each time. For repeat_basic, we use the remaining count.
                         if frame.iteration_count == u32::MAX {
-                            // repeat_while_true or repeat_inf - re-execute block to check condition
-                            self.iteration_count = 0; // Reset so block re-evaluates condition
+                            self.iteration_count = 0;
                         } else {
-                            // repeat_basic - use remaining count
                             self.iteration_count = frame.iteration_count;
                         }
-                        // Re-execute the loop block (don't increment block_index)
-                        // Return Wait to create a frame delay between loop iterations
-                        // This is the only intentional delay - all other blocks execute immediately
                         return ExecuteResult::Wait;
                     }
                     
-                    // Loop finished or not a loop - move to next block
                     self.iteration_count = 0;
                     self.block_index += 1;
                     return ExecuteResult::Continue;
@@ -222,9 +219,8 @@ impl Executor {
     ) -> ExecuteResult {
         let block_type = block.block_type.as_str();
         
-        // Handle function calls (blocks starting with "func_")
         if block_type.starts_with("func_") {
-            return self.execute_function_call(block, functions);
+            return self.execute_function_call(block, functions, variables);
         }
         
         match block_type {
@@ -855,12 +851,12 @@ impl Executor {
                     if let Some(statements) = &block.statements {
                         if let Some(inner_blocks) = statements.first() {
                             if !inner_blocks.is_empty() {
-                                // Save current state with remaining count
                                 let frame = StackFrame {
                                     blocks: Rc::clone(&self.blocks),
                                     block_index: self.block_index,
                                     iteration_count: count - 1,
                                     is_loop: true,
+                                    func_params: None,
                                 };
                                 self.call_stack.push(frame);
                                 
@@ -887,6 +883,7 @@ impl Executor {
                                 block_index: self.block_index,
                                 iteration_count: u32::MAX,
                                 is_loop: true,
+                                func_params: None,
                             };
                             self.call_stack.push(frame);
                             
@@ -911,6 +908,7 @@ impl Executor {
                                     block_index: self.block_index,
                                     iteration_count: 0,
                                     is_loop: false,
+                                    func_params: None,
                                 };
                                 self.call_stack.push(frame);
                                 
@@ -935,6 +933,7 @@ impl Executor {
                                 block_index: self.block_index,
                                 iteration_count: 0,
                                 is_loop: false,
+                                func_params: None,
                             };
                             self.call_stack.push(frame);
                             
@@ -983,8 +982,9 @@ impl Executor {
                                 let frame = StackFrame {
                                     blocks: Rc::clone(&self.blocks),
                                     block_index: self.block_index,
-                                    iteration_count: u32::MAX, // Infinite until condition changes
+                                    iteration_count: u32::MAX,
                                     is_loop: true,
+                                    func_params: None,
                                 };
                                 self.call_stack.push(frame);
                                 
@@ -1570,6 +1570,7 @@ impl Executor {
         &mut self,
         block: &Block,
         functions: &HashMap<String, FunctionData>,
+        variables: &HashMap<String, Value>,
     ) -> ExecuteResult {
         let func_id = if block.block_type.len() > 5 {
             &block.block_type[5..]
@@ -1603,13 +1604,16 @@ impl Executor {
                         }
                         
                         if let Some(body) = func_body {
-                            if self.call_stack.len() < 5 {
-                                web_sys::console::log_1(&format!(
-                                    "[FUNC BODY] func_id={}, body_len={}, first_block={}",
-                                    func_id,
-                                    body.len(),
-                                    body.first().map(|b| b.block_type.as_str()).unwrap_or("none")
-                                ).into());
+                            let param_types = self.extract_func_param_types(func_create_block);
+                            let mut new_params = HashMap::new();
+                            
+                            if let Some(call_params) = &block.params {
+                                for (i, param_type) in param_types.iter().enumerate() {
+                                    if let Some(param_value) = call_params.get(i) {
+                                        let value = self.evaluate_value(param_value, variables);
+                                        new_params.insert(param_type.clone(), value);
+                                    }
+                                }
                             }
                             
                             let frame = StackFrame {
@@ -1617,6 +1621,7 @@ impl Executor {
                                 block_index: self.block_index,
                                 iteration_count: 0,
                                 is_loop: false,
+                                func_params: Some(std::mem::replace(&mut self.func_params, new_params)),
                             };
                             self.call_stack.push(frame);
                             
@@ -1632,6 +1637,34 @@ impl Executor {
         }
         
         ExecuteResult::Continue
+    }
+    
+    fn extract_func_param_types(&self, func_create_block: &Block) -> Vec<String> {
+        let mut param_types = Vec::new();
+        
+        if let Some(params) = &func_create_block.params {
+            if let Some(first_param) = params.first() {
+                self.collect_param_types_from_chain(first_param, &mut param_types);
+            }
+        }
+        
+        param_types
+    }
+    
+    fn collect_param_types_from_chain(&self, json: &serde_json::Value, param_types: &mut Vec<String>) {
+        if let Some(obj) = json.as_object() {
+            if let Some(block_type) = obj.get("type").and_then(|v| v.as_str()) {
+                if block_type.starts_with("stringParam_") || block_type.starts_with("booleanParam_") {
+                    param_types.push(block_type.to_string());
+                }
+            }
+            
+            if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
+                for param in params {
+                    self.collect_param_types_from_chain(param, param_types);
+                }
+            }
+        }
     }
 
     // Parameter extraction helpers
@@ -1685,6 +1718,9 @@ impl Executor {
             }
             serde_json::Value::Object(obj) => {
                 if let Some(block_type) = obj.get("type").and_then(|v| v.as_str()) {
+                    if block_type.starts_with("stringParam_") || block_type.starts_with("booleanParam_") {
+                        return self.func_params.get(block_type).cloned().unwrap_or(Value::Number(0.0));
+                    }
                     return self.evaluate_block_iterative(block_type, obj, variables);
                 }
                 Value::Null
@@ -1692,7 +1728,6 @@ impl Executor {
         }
     }
     
-    /// Leaf value evaluation - NO recursion, only handles primitive types
     fn evaluate_leaf_value(&self, json: &serde_json::Value, variables: &HashMap<String, Value>) -> Value {
         match json {
             serde_json::Value::Number(n) => Value::Number(n.as_f64().unwrap_or(0.0)),
@@ -1807,6 +1842,10 @@ impl Executor {
                                         } else {
                                             value_stack.push(Value::Number(0.0));
                                         }
+                                    }
+                                    _ if bt.starts_with("stringParam_") || bt.starts_with("booleanParam_") => {
+                                        let val = self.func_params.get(bt).cloned().unwrap_or(Value::Number(0.0));
+                                        value_stack.push(val);
                                     }
                                     "calc_basic" => {
                                         if let Some(p) = params {
