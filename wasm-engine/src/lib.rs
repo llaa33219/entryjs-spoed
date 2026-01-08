@@ -234,6 +234,24 @@ impl WasmEngine {
             }
         }
         
+        web_sys::console::log_1(&format!(
+            "[LOAD] functions count: {}",
+            inner.functions.len()
+        ).into());
+        for (id, func) in &inner.functions {
+            let has_content = func.content.is_some();
+            let content_threads = func.content.as_ref().map(|c| c.len()).unwrap_or(0);
+            let first_block_type = func.content.as_ref()
+                .and_then(|c| c.first())
+                .and_then(|t| t.first())
+                .map(|b| b.block_type.as_str())
+                .unwrap_or("none");
+            web_sys::console::log_1(&format!(
+                "[LOAD] func id={}, has_content={}, threads={}, first_block={}",
+                id, has_content, content_threads, first_block_type
+            ).into());
+        }
+        
         Ok(())
     }
 
