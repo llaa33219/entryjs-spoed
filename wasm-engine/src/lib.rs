@@ -84,6 +84,9 @@ pub enum JsAction {
     
     // Project control
     RestartProject,
+    
+    // Scene restore (for reset to initial scene)
+    RestoreStartScene,
 }
 
 /// Initialize panic hook for better error messages in browser console
@@ -258,9 +261,9 @@ impl WasmEngine {
         self.stop_requested.set(false);
         self.error_logged.set(false); // Reset error flag on start
         
-        // Initialize executors and fire start event
         Self::initialize_executors_inner(&mut inner);
         Self::fire_event_inner(&mut inner, "start");
+        Self::fire_event_inner(&mut inner, "when_scene_start");
     }
 
     /// Stop the engine
@@ -295,6 +298,7 @@ impl WasmEngine {
         inner.tick_count = 0;
         inner.executors.clear();
         inner.pending_js_actions.clear();
+        inner.pending_js_actions.push(JsAction::RestoreStartScene);
         self.stop_requested.set(false);
         self.error_logged.set(false);
         
