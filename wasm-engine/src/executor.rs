@@ -1569,15 +1569,35 @@ impl Executor {
             return ExecuteResult::End;
         }
         
+        web_sys::console::log_1(&format!(
+            "[FUNC CALL] func_id={}, call_stack_depth={}, block_index={}",
+            func_id, self.call_stack.len(), self.block_index
+        ).into());
+        
         if let Some(func_data) = functions.get(func_id) {
+            web_sys::console::log_1(&format!(
+                "[FUNC FOUND] id={}, has_content={}",
+                func_data.id, func_data.content.is_some()
+            ).into());
+            
             if let Some(content) = &func_data.content {
                 if let Some(first_thread) = content.first() {
                     if let Some(func_create_block) = first_thread.first() {
+                        web_sys::console::log_1(&format!(
+                            "[FUNC CREATE BLOCK] type={}, has_statements={}",
+                            func_create_block.block_type,
+                            func_create_block.statements.is_some()
+                        ).into());
+                        
                         let mut func_body: Option<Vec<Block>> = None;
                         
                         if let Some(statements) = &func_create_block.statements {
                             if let Some(body) = statements.first() {
                                 if !body.is_empty() {
+                                    web_sys::console::log_1(&format!(
+                                        "[FUNC BODY FROM STATEMENTS] blocks_count={}",
+                                        body.len()
+                                    ).into());
                                     func_body = Some(body.clone());
                                 }
                             }
@@ -1586,11 +1606,22 @@ impl Executor {
                         if func_body.is_none() && first_thread.len() > 1 {
                             let body: Vec<Block> = first_thread.iter().skip(1).cloned().collect();
                             if !body.is_empty() {
+                                web_sys::console::log_1(&format!(
+                                    "[FUNC BODY FROM THREAD] blocks_count={}",
+                                    body.len()
+                                ).into());
                                 func_body = Some(body);
                             }
                         }
                         
                         if let Some(body) = func_body {
+                            for (i, b) in body.iter().enumerate() {
+                                web_sys::console::log_1(&format!(
+                                    "[FUNC BODY BLOCK {}] type={}",
+                                    i, b.block_type
+                                ).into());
+                            }
+                            
                             let frame = StackFrame {
                                 blocks: Rc::clone(&self.blocks),
                                 block_index: self.block_index,
@@ -1604,10 +1635,14 @@ impl Executor {
                             self.iteration_count = 0;
                             
                             return ExecuteResult::JumpedToBlock;
+                        } else {
+                            web_sys::console::log_1(&"[FUNC NO BODY FOUND]".into());
                         }
                     }
                 }
             }
+        } else {
+            web_sys::console::log_1(&format!("[FUNC NOT FOUND] func_id={}", func_id).into());
         }
         
         ExecuteResult::Continue
