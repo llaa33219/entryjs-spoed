@@ -203,26 +203,29 @@ impl WasmEngine {
             }
         }
         
-        // Also extract functions from object scripts (func_XXXX threads)
-        // In Entry.js, function definitions can be stored as threads starting with func_XXXX
         if let Some(objects) = &project.objects {
             for obj in objects {
                 if let Some(scripts) = &obj.script {
                     for thread in scripts {
                         if let Some(first_block) = thread.first() {
-                            // Check if this thread starts with func_XXXX (function definition)
-                            // Use safe string slicing to prevent panic
-                            if first_block.block_type.starts_with("func_") && first_block.block_type.len() > 5 {
-                                let func_id = &first_block.block_type[5..]; // Skip "func_" prefix
-                                
-                                // Only add if not already in functions map
-                                if !inner.functions.contains_key(func_id) {
-                                    // Create FunctionData from the thread
-                                    let func_data = FunctionData {
-                                        id: func_id.to_string(),
-                                        content: Some(vec![thread.clone()]),
-                                    };
-                                    inner.functions.insert(func_id.to_string(), func_data);
+                            if first_block.block_type == "function_create" || first_block.block_type == "function_create_value" {
+                                if let Some(params) = &first_block.params {
+                                    if let Some(first_param) = params.first() {
+                                        if let Some(param_obj) = first_param.as_object() {
+                                            if let Some(param_type) = param_obj.get("type").and_then(|v| v.as_str()) {
+                                                if param_type.starts_with("func_") && param_type.len() > 5 {
+                                                    let func_id = &param_type[5..];
+                                                    if !inner.functions.contains_key(func_id) {
+                                                        let func_data = FunctionData {
+                                                            id: func_id.to_string(),
+                                                            content: Some(vec![thread.clone()]),
+                                                        };
+                                                        inner.functions.insert(func_id.to_string(), func_data);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }

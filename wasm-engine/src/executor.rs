@@ -1554,58 +1554,25 @@ impl Executor {
         }
     }
 
-    /// Execute a function call (func_XXXX blocks)
     fn execute_function_call(
         &mut self,
         block: &Block,
         functions: &HashMap<String, FunctionData>,
     ) -> ExecuteResult {
-        // Extract function ID from block type ("func_XXXX" -> "XXXX")
-        // Use safe string slicing to prevent panic if block_type is too short
         let func_id = if block.block_type.len() > 5 {
             &block.block_type[5..]
         } else {
-            // Invalid function block type - return early
             return ExecuteResult::Continue;
         };
         
-        // Check for maximum call stack depth to prevent infinite recursion
         if self.call_stack.len() >= MAX_CALL_STACK_DEPTH {
             return ExecuteResult::End;
         }
         
-        // First check if the current block itself has statements (function body)
-        // This handles the case where function is called and the body is in statements
-        if let Some(statements) = &block.statements {
-            if let Some(body) = statements.first() {
-                if !body.is_empty() {
-                    // Push current state to call stack
-                    let frame = StackFrame {
-                        blocks: Rc::clone(&self.blocks),
-                        block_index: self.block_index,
-                        iteration_count: 0,
-                        is_loop: false,
-                    };
-                    self.call_stack.push(frame);
-                    
-                    // Set up execution of function body
-                    self.blocks = Rc::new(body.clone());
-                    self.block_index = 0;
-                    self.iteration_count = 0;
-                    
-                    return ExecuteResult::JumpedToBlock;
-                }
-            }
-        }
-        
-        // Look up the function
         if let Some(func_data) = functions.get(func_id) {
             if let Some(content) = &func_data.content {
-                // The function content is Vec<Vec<Block>> (threads of blocks)
-                // We need to find the function_create block and get its statements
                 if let Some(first_thread) = content.first() {
                     if let Some(func_create_block) = first_thread.first() {
-                        // Try to get function body from statements first
                         let mut func_body: Option<Vec<Block>> = None;
                         
                         if let Some(statements) = &func_create_block.statements {
@@ -1616,19 +1583,14 @@ impl Executor {
                             }
                         }
                         
-                        // If statements is empty, check if the function body is stored
-                        // as subsequent blocks in the thread (Entry.js format before load() processes it)
                         if func_body.is_none() && first_thread.len() > 1 {
-                            // The function body blocks are stored after the function_create block
                             let body: Vec<Block> = first_thread.iter().skip(1).cloned().collect();
                             if !body.is_empty() {
                                 func_body = Some(body);
                             }
                         }
                         
-                        // Execute the function body if found
                         if let Some(body) = func_body {
-                            // Push current state to call stack
                             let frame = StackFrame {
                                 blocks: Rc::clone(&self.blocks),
                                 block_index: self.block_index,
@@ -1637,7 +1599,6 @@ impl Executor {
                             };
                             self.call_stack.push(frame);
                             
-                            // Set up execution of function body
                             self.blocks = Rc::new(body);
                             self.block_index = 0;
                             self.iteration_count = 0;
@@ -1649,7 +1610,6 @@ impl Executor {
             }
         }
         
-        // Function not found or empty - just continue
         ExecuteResult::Continue
     }
 
