@@ -250,6 +250,7 @@ impl Executor {
                 if let Some(e) = entity {
                     let value = self.get_param_number(block, 0, variables);
                     e.move_direction(value);
+                    self.emit_brush_and_fill_line_to(e, js_actions);
                 }
                 ExecuteResult::Continue
             }
@@ -258,6 +259,7 @@ impl Executor {
                 if let Some(e) = entity {
                     let value = self.get_param_number(block, 0, variables);
                     e.move_x(value);
+                    self.emit_brush_and_fill_line_to(e, js_actions);
                 }
                 ExecuteResult::Continue
             }
@@ -266,6 +268,7 @@ impl Executor {
                 if let Some(e) = entity {
                     let value = self.get_param_number(block, 0, variables);
                     e.move_y(value);
+                    self.emit_brush_and_fill_line_to(e, js_actions);
                 }
                 ExecuteResult::Continue
             }
@@ -274,6 +277,7 @@ impl Executor {
                 if let Some(e) = entity {
                     let value = self.get_param_number(block, 0, variables);
                     e.set_x(value);
+                    self.emit_brush_and_fill_line_to(e, js_actions);
                 }
                 ExecuteResult::Continue
             }
@@ -282,6 +286,7 @@ impl Executor {
                 if let Some(e) = entity {
                     let value = self.get_param_number(block, 0, variables);
                     e.set_y(value);
+                    self.emit_brush_and_fill_line_to(e, js_actions);
                 }
                 ExecuteResult::Continue
             }
@@ -291,6 +296,7 @@ impl Executor {
                     let x = self.get_param_number(block, 0, variables);
                     let y = self.get_param_number(block, 1, variables);
                     e.set_xy(x, y);
+                    self.emit_brush_and_fill_line_to(e, js_actions);
                 }
                 ExecuteResult::Continue
             }
@@ -1397,11 +1403,16 @@ impl Executor {
             }
             
             "start_drawing" => {
-                if let Some(e) = entity {
+                let (x, y) = if let Some(e) = entity {
                     e.brush_down = true;
-                }
+                    (e.x, e.y)
+                } else {
+                    (0.0, 0.0)
+                };
                 js_actions.push(JsAction::StartDrawing {
                     entity_id: self.entity_idx,
+                    x,
+                    y,
                 });
                 ExecuteResult::Continue
             }
@@ -1417,13 +1428,24 @@ impl Executor {
             }
             
             "start_fill" => {
+                let (x, y) = if let Some(e) = entity {
+                    e.fill_down = true;
+                    (e.x, e.y)
+                } else {
+                    (0.0, 0.0)
+                };
                 js_actions.push(JsAction::StartFill {
                     entity_id: self.entity_idx,
+                    x,
+                    y,
                 });
                 ExecuteResult::Continue
             }
             
             "stop_fill" => {
+                if let Some(e) = entity {
+                    e.fill_down = false;
+                }
                 js_actions.push(JsAction::StopFill {
                     entity_id: self.entity_idx,
                 });
@@ -1667,7 +1689,23 @@ impl Executor {
         }
     }
 
-    // Parameter extraction helpers
+    fn emit_brush_and_fill_line_to(&self, entity: &Entity, js_actions: &mut Vec<JsAction>) {
+        if entity.brush_down {
+            js_actions.push(JsAction::BrushLineTo {
+                entity_id: self.entity_idx,
+                x: entity.x,
+                y: entity.y,
+            });
+        }
+        if entity.fill_down {
+            js_actions.push(JsAction::FillLineTo {
+                entity_id: self.entity_idx,
+                x: entity.x,
+                y: entity.y,
+            });
+        }
+    }
+
     fn get_param_number(&self, block: &Block, index: usize, variables: &HashMap<String, Value>) -> f64 {
         if let Some(params) = &block.params {
             if let Some(param) = params.get(index) {

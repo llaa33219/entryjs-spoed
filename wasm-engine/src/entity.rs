@@ -39,6 +39,10 @@ pub struct Entity {
     pub brush_color: String,
     pub brush_size: f64,
     
+    // Fill state
+    pub fill_down: bool,
+    pub fill_color: String,
+    
     // Dialog state
     pub dialog_message: Option<String>,
     pub dialog_mode: Option<String>,  // "speak", "think", "yell"
@@ -101,6 +105,9 @@ impl Entity {
             brush_down: false,
             brush_color: "#ff0000".to_string(),
             brush_size: 1.0,
+            
+            fill_down: false,
+            fill_color: "#ff0000".to_string(),
             
             dialog_message: None,
             dialog_mode: None,
@@ -343,6 +350,8 @@ mod tests {
             brush_down: false,
             brush_color: "#ff0000".to_string(),
             brush_size: 1.0,
+            fill_down: false,
+            fill_color: "#ff0000".to_string(),
             dialog_message: None,
             dialog_mode: None,
         }

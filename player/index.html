@@ -174,1733 +174,1804 @@
 
         <!-- WASM Engine -->
         <script type="module">
-            // WASM 모듈을 동적으로 로드 (경로 문제 방지)
-            let WasmEngine = null;
-            let wasmInit = null;
+                        // WASM 모듈을 동적으로 로드 (경로 문제 방지)
+                        let WasmEngine = null;
+                        let wasmInit = null;
 
-            try {
-                const wasmModule = await import('/wasm/entry_wasm.js');
-                wasmInit = wasmModule.default;
-                WasmEngine = wasmModule.WasmEngine;
-                console.log('WASM 모듈 import 성공');
-            } catch (importError) {
-                console.warn('WASM 모듈 import 실패:', importError);
-            }
-
-            // Image cache for sprites
-            const imageCache = new Map();
-
-            // Brush drawing helper
-            class BrushState {
-                constructor() {
-                    this.down = false;
-                    this.color = '#ff0000';
-                    this.size = 1;
-                    this.opacity = 0;
-                    this.lastX = null;
-                    this.lastY = null;
-                    // Fill state
-                    this.fillDown = false;
-                    this.fillColor = '#ff0000';
-                    this.fillPath = []; // Array of {x, y} points for polygon
-                }
-            }
-
-            class EntryPlayer {
-                constructor() {
-                    this.projectId = null;
-                    this.projectData = null;
-                    this.wasmEngine = null;
-                    this.canvas = document.getElementById('entryCanvas');
-                    this.ctx = this.canvas.getContext('2d');
-                    this.isRunning = false;
-                    this.animationId = null;
-
-                    // Mouse state for WASM engine
-                    this.mouseX = 0;
-                    this.mouseY = 0;
-                    this.mouseClicked = false;
-
-                    // WASM initialization state
-                    this.wasmInitialized = false;
-
-                    // Brush drawing state
-                    this.brushCanvas = null;
-                    this.brushCtx = null;
-                    this.brushStates = new Map(); // entity_id -> BrushState
-                }
-
-                async initialize() {
-                    this.updateProgress(10, 'WASM 엔진 초기화 중...');
-
-                    try {
-                        // Initialize WASM (모듈이 로드된 경우에만)
-                        if (wasmInit && WasmEngine) {
-                            console.log('WASM init() 호출 중...');
-                            await wasmInit();
-                            this.wasmEngine = new WasmEngine();
-                            this.wasmInitialized = true;
-                            console.log('WASM 엔진 인스턴스 생성 완료');
-                            this.updateProgress(30, 'WASM 엔진 준비 완료');
-                        } else {
-                            console.warn('WASM 모듈이 로드되지 않음, JS 폴백 사용');
-                            this.wasmInitialized = false;
-                        }
-                    } catch (e) {
-                        console.warn('WASM 초기화 실패, JS 폴백 사용:', e);
-                        this.wasmEngine = null;
-                        this.wasmInitialized = false;
-                    }
-
-                    // Get project ID from URL
-                    const params = new URLSearchParams(window.location.search);
-                    this.projectId = params.get('id');
-
-                    if (!this.projectId) {
-                        this.showError(
-                            '프로젝트 ID가 필요합니다. URL에 ?id=프로젝트ID 형식으로 입력해주세요.'
-                        );
-                        return;
-                    }
-
-                    this.updateProgress(40, '프로젝트 데이터 로딩 중...');
-
-                    try {
-                        await this.loadProject();
-                    } catch (error) {
-                        console.error('loadProject 단계 에러:', error);
-                        this.showError(
-                            '프로젝트 로딩 실패 (loadProject): ' + this.formatError(error)
-                        );
-                        return;
-                    }
-
-                    try {
-                        this.updateProgress(80, '프로젝트 초기화 중...');
-                        await this.initializeProject();
-                    } catch (error) {
-                        console.error('initializeProject 단계 에러:', error);
-                        this.showError(
-                            '프로젝트 초기화 실패 (initializeProject): ' + this.formatError(error)
-                        );
-                        return;
-                    }
-
-                    try {
-                        this.updateProgress(90, '이미지 로딩 중...');
-                        await this.preloadImages();
-                    } catch (error) {
-                        console.error('preloadImages 단계 에러:', error);
-                        // 이미지 로딩 실패는 치명적이지 않으므로 경고만 표시
-                        console.warn('일부 이미지 로딩 실패, 계속 진행합니다');
-                    }
-
-                    this.updateProgress(100, '완료!');
-
-                    setTimeout(() => {
-                        this.hideLoading();
-                        this.start();
-                    }, 500);
-
-                    this.setupControls();
-                }
-
-                async loadProject() {
-                    try {
-                        // Step 1: Fetch CSRF token and cookie from playentry.org
-                        this.updateProgress(45, 'CSRF 토큰 획득 중...');
-                        this.entryCookie = ''; // 쿠키 초기화
-                        const csrfToken = await this.getSessionData();
-
-                        if (!csrfToken) {
-                            console.warn(
-                                'CSRF 토큰을 획득하지 못했습니다. 요청이 실패할 수 있습니다.'
-                            );
-                        }
-
-                        // Step 2: Fetch project data via GraphQL
-                        this.updateProgress(55, 'GraphQL 데이터 요청 중...');
-                        this.projectData = await this.fetchProjectData(csrfToken);
-
-                        // Step 3: Validate project data
-                        this.updateProgress(70, '프로젝트 데이터 검증 중...');
-                        if (!this.projectData) {
-                            throw new Error('프로젝트 데이터가 null/undefined입니다');
-                        }
-
-                        if (typeof this.projectData !== 'object') {
-                            throw new Error(
-                                `프로젝트 데이터 타입이 잘못됨: ${typeof this.projectData}`
-                            );
-                        }
-
-                        if (!this.projectData.id) {
-                            throw new Error(
-                                `프로젝트 ID가 없습니다. 받은 데이터: ${JSON.stringify(this.projectData).substring(0, 200)}`
-                            );
-                        }
-
-                        console.log(
-                            '프로젝트 로드 성공:',
-                            this.projectData.name,
-                            'ID:',
-                            this.projectData.id
-                        );
-                    } catch (error) {
-                        console.error('loadProject 에러:', error);
-                        throw error;
-                    }
-                }
-
-                async getSessionData() {
-                    try {
-                        // Try to get CSRF token and cookie from the page via server proxy
-                        const response = await fetch(`/api/playentry/iframe/${this.projectId}`);
-
-                        // 서버에서 캐치한 쿠키 가져오기
-                        const entryCookie = response.headers.get('X-Entry-Cookie') || '';
-                        if (entryCookie) {
-                            console.log('쿠키 획득 성공:', entryCookie.substring(0, 30) + '...');
-                            this.entryCookie = entryCookie;
-                        }
-
-                        const html = await response.text();
-
-                        // Extract CSRF token from meta tag: <meta name="csrf-token" content="..."/>
-                        const csrfMatch = html.match(
-                            /<meta\s+name=["']csrf-token["']\s+content=["']([^"']+)["']/i
-                        );
-
-                        if (csrfMatch) {
-                            console.log(
-                                'CSRF 토큰 획득 성공:',
-                                csrfMatch[1].substring(0, 10) + '...'
-                            );
-                            return csrfMatch[1];
-                        }
-
-                        // Fallback: try other patterns
-                        const altMatch = html.match(/csrf['"]?\s*[:\s]+\s*['"]([^'"]+)['"]/i);
-                        if (altMatch) {
-                            console.log(
-                                'CSRF 토큰 (대체 패턴):',
-                                altMatch[1].substring(0, 10) + '...'
-                            );
-                            return altMatch[1];
-                        }
-
-                        console.warn('CSRF 토큰을 찾을 수 없음');
-                        return '';
-                    } catch (e) {
-                        console.warn('CSRF 토큰 획득 실패:', e);
-                        return '';
-                    }
-                }
-
-                async fetchProjectData(csrfToken) {
-                    const query = `
-    query SELECT_PROJECT($id: ID! $groupId: ID) {
-        project(id: $id, groupId: $groupId) {
-            
-    
-    id
-    name
-    user {
-        
-    id
-    nickname
-    profileImage {
-        
-    id
-    name
-    label {
-        
-    ko
-    en
-    ja
-    vn
-
-    }
-    filename
-    imageType
-    dimension {
-        
-    width
-    height
-
-    }
-    trimmed {
-        filename
-        width
-        height
-    }
-
-    }
-    status {
-        following
-        follower
-    }
-    description
-    role
-    mark {
-        
-    id
-    name
-    label {
-        
-    ko
-    en
-    ja
-    vn
-
-    }
-    filename
-    imageType
-    dimension {
-        
-    width
-    height
-
-    }
-    trimmed {
-        filename
-        width
-        height
-    }
- 
-    }
-
-    }
-    thumb
-    isopen
-    showComment
-    blamed
-    isPracticalCourse
-    category
-    categoryCode
-    created
-    updated
-    special
-    isForLecture
-    isForStudy
-    isForSubmit
-    hashId
-    complexity
-    staffPicked
-    ranked
-    visit
-    likeCnt
-    comment
-    favorite
-    shortenUrl
-    parent {
-        id
-        name
-        user {
-            id
-            nickname
-        }
-    }
-    description
-    description2
-    description3
-    hasRealTimeVariable
-    blockCategoryUsage
-    childCnt
-    commentGroup {
-        group
-        count
-    }
-    likeCntGroup {
-        group
-        count
-    }
-    visitGroup {
-        group
-        count
-    }
-    recentGroup {
-        group
-        count
-    }
-    published
-    isFirstPublish
-    tags
-
-    speed
-    objects
-    variables
-    submitId {
-        id
-    }
-    cloudVariable
-    messages
-    functions
-    tables
-    scenes
-    realTimeVariable {
-        
-    variableType
-    key
-    value
-    array {
-        key
-        data
-    }
-    minValue
-    maxValue
-    visible
-    x
-    y
-    width
-    height
-    object
-
-    }
-    learning
-    expansionBlocks
-    aiUtilizeBlocks
-    hardwareLiteBlocks
-    blockCategoryUsage
-
-        }
-     }
-`;
-
-                    const headers = {
-                        'Content-Type': 'application/json',
-                        Accept: '*/*',
-                        'x-client-type': 'Client',
-                    };
-
-                    if (csrfToken) {
-                        headers['csrf-token'] = csrfToken;
-                    }
-
-                    // 쿠키도 함께 전송
-                    if (this.entryCookie) {
-                        headers['x-entry-cookie'] = this.entryCookie;
-                    }
-
-                    // Use server proxy to avoid CORS issues - /graphql/SELECT_PROJECT 엔드포인트 사용
-                    const response = await fetch(
-                        `/api/playentry/graphql/SELECT_PROJECT?id=${this.projectId}`,
-                        {
-                            method: 'POST',
-                            headers: headers,
-                            credentials: 'include',
-                            body: JSON.stringify({
-                                query: query,
-                                variables: { id: this.projectId },
-                            }),
-                        }
-                    );
-
-                    const responseText = await response.text();
-                    console.log('GraphQL 응답 상태:', response.status);
-                    console.log('GraphQL 응답 미리보기:', responseText.substring(0, 300));
-
-                    if (!response.ok) {
-                        console.error('GraphQL 요청 실패:', response.status, responseText);
-
-                        // JSON 에러 응답인지 확인
                         try {
-                            const errorData = JSON.parse(responseText);
-                            const errorMsg =
-                                errorData.error || errorData.message || `HTTP ${response.status}`;
-                            const detail = errorData.detail || '';
-                            throw new Error(`${errorMsg}${detail ? ' - ' + detail : ''}`);
-                        } catch (parseErr) {
-                            throw new Error(
-                                `HTTP ${response.status}: ${responseText.substring(0, 100)}`
-                            );
+                            const wasmModule = await import('/wasm/entry_wasm.js');
+                            wasmInit = wasmModule.default;
+                            WasmEngine = wasmModule.WasmEngine;
+                            console.log('WASM 모듈 import 성공');
+                        } catch (importError) {
+                            console.warn('WASM 모듈 import 실패:', importError);
                         }
-                    }
 
-                    // JSON 파싱
-                    let project;
-                    try {
-                        project = JSON.parse(responseText);
-                    } catch (parseErr) {
-                        console.error('JSON 파싱 실패:', parseErr);
-                        throw new Error(`JSON 파싱 실패: ${responseText.substring(0, 100)}`);
-                    }
+                        // Image cache for sprites
+                        const imageCache = new Map();
 
-                    console.log('파싱된 프로젝트 데이터:', project);
-                    console.log('프로젝트 데이터 타입:', typeof project);
-                    console.log('프로젝트 키들:', project ? Object.keys(project) : 'null');
-
-                    // 에러 체크
-                    if (project && project.error) {
-                        const detail = project.detail || '';
-                        throw new Error(
-                            `서버 에러: ${project.error}${detail ? ' (' + detail + ')' : ''}`
-                        );
-                    }
-
-                    if (project && project.errors && Array.isArray(project.errors)) {
-                        throw new Error(
-                            `GraphQL 에러: ${project.errors[0]?.message || JSON.stringify(project.errors)}`
-                        );
-                    }
-
-                    // 프로젝트 데이터 유효성 검사
-                    if (!project || typeof project !== 'object') {
-                        throw new Error(`잘못된 프로젝트 데이터 형식: ${typeof project}`);
-                    }
-
-                    // 서버에서 이미 project 객체만 추출해서 반환함
-                    return project;
-                }
-
-                async initializeProject() {
-                    if (!this.projectData) {
-                        throw new Error('프로젝트 데이터가 없습니다');
-                    }
-
-                    // Parse project data
-                    let objects;
-                    try {
-                        objects =
-                            typeof this.projectData.objects === 'string'
-                                ? JSON.parse(this.projectData.objects)
-                                : this.projectData.objects;
-                        console.log(
-                            'objects 파싱 완료:',
-                            objects ? `${objects.length}개 오브젝트` : 'null/undefined'
-                        );
-                    } catch (parseError) {
-                        console.error('objects JSON 파싱 실패:', parseError);
-                        throw new Error(`objects 파싱 실패: ${parseError.message || parseError}`);
-                    }
-
-                    // Initialize canvas size
-                    this.canvas.width = 480;
-                    this.canvas.height = 360;
-
-                    // Initialize brush canvas (separate layer for drawing)
-                    this.brushCanvas = document.createElement('canvas');
-                    this.brushCanvas.width = 480;
-                    this.brushCanvas.height = 360;
-                    this.brushCtx = this.brushCanvas.getContext('2d');
-
-                    // Initialize fill canvas (separate layer for real-time fill preview)
-                    this.fillCanvas = document.createElement('canvas');
-                    this.fillCanvas.width = 480;
-                    this.fillCanvas.height = 360;
-                    this.fillCtx = this.fillCanvas.getContext('2d');
-
-                    // Scale canvas to fit screen
-                    this.resizeCanvas();
-                    window.addEventListener('resize', () => this.resizeCanvas());
-
-                    // Load sprites and initialize engine
-                    if (this.wasmEngine) {
-                        try {
-                            console.log('WASM 엔진에 프로젝트 로드 시도...');
-
-                            // WASM에 전달하기 전에 문자열로 된 필드들을 파싱
-                            const projectForWasm = this.prepareProjectForWasm(this.projectData);
-                            console.log('WASM용 프로젝트 데이터 준비 완료');
-
-                            this.wasmEngine.load_project(JSON.stringify(projectForWasm));
-                            console.log('WASM 엔진 프로젝트 로드 완료');
-                        } catch (wasmError) {
-                            console.error('WASM 엔진 프로젝트 로드 실패:', wasmError);
-                            console.warn('JS 폴백 엔진으로 전환합니다');
-                            this.wasmEngine = null;
-                            this.initJSEngine(objects);
+                        // Brush drawing helper
+                        class BrushState {
+                            constructor() {
+                                this.down = false;
+                                this.color = '#ff0000';
+                                this.size = 1;
+                                this.opacity = 0;
+                                this.lastX = null;
+                                this.lastY = null;
+                                // Fill state
+                                this.fillDown = false;
+                                this.fillColor = '#ff0000';
+                                this.fillPath = []; // Array of {x, y} points for polygon
+                            }
                         }
-                    } else {
-                        // Fallback to JS engine
-                        this.initJSEngine(objects);
-                    }
-                }
 
-                initJSEngine(objects) {
-                    // Simple JS fallback engine
-                    this.jsEngine = {
-                        objects: objects || [],
-                        variables: {},
-                        running: false,
-                        tick: 0,
-                    };
-                }
+                        class EntryPlayer {
+                            constructor() {
+                                this.projectId = null;
+                                this.projectData = null;
+                                this.wasmEngine = null;
+                                this.canvas = document.getElementById('entryCanvas');
+                                this.ctx = this.canvas.getContext('2d');
+                                this.isRunning = false;
+                                this.animationId = null;
 
-                // playentry.org API에서 받은 데이터를 WASM 엔진용으로 변환
-                // objects, variables, functions 등이 문자열로 되어 있으면 파싱
-                prepareProjectForWasm(projectData) {
-                    const prepared = { ...projectData };
+                                // Mouse state for WASM engine
+                                this.mouseX = 0;
+                                this.mouseY = 0;
+                                this.mouseClicked = false;
 
-                    // objects 필드 파싱 (문자열 -> 배열)
-                    if (typeof prepared.objects === 'string') {
-                        try {
-                            prepared.objects = JSON.parse(prepared.objects);
-                            console.log(
-                                'objects 문자열 파싱 완료:',
-                                prepared.objects.length,
-                                '개 오브젝트'
-                            );
-                        } catch (e) {
-                            console.error('objects 파싱 실패:', e);
-                            prepared.objects = [];
-                        }
-                    }
+                                // WASM initialization state
+                                this.wasmInitialized = false;
 
-                    // variables 필드 파싱
-                    if (typeof prepared.variables === 'string') {
-                        try {
-                            prepared.variables = JSON.parse(prepared.variables);
-                            console.log('variables 문자열 파싱 완료');
-                        } catch (e) {
-                            console.error('variables 파싱 실패:', e);
-                            prepared.variables = [];
-                        }
-                    }
-
-                    // functions 필드 파싱
-                    if (typeof prepared.functions === 'string') {
-                        try {
-                            prepared.functions = JSON.parse(prepared.functions);
-                            console.log('functions 문자열 파싱 완료');
-                        } catch (e) {
-                            console.error('functions 파싱 실패:', e);
-                            prepared.functions = [];
-                        }
-                    }
-
-                    // messages 필드 파싱
-                    if (typeof prepared.messages === 'string') {
-                        try {
-                            prepared.messages = JSON.parse(prepared.messages);
-                        } catch (e) {
-                            prepared.messages = [];
-                        }
-                    }
-
-                    // scenes 필드 파싱
-                    if (typeof prepared.scenes === 'string') {
-                        try {
-                            prepared.scenes = JSON.parse(prepared.scenes);
-                        } catch (e) {
-                            prepared.scenes = [];
-                        }
-                    }
-
-                    // tables 필드 파싱
-                    if (typeof prepared.tables === 'string') {
-                        try {
-                            prepared.tables = JSON.parse(prepared.tables);
-                        } catch (e) {
-                            prepared.tables = [];
-                        }
-                    }
-
-                    // 각 object 안의 script 필드도 파싱 (이중 문자열화 된 경우)
-                    if (Array.isArray(prepared.objects)) {
-                        prepared.objects = prepared.objects.map((obj) => {
-                            const newObj = { ...obj };
-
-                            // script가 문자열이면 파싱
-                            if (typeof newObj.script === 'string') {
-                                try {
-                                    newObj.script = JSON.parse(newObj.script);
-                                } catch (e) {
-                                    console.warn('object script 파싱 실패:', obj.id, e);
-                                    newObj.script = [];
-                                }
+                                // Brush drawing state
+                                this.brushCanvas = null;
+                                this.brushCtx = null;
+                                this.brushStates = new Map(); // entity_id -> BrushState
                             }
 
-                            return newObj;
-                        });
-                    }
+                            async initialize() {
+                                this.updateProgress(10, 'WASM 엔진 초기화 중...');
 
-                    return prepared;
-                }
-
-                resizeCanvas() {
-                    const container = document.getElementById('canvas-container');
-                    const aspectRatio = 480 / 360;
-
-                    let width = container.clientWidth;
-                    let height = container.clientHeight;
-
-                    if (width / height > aspectRatio) {
-                        width = height * aspectRatio;
-                    } else {
-                        height = width / aspectRatio;
-                    }
-
-                    this.canvas.style.width = width + 'px';
-                    this.canvas.style.height = height + 'px';
-                }
-
-                start() {
-                    this.isRunning = true;
-                    document.getElementById('btn-play').textContent = '⏸';
-                    document.getElementById('btn-play').classList.add('active');
-
-                    if (this.wasmEngine) {
-                        this.wasmEngine.start();
-                    }
-
-                    this.gameLoop();
-                }
-
-                stop() {
-                    this.isRunning = false;
-                    document.getElementById('btn-play').textContent = '▶';
-                    document.getElementById('btn-play').classList.remove('active');
-
-                    if (this.animationId) {
-                        cancelAnimationFrame(this.animationId);
-                    }
-
-                    if (this.wasmEngine) {
-                        this.wasmEngine.stop();
-                    }
-                }
-
-                toggle() {
-                    if (this.isRunning) {
-                        this.stop();
-                    } else {
-                        this.start();
-                    }
-                }
-
-                restart() {
-                    this.stop();
-
-                    // Clear brush canvas on restart
-                    if (this.brushCtx) {
-                        this.brushCtx.clearRect(
-                            0,
-                            0,
-                            this.brushCanvas.width,
-                            this.brushCanvas.height
-                        );
-                    }
-                    // Clear fill canvas on restart
-                    if (this.fillCtx) {
-                        this.fillCtx.clearRect(0, 0, this.fillCanvas.width, this.fillCanvas.height);
-                    }
-                    this.brushStates.clear();
-
-                    // Reset error flags for fresh start
-                    this._jsActionsErrorLogged = false;
-                    this._jsActionsParseErrorLogged = false;
-                    this._brushStampErrorLogged = false;
-                    this._renderErrorLogged = false;
-                    this._renderDataErrorLogged = false;
-                    this._tickErrorLogged = false;
-                    this._renderErrorCount = 0;
-
-                    // WASM 엔진 reset (재생성보다 안전)
-                    if (this.wasmEngine && this.wasmInitialized) {
-                        try {
-                            // 먼저 reset 시도
-                            this.wasmEngine.reset();
-                            console.log('WASM 엔진 reset 완료');
-                        } catch (e) {
-                            console.error('WASM reset 실패:', e);
-                            // reset 실패 시 엔진 재생성 시도
-                            if (this.projectData && WasmEngine) {
                                 try {
-                                    // 기존 엔진 명시적 해제
-                                    try {
-                                        this.wasmEngine.free();
-                                    } catch (freeError) {
-                                        // free 실패는 무시 (이미 해제되었을 수 있음)
+                                    // Initialize WASM (모듈이 로드된 경우에만)
+                                    if (wasmInit && WasmEngine) {
+                                        console.log('WASM init() 호출 중...');
+                                        await wasmInit();
+                                        this.wasmEngine = new WasmEngine();
+                                        this.wasmInitialized = true;
+                                        console.log('WASM 엔진 인스턴스 생성 완료');
+                                        this.updateProgress(30, 'WASM 엔진 준비 완료');
+                                    } else {
+                                        console.warn('WASM 모듈이 로드되지 않음, JS 폴백 사용');
+                                        this.wasmInitialized = false;
                                     }
-
-                                    // 새 엔진 생성
-                                    this.wasmEngine = new WasmEngine();
-                                    const projectForWasm = this.prepareProjectForWasm(
-                                        this.projectData
-                                    );
-                                    this.wasmEngine.load_project(JSON.stringify(projectForWasm));
-                                    console.log('WASM 엔진 재생성 완료');
-                                } catch (recreateError) {
-                                    console.error('WASM 엔진 재생성 실패:', recreateError);
+                                } catch (e) {
+                                    console.warn('WASM 초기화 실패, JS 폴백 사용:', e);
                                     this.wasmEngine = null;
                                     this.wasmInitialized = false;
                                 }
-                            } else {
-                                this.wasmEngine = null;
-                                this.wasmInitialized = false;
+
+                                // Get project ID from URL
+                                const params = new URLSearchParams(window.location.search);
+                                this.projectId = params.get('id');
+
+                                if (!this.projectId) {
+                                    this.showError(
+                                        '프로젝트 ID가 필요합니다. URL에 ?id=프로젝트ID 형식으로 입력해주세요.'
+                                    );
+                                    return;
+                                }
+
+                                this.updateProgress(40, '프로젝트 데이터 로딩 중...');
+
+                                try {
+                                    await this.loadProject();
+                                } catch (error) {
+                                    console.error('loadProject 단계 에러:', error);
+                                    this.showError(
+                                        '프로젝트 로딩 실패 (loadProject): ' + this.formatError(error)
+                                    );
+                                    return;
+                                }
+
+                                try {
+                                    this.updateProgress(80, '프로젝트 초기화 중...');
+                                    await this.initializeProject();
+                                } catch (error) {
+                                    console.error('initializeProject 단계 에러:', error);
+                                    this.showError(
+                                        '프로젝트 초기화 실패 (initializeProject): ' + this.formatError(error)
+                                    );
+                                    return;
+                                }
+
+                                try {
+                                    this.updateProgress(90, '이미지 로딩 중...');
+                                    await this.preloadImages();
+                                } catch (error) {
+                                    console.error('preloadImages 단계 에러:', error);
+                                    // 이미지 로딩 실패는 치명적이지 않으므로 경고만 표시
+                                    console.warn('일부 이미지 로딩 실패, 계속 진행합니다');
+                                }
+
+                                this.updateProgress(100, '완료!');
+
+                                setTimeout(() => {
+                                    this.hideLoading();
+                                    this.start();
+                                }, 500);
+
+                                this.setupControls();
                             }
-                        }
+
+                            async loadProject() {
+                                try {
+                                    // Step 1: Fetch CSRF token and cookie from playentry.org
+                                    this.updateProgress(45, 'CSRF 토큰 획득 중...');
+                                    this.entryCookie = ''; // 쿠키 초기화
+                                    const csrfToken = await this.getSessionData();
+
+                                    if (!csrfToken) {
+                                        console.warn(
+                                            'CSRF 토큰을 획득하지 못했습니다. 요청이 실패할 수 있습니다.'
+                                        );
+                                    }
+
+                                    // Step 2: Fetch project data via GraphQL
+                                    this.updateProgress(55, 'GraphQL 데이터 요청 중...');
+                                    this.projectData = await this.fetchProjectData(csrfToken);
+
+                                    // Step 3: Validate project data
+                                    this.updateProgress(70, '프로젝트 데이터 검증 중...');
+                                    if (!this.projectData) {
+                                        throw new Error('프로젝트 데이터가 null/undefined입니다');
+                                    }
+
+                                    if (typeof this.projectData !== 'object') {
+                                        throw new Error(
+                                            `프로젝트 데이터 타입이 잘못됨: ${typeof this.projectData}`
+                                        );
+                                    }
+
+                                    if (!this.projectData.id) {
+                                        throw new Error(
+                                            `프로젝트 ID가 없습니다. 받은 데이터: ${JSON.stringify(this.projectData).substring(0, 200)}`
+                                        );
+                                    }
+
+                                    console.log(
+                                        '프로젝트 로드 성공:',
+                                        this.projectData.name,
+                                        'ID:',
+                                        this.projectData.id
+                                    );
+                                } catch (error) {
+                                    console.error('loadProject 에러:', error);
+                                    throw error;
+                                }
+                            }
+
+                            async getSessionData() {
+                                try {
+                                    // Try to get CSRF token and cookie from the page via server proxy
+                                    const response = await fetch(`/api/playentry/iframe/${this.projectId}`);
+
+                                    // 서버에서 캐치한 쿠키 가져오기
+                                    const entryCookie = response.headers.get('X-Entry-Cookie') || '';
+                                    if (entryCookie) {
+                                        console.log('쿠키 획득 성공:', entryCookie.substring(0, 30) + '...');
+                                        this.entryCookie = entryCookie;
+                                    }
+
+                                    const html = await response.text();
+
+                                    // Extract CSRF token from meta tag: <meta name="csrf-token" content="..."/>
+                                    const csrfMatch = html.match(
+                                        /<meta\s+name=["']csrf-token["']\s+content=["']([^"']+)["']/i
+                                    );
+
+                                    if (csrfMatch) {
+                                        console.log(
+                                            'CSRF 토큰 획득 성공:',
+                                            csrfMatch[1].substring(0, 10) + '...'
+                                        );
+                                        return csrfMatch[1];
+                                    }
+
+                                    // Fallback: try other patterns
+                                    const altMatch = html.match(/csrf['"]?\s*[:\s]+\s*['"]([^'"]+)['"]/i);
+                                    if (altMatch) {
+                                        console.log(
+                                            'CSRF 토큰 (대체 패턴):',
+                                            altMatch[1].substring(0, 10) + '...'
+                                        );
+                                        return altMatch[1];
+                                    }
+
+                                    console.warn('CSRF 토큰을 찾을 수 없음');
+                                    return '';
+                                } catch (e) {
+                                    console.warn('CSRF 토큰 획득 실패:', e);
+                                    return '';
+                                }
+                            }
+
+                            async fetchProjectData(csrfToken) {
+                                const query = `
+                query SELECT_PROJECT($id: ID! $groupId: ID) {
+                    project(id: $id, groupId: $groupId) {
+
+
+                id
+                name
+                user {
+
+                id
+                nickname
+                profileImage {
+
+                id
+                name
+                label {
+
+                ko
+                en
+                ja
+                vn
+
+                }
+                filename
+                imageType
+                dimension {
+
+                width
+                height
+
+                }
+                trimmed {
+                    filename
+                    width
+                    height
+                }
+
+                }
+                status {
+                    following
+                    follower
+                }
+                description
+                role
+                mark {
+
+                id
+                name
+                label {
+
+                ko
+                en
+                ja
+                vn
+
+                }
+                filename
+                imageType
+                dimension {
+
+                width
+                height
+
+                }
+                trimmed {
+                    filename
+                    width
+                    height
+                }
+
+                }
+
+                }
+                thumb
+                isopen
+                showComment
+                blamed
+                isPracticalCourse
+                category
+                categoryCode
+                created
+                updated
+                special
+                isForLecture
+                isForStudy
+                isForSubmit
+                hashId
+                complexity
+                staffPicked
+                ranked
+                visit
+                likeCnt
+                comment
+                favorite
+                shortenUrl
+                parent {
+                    id
+                    name
+                    user {
+                        id
+                        nickname
                     }
-
-                    setTimeout(() => this.start(), 100);
                 }
-
-                isWasmEngineValid() {
-                    return (
-                        this.wasmEngine &&
-                        this.wasmInitialized &&
-                        this.wasmEngine.__wbg_ptr !== 0 &&
-                        this.wasmEngine.__wbg_ptr !== undefined
-                    );
+                description
+                description2
+                description3
+                hasRealTimeVariable
+                blockCategoryUsage
+                childCnt
+                commentGroup {
+                    group
+                    count
                 }
+                likeCntGroup {
+                    group
+                    count
+                }
+                visitGroup {
+                    group
+                    count
+                }
+                recentGroup {
+                    group
+                    count
+                }
+                published
+                isFirstPublish
+                tags
 
-                gameLoop() {
-                    if (!this.isRunning) return;
+                speed
+                objects
+                variables
+                submitId {
+                    id
+                }
+                cloudVariable
+                messages
+                functions
+                tables
+                scenes
+                realTimeVariable {
 
-                    // Update mouse state in WASM engine
-                    if (this.isWasmEngineValid()) {
-                        try {
-                            this.wasmEngine.update_mouse(
-                                this.mouseX,
-                                this.mouseY,
-                                this.mouseClicked
-                            );
-                            this.wasmEngine.tick();
+                variableType
+                key
+                value
+                array {
+                    key
+                    data
+                }
+                minValue
+                maxValue
+                visible
+                x
+                y
+                width
+                height
+                object
 
-                            // Process JS actions from WASM (brush, sound, etc.)
-                            this.handleJsActions();
-                        } catch (e) {
-                            // WASM tick failed - likely engine is in bad state
-                            if (!this._tickErrorLogged) {
-                                this._tickErrorLogged = true;
-                                console.error('WASM tick() 실패, JS 폴백으로 전환:', e);
+                }
+                learning
+                expansionBlocks
+                aiUtilizeBlocks
+                hardwareLiteBlocks
+                blockCategoryUsage
+
+                    }
+                 }
+            `;
+
+                                const headers = {
+                                    'Content-Type': 'application/json',
+                                    Accept: '*/*',
+                                    'x-client-type': 'Client',
+                                };
+
+                                if (csrfToken) {
+                                    headers['csrf-token'] = csrfToken;
+                                }
+
+                                // 쿠키도 함께 전송
+                                if (this.entryCookie) {
+                                    headers['x-entry-cookie'] = this.entryCookie;
+                                }
+
+                                // Use server proxy to avoid CORS issues - /graphql/SELECT_PROJECT 엔드포인트 사용
+                                const response = await fetch(
+                                    `/api/playentry/graphql/SELECT_PROJECT?id=${this.projectId}`,
+                                    {
+                                        method: 'POST',
+                                        headers: headers,
+                                        credentials: 'include',
+                                        body: JSON.stringify({
+                                            query: query,
+                                            variables: { id: this.projectId },
+                                        }),
+                                    }
+                                );
+
+                                const responseText = await response.text();
+                                console.log('GraphQL 응답 상태:', response.status);
+                                console.log('GraphQL 응답 미리보기:', responseText.substring(0, 300));
+
+                                if (!response.ok) {
+                                    console.error('GraphQL 요청 실패:', response.status, responseText);
+
+                                    // JSON 에러 응답인지 확인
+                                    try {
+                                        const errorData = JSON.parse(responseText);
+                                        const errorMsg =
+                                            errorData.error || errorData.message || `HTTP ${response.status}`;
+                                        const detail = errorData.detail || '';
+                                        throw new Error(`${errorMsg}${detail ? ' - ' + detail : ''}`);
+                                    } catch (parseErr) {
+                                        throw new Error(
+                                            `HTTP ${response.status}: ${responseText.substring(0, 100)}`
+                                        );
+                                    }
+                                }
+
+                                // JSON 파싱
+                                let project;
+                                try {
+                                    project = JSON.parse(responseText);
+                                } catch (parseErr) {
+                                    console.error('JSON 파싱 실패:', parseErr);
+                                    throw new Error(`JSON 파싱 실패: ${responseText.substring(0, 100)}`);
+                                }
+
+                                console.log('파싱된 프로젝트 데이터:', project);
+                                console.log('프로젝트 데이터 타입:', typeof project);
+                                console.log('프로젝트 키들:', project ? Object.keys(project) : 'null');
+
+                                // 에러 체크
+                                if (project && project.error) {
+                                    const detail = project.detail || '';
+                                    throw new Error(
+                                        `서버 에러: ${project.error}${detail ? ' (' + detail + ')' : ''}`
+                                    );
+                                }
+
+                                if (project && project.errors && Array.isArray(project.errors)) {
+                                    throw new Error(
+                                        `GraphQL 에러: ${project.errors[0]?.message || JSON.stringify(project.errors)}`
+                                    );
+                                }
+
+                                // 프로젝트 데이터 유효성 검사
+                                if (!project || typeof project !== 'object') {
+                                    throw new Error(`잘못된 프로젝트 데이터 형식: ${typeof project}`);
+                                }
+
+                                // 서버에서 이미 project 객체만 추출해서 반환함
+                                return project;
                             }
-                            // Disable WASM engine and fall back to JS
-                            this.wasmEngine = null;
-                            this.wasmInitialized = false;
-                            // Initialize JS fallback if not already done
-                            if (!this.jsEngine && this.projectData?.objects) {
+
+                            async initializeProject() {
+                                if (!this.projectData) {
+                                    throw new Error('프로젝트 데이터가 없습니다');
+                                }
+
+                                // Parse project data
+                                let objects;
+                                try {
+                                    objects =
+                                        typeof this.projectData.objects === 'string'
+                                            ? JSON.parse(this.projectData.objects)
+                                            : this.projectData.objects;
+                                    console.log(
+                                        'objects 파싱 완료:',
+                                        objects ? `${objects.length}개 오브젝트` : 'null/undefined'
+                                    );
+                                } catch (parseError) {
+                                    console.error('objects JSON 파싱 실패:', parseError);
+                                    throw new Error(`objects 파싱 실패: ${parseError.message || parseError}`);
+                                }
+
+                                // Initialize canvas size
+                                this.canvas.width = 480;
+                                this.canvas.height = 360;
+
+                                // Initialize brush canvas (separate layer for drawing)
+                                this.brushCanvas = document.createElement('canvas');
+                                this.brushCanvas.width = 480;
+                                this.brushCanvas.height = 360;
+                                this.brushCtx = this.brushCanvas.getContext('2d');
+
+                                // Initialize fill canvas (separate layer for real-time fill preview)
+                                this.fillCanvas = document.createElement('canvas');
+                                this.fillCanvas.width = 480;
+                                this.fillCanvas.height = 360;
+                                this.fillCtx = this.fillCanvas.getContext('2d');
+
+                                // Scale canvas to fit screen
+                                this.resizeCanvas();
+                                window.addEventListener('resize', () => this.resizeCanvas());
+
+                                // Load sprites and initialize engine
+                                if (this.wasmEngine) {
+                                    try {
+                                        console.log('WASM 엔진에 프로젝트 로드 시도...');
+
+                                        // WASM에 전달하기 전에 문자열로 된 필드들을 파싱
+                                        const projectForWasm = this.prepareProjectForWasm(this.projectData);
+                                        console.log('WASM용 프로젝트 데이터 준비 완료');
+
+                                        this.wasmEngine.load_project(JSON.stringify(projectForWasm));
+                                        console.log('WASM 엔진 프로젝트 로드 완료');
+                                    } catch (wasmError) {
+                                        console.error('WASM 엔진 프로젝트 로드 실패:', wasmError);
+                                        console.warn('JS 폴백 엔진으로 전환합니다');
+                                        this.wasmEngine = null;
+                                        this.initJSEngine(objects);
+                                    }
+                                } else {
+                                    // Fallback to JS engine
+                                    this.initJSEngine(objects);
+                                }
+                            }
+
+                            initJSEngine(objects) {
+                                // Simple JS fallback engine
+                                this.jsEngine = {
+                                    objects: objects || [],
+                                    variables: {},
+                                    running: false,
+                                    tick: 0,
+                                };
+                            }
+
+                            // playentry.org API에서 받은 데이터를 WASM 엔진용으로 변환
+                            // objects, variables, functions 등이 문자열로 되어 있으면 파싱
+                            prepareProjectForWasm(projectData) {
+                                const prepared = { ...projectData };
+
+                                // objects 필드 파싱 (문자열 -> 배열)
+                                if (typeof prepared.objects === 'string') {
+                                    try {
+                                        prepared.objects = JSON.parse(prepared.objects);
+                                        console.log(
+                                            'objects 문자열 파싱 완료:',
+                                            prepared.objects.length,
+                                            '개 오브젝트'
+                                        );
+                                    } catch (e) {
+                                        console.error('objects 파싱 실패:', e);
+                                        prepared.objects = [];
+                                    }
+                                }
+
+                                // variables 필드 파싱
+                                if (typeof prepared.variables === 'string') {
+                                    try {
+                                        prepared.variables = JSON.parse(prepared.variables);
+                                        console.log('variables 문자열 파싱 완료');
+                                    } catch (e) {
+                                        console.error('variables 파싱 실패:', e);
+                                        prepared.variables = [];
+                                    }
+                                }
+
+                                // functions 필드 파싱
+                                if (typeof prepared.functions === 'string') {
+                                    try {
+                                        prepared.functions = JSON.parse(prepared.functions);
+                                        console.log('functions 문자열 파싱 완료');
+                                    } catch (e) {
+                                        console.error('functions 파싱 실패:', e);
+                                        prepared.functions = [];
+                                    }
+                                }
+
+                                // messages 필드 파싱
+                                if (typeof prepared.messages === 'string') {
+                                    try {
+                                        prepared.messages = JSON.parse(prepared.messages);
+                                    } catch (e) {
+                                        prepared.messages = [];
+                                    }
+                                }
+
+                                // scenes 필드 파싱
+                                if (typeof prepared.scenes === 'string') {
+                                    try {
+                                        prepared.scenes = JSON.parse(prepared.scenes);
+                                    } catch (e) {
+                                        prepared.scenes = [];
+                                    }
+                                }
+
+                                // tables 필드 파싱
+                                if (typeof prepared.tables === 'string') {
+                                    try {
+                                        prepared.tables = JSON.parse(prepared.tables);
+                                    } catch (e) {
+                                        prepared.tables = [];
+                                    }
+                                }
+
+                                // 각 object 안의 script 필드도 파싱 (이중 문자열화 된 경우)
+                                if (Array.isArray(prepared.objects)) {
+                                    prepared.objects = prepared.objects.map((obj) => {
+                                        const newObj = { ...obj };
+
+                                        // script가 문자열이면 파싱
+                                        if (typeof newObj.script === 'string') {
+                                            try {
+                                                newObj.script = JSON.parse(newObj.script);
+                                            } catch (e) {
+                                                console.warn('object script 파싱 실패:', obj.id, e);
+                                                newObj.script = [];
+                                            }
+                                        }
+
+                                        return newObj;
+                                    });
+                                }
+
+                                return prepared;
+                            }
+
+                            resizeCanvas() {
+                                const container = document.getElementById('canvas-container');
+                                const aspectRatio = 480 / 360;
+
+                                let width = container.clientWidth;
+                                let height = container.clientHeight;
+
+                                if (width / height > aspectRatio) {
+                                    width = height * aspectRatio;
+                                } else {
+                                    height = width / aspectRatio;
+                                }
+
+                                this.canvas.style.width = width + 'px';
+                                this.canvas.style.height = height + 'px';
+                            }
+
+                            start() {
+                                this.isRunning = true;
+                                document.getElementById('btn-play').textContent = '⏸';
+                                document.getElementById('btn-play').classList.add('active');
+
+                                if (this.wasmEngine) {
+                                    this.wasmEngine.start();
+                                }
+
+                                this.gameLoop();
+                            }
+
+                            stop() {
+                                this.isRunning = false;
+                                document.getElementById('btn-play').textContent = '▶';
+                                document.getElementById('btn-play').classList.remove('active');
+
+                                if (this.animationId) {
+                                    cancelAnimationFrame(this.animationId);
+                                }
+
+                                if (this.wasmEngine) {
+                                    this.wasmEngine.stop();
+                                }
+                            }
+
+                            toggle() {
+                                if (this.isRunning) {
+                                    this.stop();
+                                } else {
+                                    this.start();
+                                }
+                            }
+
+                            restart() {
+                                this.stop();
+
+                                // Clear brush canvas on restart
+                                if (this.brushCtx) {
+                                    this.brushCtx.clearRect(
+                                        0,
+                                        0,
+                                        this.brushCanvas.width,
+                                        this.brushCanvas.height
+                                    );
+                                }
+                                // Clear fill canvas on restart
+                                if (this.fillCtx) {
+                                    this.fillCtx.clearRect(0, 0, this.fillCanvas.width, this.fillCanvas.height);
+                                }
+                                this.brushStates.clear();
+
+                                // Reset error flags for fresh start
+                                this._jsActionsErrorLogged = false;
+                                this._jsActionsParseErrorLogged = false;
+                                this._brushStampErrorLogged = false;
+                                this._renderErrorLogged = false;
+                                this._renderDataErrorLogged = false;
+                                this._tickErrorLogged = false;
+                                this._renderErrorCount = 0;
+
+                                // WASM 엔진 reset (재생성보다 안전)
+                                if (this.wasmEngine && this.wasmInitialized) {
+                                    try {
+                                        // 먼저 reset 시도
+                                        this.wasmEngine.reset();
+                                        console.log('WASM 엔진 reset 완료');
+                                    } catch (e) {
+                                        console.error('WASM reset 실패:', e);
+                                        // reset 실패 시 엔진 재생성 시도
+                                        if (this.projectData && WasmEngine) {
+                                            try {
+                                                // 기존 엔진 명시적 해제
+                                                try {
+                                                    this.wasmEngine.free();
+                                                } catch (freeError) {
+                                                    // free 실패는 무시 (이미 해제되었을 수 있음)
+                                                }
+
+                                                // 새 엔진 생성
+                                                this.wasmEngine = new WasmEngine();
+                                                const projectForWasm = this.prepareProjectForWasm(
+                                                    this.projectData
+                                                );
+                                                this.wasmEngine.load_project(JSON.stringify(projectForWasm));
+                                                console.log('WASM 엔진 재생성 완료');
+                                            } catch (recreateError) {
+                                                console.error('WASM 엔진 재생성 실패:', recreateError);
+                                                this.wasmEngine = null;
+                                                this.wasmInitialized = false;
+                                            }
+                                        } else {
+                                            this.wasmEngine = null;
+                                            this.wasmInitialized = false;
+                                        }
+                                    }
+                                }
+
+                                setTimeout(() => this.start(), 100);
+                            }
+
+                            isWasmEngineValid() {
+                                return (
+                                    this.wasmEngine &&
+                                    this.wasmInitialized &&
+                                    this.wasmEngine.__wbg_ptr !== 0 &&
+                                    this.wasmEngine.__wbg_ptr !== undefined
+                                );
+                            }
+
+                            gameLoop() {
+                                if (!this.isRunning) return;
+
+                                // Update mouse state in WASM engine
+                                if (this.isWasmEngineValid()) {
+                                    try {
+                                        this.wasmEngine.update_mouse(
+                                            this.mouseX,
+                                            this.mouseY,
+                                            this.mouseClicked
+                                        );
+                                        this.wasmEngine.tick();
+
+                                        // Process JS actions from WASM (brush, sound, etc.)
+                                        this.handleJsActions();
+                                    } catch (e) {
+                                        // WASM tick failed - likely engine is in bad state
+                                        if (!this._tickErrorLogged) {
+                                            this._tickErrorLogged = true;
+                                            console.error('WASM tick() 실패, JS 폴백으로 전환:', e);
+                                        }
+                                        // Disable WASM engine and fall back to JS
+                                        this.wasmEngine = null;
+                                        this.wasmInitialized = false;
+                                        // Initialize JS fallback if not already done
+                                        if (!this.jsEngine && this.projectData?.objects) {
+                                            const objects =
+                                                typeof this.projectData.objects === 'string'
+                                                    ? JSON.parse(this.projectData.objects)
+                                                    : this.projectData.objects;
+                                            this.initJSEngine(objects);
+                                        }
+                                    }
+                                } else if (this.jsEngine) {
+                                    this.jsEngine.tick++;
+                                }
+
+                                // Render
+                                this.render();
+
+                                this.animationId = requestAnimationFrame(() => this.gameLoop());
+                            }
+
+                            // Handle JS actions from WASM engine
+                            handleJsActions() {
+                                // Guard: check WASM engine exists and pointer is valid
+                                if (!this.isWasmEngineValid()) return;
+
+                                // Check if get_js_actions function exists (WASM may not have it exported)
+                                if (typeof this.wasmEngine.get_js_actions !== 'function') {
+                                    return; // Function not available in WASM binary
+                                }
+
+                                let actionsJson;
+                                try {
+                                    actionsJson = this.wasmEngine.get_js_actions();
+                                } catch (e) {
+                                    // WASM call failed (possibly RuntimeError: unreachable) - log once and continue
+                                    if (!this._jsActionsErrorLogged) {
+                                        this._jsActionsErrorLogged = true;
+                                        console.warn('get_js_actions() 호출 실패:', e);
+                                    }
+                                    return;
+                                }
+                                if (!actionsJson || actionsJson === '[]') return;
+
+                                try {
+                                    const actions = JSON.parse(actionsJson);
+                                    for (const action of actions) {
+                                        this.processJsAction(action);
+                                    }
+                                } catch (e) {
+                                    // Log parse error only once to prevent console flood
+                                    if (!this._jsActionsParseErrorLogged) {
+                                        this._jsActionsParseErrorLogged = true;
+                                        console.error('Failed to parse JS actions:', e);
+                                    }
+                                }
+                            }
+
+                            processJsAction(action) {
+                                const { type, data } = action;
+
+                                switch (type) {
+                                    case 'BrushStamp': {
+                                        const entityId = data.entity_id;
+                                        this.handleBrushStamp(entityId);
+                                        break;
+                                    }
+                                    case 'BrushEraseAll': {
+                                        this.handleBrushEraseAll();
+                                        break;
+                                    }
+                                    case 'StartDrawing': {
+                                        const { entity_id, x, y } = data;
+                                        this.handleStartDrawing(entity_id, x, y);
+                                        break;
+                                    }
+                                    case 'StopDrawing': {
+                                        const entityId = data.entity_id;
+                                        this.handleStopDrawing(entityId);
+                                        break;
+                                    }
+                                    case 'SetBrushColor': {
+                                        const { entity_id, color } = data;
+                                        this.handleSetBrushColor(entity_id, color);
+                                        break;
+                                    }
+                                    case 'SetRandomColor': {
+                                        const entityId = data.entity_id;
+                                        const randomColor =
+                                            '#' +
+                                            Math.floor(Math.random() * 16777215)
+                                                .toString(16)
+                                                .padStart(6, '0');
+                                        this.handleSetBrushColor(entityId, randomColor);
+                                        break;
+                                    }
+                                    case 'StartFill': {
+                                        const { entity_id, x, y } = data;
+                                        this.handleStartFill(entity_id, x, y);
+                                        break;
+                                    }
+                                    case 'StopFill': {
+                                        const entityId = data.entity_id;
+                                        this.handleStopFill(entityId);
+                                        break;
+                                    }
+                                    case 'SetFillColor': {
+                                        const { entity_id, color } = data;
+                                        this.handleSetFillColor(entity_id, color);
+                                        break;
+                                    }
+                                    case 'BrushLineTo': {
+                                        const { entity_id, x, y } = data;
+                                        this.handleBrushLineTo(entity_id, x, y);
+                                        break;
+                                    }
+                                    case 'FillLineTo': {
+                                        const { entity_id, x, y } = data;
+                                        this.handleFillLineTo(entity_id, x, y);
+                                        break;
+                                    }
+                                    default:
+                                        // Suppress unhandled action logs to prevent console flood
+                                        // Uncomment the following line for debugging:
+                                        // if (!this._loggedUnhandledActions?.has(type)) {
+                                        //     this._loggedUnhandledActions = this._loggedUnhandledActions || new Set();
+                                        //     this._loggedUnhandledActions.add(type);
+                                        //     console.log('Unhandled JS action:', type, data);
+                                        // }
+                                        break;
+                                }
+                            }
+
+                            // Get or create brush state for an entity (by string ID)
+                            getBrushState(entityStringId) {
+                                if (!this.brushStates.has(entityStringId)) {
+                                    this.brushStates.set(entityStringId, new BrushState());
+                                }
+                                return this.brushStates.get(entityStringId);
+                            }
+
+                            // Convert entity index to entity.id by looking up in render data
+                            // Note: entity.id from WASM is a number (usize), not a string
+                            getEntityId(entityIndex) {
+                                if (!this.isWasmEngineValid()) return null;
+                                try {
+                                    const renderData = this.wasmEngine.get_render_data();
+                                    if (!renderData || renderData === '[]') return null;
+                                    const entities = JSON.parse(renderData);
+                                    const entity = entities[entityIndex];
+                                    return entity != null ? entity.id : null;
+                                } catch (e) {
+                                    return null;
+                                }
+                            }
+
+                            // Handle brush stamp (copy entity image to brush canvas)
+                            handleBrushStamp(entityId) {
+                                if (!this.isWasmEngineValid()) return;
+                                // Get current render data to find entity position
+                                let renderData;
+                                try {
+                                    renderData = this.wasmEngine.get_render_data();
+                                } catch (e) {
+                                    return;
+                                }
+                                if (!renderData) return;
+
+                                try {
+                                    const entities = JSON.parse(renderData);
+                                    const entity = entities[entityId]; // Access by index
+                                    if (!entity || !entity.visible) return;
+
+                                    // Convert to canvas coordinates
+                                    const screenX = 240 + entity.x;
+                                    const screenY = 180 - entity.y;
+
+                                    // Try to get cached image
+                                    const img = imageCache.get(entity.pictureId);
+
+                                    this.brushCtx.save();
+                                    this.brushCtx.translate(screenX, screenY);
+                                    this.brushCtx.rotate((-entity.rotation * Math.PI) / 180);
+                                    this.brushCtx.scale(entity.scaleX, entity.scaleY);
+
+                                    if (img && img.complete && img.naturalWidth > 0) {
+                                        this.brushCtx.drawImage(
+                                            img,
+                                            -entity.width / 2,
+                                            -entity.height / 2,
+                                            entity.width,
+                                            entity.height
+                                        );
+                                    } else {
+                                        // Fallback: draw colored rectangle
+                                        this.brushCtx.fillStyle = entity.color || '#4a90d9';
+                                        this.brushCtx.fillRect(
+                                            -entity.width / 2,
+                                            -entity.height / 2,
+                                            entity.width || 50,
+                                            entity.height || 50
+                                        );
+                                    }
+
+                                    this.brushCtx.restore();
+                                } catch (e) {
+                                    // Log error only once to prevent console flood
+                                    if (!this._brushStampErrorLogged) {
+                                        this._brushStampErrorLogged = true;
+                                        console.error('Failed to handle brush stamp:', e);
+                                    }
+                                }
+                            }
+
+                            // Handle erase all brush content
+                            handleBrushEraseAll() {
+                                this.brushCtx.clearRect(0, 0, this.brushCanvas.width, this.brushCanvas.height);
+                            }
+
+                            handleStartDrawing(entityId, x, y) {
+                                const entityKey = this.getEntityId(entityId);
+                                if (entityKey === null) return;
+                                const brushState = this.getBrushState(entityKey);
+                                brushState.down = true;
+                                brushState.lastX = 240 + x;
+                                brushState.lastY = 180 - y;
+                            }
+                                const brushState = this.getBrushState(entityKey);
+                                brushState.down = true;
+                                const screenX = 240 + x;
+                                const screenY = 180 - y;
+                                brushState.lastX = screenX;
+                                brushState.lastY = screenY;
+                                console.log(
+                                    '[DEBUG] brushState.down set to true for entityKey:',
+                                    entityKey,
+                                    'lastX:',
+                                    screenX,
+                                    'lastY:',
+                                    screenY
+                                );
+                            }
+
+                            // Handle stop drawing
+                            handleStopDrawing(entityId) {
+                                const entityKey = this.getEntityId(entityId);
+                                if (entityKey === null) return;
+                                const brushState = this.getBrushState(entityKey);
+                                brushState.down = false;
+                                brushState.lastX = null;
+                                brushState.lastY = null;
+                            }
+
+                            // Handle set brush color
+                            handleSetBrushColor(entityId, color) {
+                                const entityKey = this.getEntityId(entityId);
+                                if (entityKey === null) return;
+                                const brushState = this.getBrushState(entityKey);
+                                brushState.color = color;
+                            }
+
+                handleStartFill(entityId, x, y) {
+                    const entityKey = this.getEntityId(entityId);
+                    if (entityKey === null) return;
+
+                    const brushState = this.getBrushState(entityKey);
+                    brushState.fillDown = true;
+                    brushState.fillPath = [];
+
+                    this.fillCtx.clearRect(0, 0, this.fillCanvas.width, this.fillCanvas.height);
+
+                    brushState.fillPath.push({ x: 240 + x, y: 180 - y });
+                }
+
+                                const brushState = this.getBrushState(entityKey);
+                                brushState.fillDown = true;
+                                brushState.fillPath = [];
+
+                                this.fillCtx.clearRect(0, 0, this.fillCanvas.width, this.fillCanvas.height);
+
+                                const screenX = 240 + x;
+                                const screenY = 180 - y;
+                                brushState.fillPath.push({ x: screenX, y: screenY });
+                            }
+
+                            // Handle stop fill (close and fill the polygon)
+                            handleStopFill(entityId) {
+                                const entityKey = this.getEntityId(entityId);
+                                if (entityKey === null) return;
+
+                                const brushState = this.getBrushState(entityKey);
+
+                                if (brushState.fillPath.length >= 3) {
+                                    // Copy final polygon from fillCanvas to brushCanvas (permanent)
+                                    this.brushCtx.drawImage(this.fillCanvas, 0, 0);
+                                }
+
+                                // Clear fillCanvas (preview layer)
+                                this.fillCtx.clearRect(0, 0, this.fillCanvas.width, this.fillCanvas.height);
+
+                                // Reset fill state
+                                brushState.fillDown = false;
+                                brushState.fillPath = [];
+                            }
+
+                            // Handle set fill color
+                            handleSetFillColor(entityId, color) {
+                                const entityKey = this.getEntityId(entityId);
+                                if (entityKey === null) return;
+                                const brushState = this.getBrushState(entityKey);
+                                brushState.fillColor = color;
+                            }
+
+                            handleBrushLineTo(entityId, x, y) {
+                                const entityKey = this.getEntityId(entityId);
+                                if (entityKey === null) return;
+                                const brushState = this.getBrushState(entityKey);
+
+                                const screenX = 240 + x;
+                                const screenY = 180 - y;
+
+                                if (brushState.lastX !== null && brushState.lastY !== null) {
+                                    this.brushCtx.beginPath();
+                                    this.brushCtx.strokeStyle = brushState.color;
+                                    this.brushCtx.lineWidth = brushState.size;
+                                    this.brushCtx.lineCap = 'round';
+                                    this.brushCtx.lineJoin = 'round';
+                                    this.brushCtx.globalAlpha = 1 - brushState.opacity / 100;
+                                    this.brushCtx.moveTo(brushState.lastX, brushState.lastY);
+                                    this.brushCtx.lineTo(screenX, screenY);
+                                    this.brushCtx.stroke();
+                                    this.brushCtx.globalAlpha = 1;
+                                }
+
+                                brushState.lastX = screenX;
+                                brushState.lastY = screenY;
+                            }
+
+                            handleFillLineTo(entityId, x, y) {
+                                const entityKey = this.getEntityId(entityId);
+                                if (entityKey === null) return;
+                                const brushState = this.getBrushState(entityKey);
+
+                                if (!brushState.fillDown) return;
+
+                                const screenX = 240 + x;
+                                const screenY = 180 - y;
+
+                                const lastPoint = brushState.fillPath[brushState.fillPath.length - 1];
+                                if (lastPoint) {
+                                    const dx = screenX - lastPoint.x;
+                                    const dy = screenY - lastPoint.y;
+                                    const distance = Math.sqrt(dx * dx + dy * dy);
+                                    if (distance >= 2) {
+                                        brushState.fillPath.push({ x: screenX, y: screenY });
+                                        this.drawFillPreview(entityKey);
+                                    }
+                                } else {
+                                    brushState.fillPath.push({ x: screenX, y: screenY });
+                                }
+                            }
+
+                            // Draw real-time fill preview on fillCanvas
+                            drawFillPreview(entityKey) {
+                                const brushState = this.brushStates.get(entityKey);
+                                if (!brushState || !brushState.fillDown || brushState.fillPath.length < 3) {
+                                    return;
+                                }
+
+                                // Clear fillCanvas and redraw the polygon
+                                this.fillCtx.clearRect(0, 0, this.fillCanvas.width, this.fillCanvas.height);
+
+                                this.fillCtx.beginPath();
+                                this.fillCtx.moveTo(brushState.fillPath[0].x, brushState.fillPath[0].y);
+
+                                for (let i = 1; i < brushState.fillPath.length; i++) {
+                                    this.fillCtx.lineTo(brushState.fillPath[i].x, brushState.fillPath[i].y);
+                                }
+
+                                this.fillCtx.closePath();
+                                this.fillCtx.fillStyle = brushState.fillColor;
+                                this.fillCtx.fill();
+                            }
+
+                            // Draw brush lines for entities that have brush_down
+                            updateBrushDrawing(entities) {
+                                for (const entity of entities) {
+                                    // Get or create brush state using entity.id (which is a number index from WASM)
+                                    const entityKey = entity.id;
+                                    const brushState = this.getBrushState(entityKey);
+
+                                    // Sync brush state from entity render data (WASM state)
+                                    const wasBrushDown = brushState.down;
+                                    brushState.down = entity.brushDown || false;
+                                    brushState.color = entity.brushColor || brushState.color;
+                                    brushState.size = entity.brushSize || brushState.size;
+
+                                    // If brush just went down, reset last position
+                                    if (!wasBrushDown && brushState.down) {
+                                        brushState.lastX = null;
+                                        brushState.lastY = null;
+                                    }
+
+                                    // Convert to canvas coordinates
+                                    const screenX = 240 + entity.x;
+                                    const screenY = 180 - entity.y;
+
+                                    // Track fill path if fill mode is active
+                                    if (brushState.fillDown) {
+                                        // Add point to fill path with minimum distance threshold to prevent memory bloat
+                                        const lastPoint = brushState.fillPath[brushState.fillPath.length - 1];
+                                        let pointAdded = false;
+                                        if (lastPoint) {
+                                            const dx = screenX - lastPoint.x;
+                                            const dy = screenY - lastPoint.y;
+                                            const distance = Math.sqrt(dx * dx + dy * dy);
+                                            if (distance >= 2) {
+                                                // Minimum 2px distance between points
+                                                brushState.fillPath.push({ x: screenX, y: screenY });
+                                                pointAdded = true;
+                                            }
+                                        } else {
+                                            // Fallback: add first point if somehow missing
+                                            brushState.fillPath.push({ x: screenX, y: screenY });
+                                            pointAdded = true;
+                                        }
+
+                                        // Draw real-time fill preview only when a point is added
+                                        if (pointAdded && this.fillCtx) {
+                                            this.drawFillPreview(entityKey);
+                                        }
+                                    }
+
+                                    // If brush is not down, skip drawing but reset last position
+                                    if (!brushState.down) {
+                                        brushState.lastX = null;
+                                        brushState.lastY = null;
+                                        continue;
+                                    }
+
+                                    if (brushState.lastX !== null && brushState.lastY !== null) {
+                                        // Draw line from last position to current position
+                                        this.brushCtx.beginPath();
+                                        this.brushCtx.strokeStyle = brushState.color;
+                                        this.brushCtx.lineWidth = brushState.size;
+                                        this.brushCtx.lineCap = 'round';
+                                        this.brushCtx.lineJoin = 'round';
+                                        this.brushCtx.globalAlpha = 1 - brushState.opacity / 100;
+                                        this.brushCtx.moveTo(brushState.lastX, brushState.lastY);
+                                        this.brushCtx.lineTo(screenX, screenY);
+                                        this.brushCtx.stroke();
+                                        this.brushCtx.globalAlpha = 1;
+                                    }
+
+                                    // Update last position
+                                    brushState.lastX = screenX;
+                                    brushState.lastY = screenY;
+                                }
+                            }
+
+                            render() {
+                                // Clear canvas
+                                this.ctx.fillStyle = '#ffffff';
+                                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+                                // Draw brush canvas layer first (behind entities)
+                                if (this.brushCanvas) {
+                                    this.ctx.drawImage(this.brushCanvas, 0, 0);
+                                }
+
+                                // Draw fill canvas layer (real-time fill preview)
+                                if (this.fillCanvas) {
+                                    this.ctx.drawImage(this.fillCanvas, 0, 0);
+                                }
+
+                                if (this.isWasmEngineValid()) {
+                                    // Get render data from WASM and draw
+                                    try {
+                                        const renderData = this.wasmEngine.get_render_data();
+                                        this.drawRenderData(renderData);
+                                        // Reset error counter on success
+                                        this._renderErrorCount = 0;
+                                    } catch (e) {
+                                        // WASM call failed (possibly RuntimeError: unreachable)
+                                        this._renderErrorCount = (this._renderErrorCount || 0) + 1;
+
+                                        if (!this._renderDataErrorLogged) {
+                                            this._renderDataErrorLogged = true;
+                                            console.warn('get_render_data() 호출 실패:', e);
+                                        }
+
+                                        // 연속 5회 이상 실패 시 WASM 비활성화
+                                        if (this._renderErrorCount >= 5) {
+                                            console.error('WASM render 연속 실패, JS 폴백으로 전환');
+                                            this.wasmEngine = null;
+                                            this.wasmInitialized = false;
+                                            if (!this.jsEngine && this.projectData?.objects) {
+                                                const objects =
+                                                    typeof this.projectData.objects === 'string'
+                                                        ? JSON.parse(this.projectData.objects)
+                                                        : this.projectData.objects;
+                                                this.initJSEngine(objects);
+                                            }
+                                        }
+                                    }
+                                } else if (this.jsEngine) {
+                                    // Simple JS rendering
+                                    this.drawJSEngine();
+                                }
+                            }
+
+                            drawRenderData(data) {
+                                if (!data) return;
+
+                                try {
+                                    const entities = JSON.parse(data);
+
+                                    // Update brush drawing for entities with brush_down
+                                    this.updateBrushDrawing(entities);
+
+                                    for (const entity of entities) {
+                                        this.drawEntity(entity);
+                                    }
+                                } catch (e) {
+                                    // Log parse error only once to prevent console flood
+                                    if (!this._renderParseErrorLogged) {
+                                        this._renderParseErrorLogged = true;
+                                        console.error('렌더 데이터 파싱 실패:', e);
+                                    }
+                                }
+                            }
+
+                            drawEntity(entity) {
+                                this.ctx.save();
+
+                                // Transform to Entry coordinate system (center is 0,0)
+                                this.ctx.translate(240 + entity.x, 180 - entity.y);
+                                this.ctx.rotate((-entity.rotation * Math.PI) / 180);
+                                this.ctx.scale(entity.scaleX, entity.scaleY);
+
+                                // Draw
+                                if (entity.visible) {
+                                    // Try to draw cached image
+                                    const img = imageCache.get(entity.pictureId);
+
+                                    // 이미지가 완전히 로드되었고, naturalWidth가 있는지 확인 (broken 이미지 체크)
+                                    if (img && img.complete && img.naturalWidth > 0) {
+                                        try {
+                                            this.ctx.drawImage(
+                                                img,
+                                                -entity.width / 2,
+                                                -entity.height / 2,
+                                                entity.width,
+                                                entity.height
+                                            );
+                                        } catch (drawError) {
+                                            // drawImage 실패 시 폴백
+                                            this.drawFallbackRect(entity);
+                                        }
+                                    } else {
+                                        // Fallback: draw colored rectangle
+                                        this.drawFallbackRect(entity);
+                                    }
+                                }
+
+                                this.ctx.restore();
+
+                                // Draw dialog balloon (after restore to use screen coordinates)
+                                if (entity.dialogMessage) {
+                                    this.drawDialog(entity);
+                                }
+                            }
+
+                            drawFallbackRect(entity) {
+                                this.ctx.fillStyle = entity.color || '#4a90d9';
+                                this.ctx.fillRect(
+                                    -entity.width / 2,
+                                    -entity.height / 2,
+                                    entity.width || 50,
+                                    entity.height || 50
+                                );
+                            }
+
+                            // Draw dialog balloon (speak/think)
+                            drawDialog(entity) {
+                                const message = entity.dialogMessage;
+                                const mode = entity.dialogMode || 'speak';
+
+                                this.ctx.save();
+
+                                // Calculate position in screen coordinates
+                                const screenX = 240 + entity.x;
+                                const screenY = 180 - entity.y;
+                                const entityHalfHeight = (entity.height || 50) / 2;
+
+                                // Set font and measure text
+                                this.ctx.font = '14px "Noto Sans KR", sans-serif';
+                                const textMetrics = this.ctx.measureText(message);
+                                const textWidth = textMetrics.width;
+                                const textHeight = 18; // Approximate line height
+
+                                // Balloon dimensions
+                                const padding = 12;
+                                const balloonWidth = textWidth + padding * 2;
+                                const balloonHeight = textHeight + padding * 2;
+                                const radius = 10;
+                                const margin = 5; // margin from canvas edge
+
+                                // Initial position: above entity
+                                let balloonX = screenX - balloonWidth / 2;
+                                let balloonY = screenY - entityHalfHeight - balloonHeight - 20;
+                                let isBelowEntity = false;
+
+                                // Clamp X position to stay within canvas
+                                balloonX = Math.max(margin, Math.min(480 - balloonWidth - margin, balloonX));
+
+                                // If balloon goes above canvas, place it below entity
+                                if (balloonY < margin) {
+                                    balloonY = screenY + entityHalfHeight + 20;
+                                    isBelowEntity = true;
+                                }
+
+                                // Also clamp Y to stay within canvas
+                                if (balloonY + balloonHeight > 360 - margin) {
+                                    balloonY = 360 - balloonHeight - margin;
+                                }
+
+                                // Calculate tail target (entity edge)
+                                const tailTargetY = isBelowEntity
+                                    ? screenY + entityHalfHeight + 5
+                                    : screenY - entityHalfHeight - 5;
+
+                                if (mode === 'think') {
+                                    // Think bubble: cloud-style with dots
+                                    this.drawThinkBubble(
+                                        balloonX,
+                                        balloonY,
+                                        balloonWidth,
+                                        balloonHeight,
+                                        radius,
+                                        screenX,
+                                        tailTargetY,
+                                        isBelowEntity
+                                    );
+                                } else {
+                                    // Speak bubble: regular balloon with tail
+                                    this.drawSpeakBubble(
+                                        balloonX,
+                                        balloonY,
+                                        balloonWidth,
+                                        balloonHeight,
+                                        radius,
+                                        screenX,
+                                        tailTargetY,
+                                        isBelowEntity
+                                    );
+                                }
+
+                                // Draw text
+                                this.ctx.fillStyle = '#000000';
+                                this.ctx.textAlign = 'center';
+                                this.ctx.textBaseline = 'middle';
+                                this.ctx.fillText(
+                                    message,
+                                    balloonX + balloonWidth / 2,
+                                    balloonY + balloonHeight / 2
+                                );
+
+                                this.ctx.restore();
+                            }
+
+                            // Draw speak balloon (with triangle tail)
+                            drawSpeakBubble(x, y, width, height, radius, tailX, tailY, isBelowEntity = false) {
+                                const ctx = this.ctx;
+                                const tailWidth = 10;
+
+                                // Clamp tailX to be within balloon width
+                                const clampedTailX = Math.max(
+                                    x + tailWidth,
+                                    Math.min(x + width - tailWidth, tailX)
+                                );
+
+                                ctx.beginPath();
+
+                                if (isBelowEntity) {
+                                    // Tail pointing UP (balloon is below entity)
+                                    ctx.moveTo(x + radius, y);
+
+                                    // Top edge with tail
+                                    ctx.lineTo(clampedTailX - tailWidth / 2, y);
+                                    ctx.lineTo(clampedTailX, tailY);
+                                    ctx.lineTo(clampedTailX + tailWidth / 2, y);
+
+                                    ctx.lineTo(x + width - radius, y);
+                                    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+                                    ctx.lineTo(x + width, y + height - radius);
+                                    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+                                    ctx.lineTo(x + radius, y + height);
+                                    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+                                    ctx.lineTo(x, y + radius);
+                                    ctx.quadraticCurveTo(x, y, x + radius, y);
+                                } else {
+                                    // Tail pointing DOWN (balloon is above entity)
+                                    ctx.moveTo(x + radius, y);
+                                    ctx.lineTo(x + width - radius, y);
+                                    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+                                    ctx.lineTo(x + width, y + height - radius);
+                                    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+
+                                    // Bottom edge with tail
+                                    ctx.lineTo(clampedTailX + tailWidth / 2, y + height);
+                                    ctx.lineTo(clampedTailX, tailY);
+                                    ctx.lineTo(clampedTailX - tailWidth / 2, y + height);
+
+                                    ctx.lineTo(x + radius, y + height);
+                                    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+                                    ctx.lineTo(x, y + radius);
+                                    ctx.quadraticCurveTo(x, y, x + radius, y);
+                                }
+
+                                ctx.closePath();
+
+                                // Fill and stroke
+                                ctx.fillStyle = '#ffffff';
+                                ctx.fill();
+                                ctx.strokeStyle = '#000000';
+                                ctx.lineWidth = 2;
+                                ctx.stroke();
+                            }
+
+                            // Draw think bubble (cloud-style with dots)
+                            drawThinkBubble(x, y, width, height, radius, tailX, tailY, isBelowEntity = false) {
+                                const ctx = this.ctx;
+
+                                // Draw cloud-like rounded rectangle
+                                ctx.beginPath();
+                                ctx.moveTo(x + radius, y);
+                                ctx.lineTo(x + width - radius, y);
+                                ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+                                ctx.lineTo(x + width, y + height - radius);
+                                ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+                                ctx.lineTo(x + radius, y + height);
+                                ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+                                ctx.lineTo(x, y + radius);
+                                ctx.quadraticCurveTo(x, y, x + radius, y);
+                                ctx.closePath();
+
+                                // Fill and stroke
+                                ctx.fillStyle = '#ffffff';
+                                ctx.fill();
+                                ctx.strokeStyle = '#000000';
+                                ctx.lineWidth = 2;
+                                ctx.stroke();
+
+                                // Clamp tailX to be within balloon width
+                                const clampedTailX = Math.max(x + 10, Math.min(x + width - 10, tailX));
+
+                                // Draw thought dots (3 circles getting smaller)
+                                const dotSizes = [6, 4, 3];
+                                let dotY;
+
+                                if (isBelowEntity) {
+                                    // Dots pointing UP (balloon is below entity)
+                                    dotY = y - 8;
+                                    for (const size of dotSizes) {
+                                        ctx.beginPath();
+                                        ctx.arc(clampedTailX, dotY, size, 0, Math.PI * 2);
+                                        ctx.fillStyle = '#ffffff';
+                                        ctx.fill();
+                                        ctx.strokeStyle = '#000000';
+                                        ctx.lineWidth = 1.5;
+                                        ctx.stroke();
+                                        dotY -= size * 2 + 3;
+                                    }
+                                } else {
+                                    // Dots pointing DOWN (balloon is above entity)
+                                    dotY = y + height + 8;
+                                    for (const size of dotSizes) {
+                                        ctx.beginPath();
+                                        ctx.arc(clampedTailX, dotY, size, 0, Math.PI * 2);
+                                        ctx.fillStyle = '#ffffff';
+                                        ctx.fill();
+                                        ctx.strokeStyle = '#000000';
+                                        ctx.lineWidth = 1.5;
+                                        ctx.stroke();
+                                        dotY += size * 2 + 3;
+                                    }
+                                }
+                            }
+
+                            // Preload sprite images
+                            async preloadImages() {
+                                if (!this.projectData?.objects) return;
+
                                 const objects =
                                     typeof this.projectData.objects === 'string'
                                         ? JSON.parse(this.projectData.objects)
                                         : this.projectData.objects;
-                                this.initJSEngine(objects);
-                            }
-                        }
-                    } else if (this.jsEngine) {
-                        this.jsEngine.tick++;
-                    }
 
-                    // Render
-                    this.render();
-
-                    this.animationId = requestAnimationFrame(() => this.gameLoop());
-                }
-
-                // Handle JS actions from WASM engine
-                handleJsActions() {
-                    // Guard: check WASM engine exists and pointer is valid
-                    if (!this.isWasmEngineValid()) return;
-
-                    // Check if get_js_actions function exists (WASM may not have it exported)
-                    if (typeof this.wasmEngine.get_js_actions !== 'function') {
-                        return; // Function not available in WASM binary
-                    }
-
-                    let actionsJson;
-                    try {
-                        actionsJson = this.wasmEngine.get_js_actions();
-                    } catch (e) {
-                        // WASM call failed (possibly RuntimeError: unreachable) - log once and continue
-                        if (!this._jsActionsErrorLogged) {
-                            this._jsActionsErrorLogged = true;
-                            console.warn('get_js_actions() 호출 실패:', e);
-                        }
-                        return;
-                    }
-                    if (!actionsJson || actionsJson === '[]') return;
-
-                    try {
-                        const actions = JSON.parse(actionsJson);
-                        for (const action of actions) {
-                            this.processJsAction(action);
-                        }
-                    } catch (e) {
-                        // Log parse error only once to prevent console flood
-                        if (!this._jsActionsParseErrorLogged) {
-                            this._jsActionsParseErrorLogged = true;
-                            console.error('Failed to parse JS actions:', e);
-                        }
-                    }
-                }
-
-                // Process a single JS action
-                processJsAction(action) {
-                    const { type, data } = action;
-
-                    switch (type) {
-                        case 'BrushStamp': {
-                            const entityId = data.entity_id;
-                            this.handleBrushStamp(entityId);
-                            break;
-                        }
-                        case 'BrushEraseAll': {
-                            this.handleBrushEraseAll();
-                            break;
-                        }
-                        case 'StartDrawing': {
-                            const entityId = data.entity_id;
-                            this.handleStartDrawing(entityId);
-                            break;
-                        }
-                        case 'StopDrawing': {
-                            const entityId = data.entity_id;
-                            this.handleStopDrawing(entityId);
-                            break;
-                        }
-                        case 'SetBrushColor': {
-                            const { entity_id, color } = data;
-                            this.handleSetBrushColor(entity_id, color);
-                            break;
-                        }
-                        case 'SetRandomColor': {
-                            const entityId = data.entity_id;
-                            const randomColor =
-                                '#' +
-                                Math.floor(Math.random() * 16777215)
-                                    .toString(16)
-                                    .padStart(6, '0');
-                            this.handleSetBrushColor(entityId, randomColor);
-                            break;
-                        }
-                        case 'StartFill': {
-                            const entityId = data.entity_id;
-                            this.handleStartFill(entityId);
-                            break;
-                        }
-                        case 'StopFill': {
-                            const entityId = data.entity_id;
-                            this.handleStopFill(entityId);
-                            break;
-                        }
-                        case 'SetFillColor': {
-                            const { entity_id, color } = data;
-                            this.handleSetFillColor(entity_id, color);
-                            break;
-                        }
-                        // Other actions can be added here (sounds, clones, etc.)
-                        default:
-                            // Suppress unhandled action logs to prevent console flood
-                            // Uncomment the following line for debugging:
-                            // if (!this._loggedUnhandledActions?.has(type)) {
-                            //     this._loggedUnhandledActions = this._loggedUnhandledActions || new Set();
-                            //     this._loggedUnhandledActions.add(type);
-                            //     console.log('Unhandled JS action:', type, data);
-                            // }
-                            break;
-                    }
-                }
-
-                // Get or create brush state for an entity (by string ID)
-                getBrushState(entityStringId) {
-                    if (!this.brushStates.has(entityStringId)) {
-                        this.brushStates.set(entityStringId, new BrushState());
-                    }
-                    return this.brushStates.get(entityStringId);
-                }
-
-                // Convert entity index to entity.id by looking up in render data
-                // Note: entity.id from WASM is a number (usize), not a string
-                getEntityId(entityIndex) {
-                    if (!this.isWasmEngineValid()) return null;
-                    try {
-                        const renderData = this.wasmEngine.get_render_data();
-                        if (!renderData || renderData === '[]') return null;
-                        const entities = JSON.parse(renderData);
-                        const entity = entities[entityIndex];
-                        return entity != null ? entity.id : null;
-                    } catch (e) {
-                        return null;
-                    }
-                }
-
-                // Handle brush stamp (copy entity image to brush canvas)
-                handleBrushStamp(entityId) {
-                    if (!this.isWasmEngineValid()) return;
-                    // Get current render data to find entity position
-                    let renderData;
-                    try {
-                        renderData = this.wasmEngine.get_render_data();
-                    } catch (e) {
-                        return;
-                    }
-                    if (!renderData) return;
-
-                    try {
-                        const entities = JSON.parse(renderData);
-                        const entity = entities[entityId]; // Access by index
-                        if (!entity || !entity.visible) return;
-
-                        // Convert to canvas coordinates
-                        const screenX = 240 + entity.x;
-                        const screenY = 180 - entity.y;
-
-                        // Try to get cached image
-                        const img = imageCache.get(entity.pictureId);
-
-                        this.brushCtx.save();
-                        this.brushCtx.translate(screenX, screenY);
-                        this.brushCtx.rotate((-entity.rotation * Math.PI) / 180);
-                        this.brushCtx.scale(entity.scaleX, entity.scaleY);
-
-                        if (img && img.complete && img.naturalWidth > 0) {
-                            this.brushCtx.drawImage(
-                                img,
-                                -entity.width / 2,
-                                -entity.height / 2,
-                                entity.width,
-                                entity.height
-                            );
-                        } else {
-                            // Fallback: draw colored rectangle
-                            this.brushCtx.fillStyle = entity.color || '#4a90d9';
-                            this.brushCtx.fillRect(
-                                -entity.width / 2,
-                                -entity.height / 2,
-                                entity.width || 50,
-                                entity.height || 50
-                            );
-                        }
-
-                        this.brushCtx.restore();
-                    } catch (e) {
-                        // Log error only once to prevent console flood
-                        if (!this._brushStampErrorLogged) {
-                            this._brushStampErrorLogged = true;
-                            console.error('Failed to handle brush stamp:', e);
-                        }
-                    }
-                }
-
-                // Handle erase all brush content
-                handleBrushEraseAll() {
-                    this.brushCtx.clearRect(0, 0, this.brushCanvas.width, this.brushCanvas.height);
-                }
-
-                // Handle start drawing
-                handleStartDrawing(entityId) {
-                    const entityKey = this.getEntityId(entityId);
-                    if (entityKey === null) return;
-                    const brushState = this.getBrushState(entityKey);
-                    brushState.down = true;
-                    brushState.lastX = null;
-                    brushState.lastY = null;
-                }
-
-                // Handle stop drawing
-                handleStopDrawing(entityId) {
-                    const entityKey = this.getEntityId(entityId);
-                    if (entityKey === null) return;
-                    const brushState = this.getBrushState(entityKey);
-                    brushState.down = false;
-                    brushState.lastX = null;
-                    brushState.lastY = null;
-                }
-
-                // Handle set brush color
-                handleSetBrushColor(entityId, color) {
-                    const entityKey = this.getEntityId(entityId);
-                    if (entityKey === null) return;
-                    const brushState = this.getBrushState(entityKey);
-                    brushState.color = color;
-                }
-
-                // Handle start fill (begin tracking polygon path)
-                handleStartFill(entityId) {
-                    // Get current entity position and add as first point (like moveTo in Entry.js)
-                    const entityKey = this.getEntityId(entityId);
-                    if (entityKey === null) return;
-
-                    const renderData = this.wasmEngine.get_render_data();
-                    if (!renderData || renderData === '[]') return;
-                    const entities = JSON.parse(renderData);
-                    const entity = entities[entityId];
-                    if (!entity) return;
-
-                    const brushState = this.getBrushState(entityKey);
-                    brushState.fillDown = true;
-                    brushState.fillPath = []; // Reset path
-
-                    // Clear fillCanvas for new fill operation
-                    this.fillCtx.clearRect(0, 0, this.fillCanvas.width, this.fillCanvas.height);
-
-                    const screenX = 240 + entity.x;
-                    const screenY = 180 - entity.y;
-                    brushState.fillPath.push({ x: screenX, y: screenY });
-                }
-
-                // Handle stop fill (close and fill the polygon)
-                handleStopFill(entityId) {
-                    const entityKey = this.getEntityId(entityId);
-                    if (entityKey === null) return;
-
-                    const brushState = this.getBrushState(entityKey);
-
-                    if (brushState.fillPath.length >= 3) {
-                        // Copy final polygon from fillCanvas to brushCanvas (permanent)
-                        this.brushCtx.drawImage(this.fillCanvas, 0, 0);
-                    }
-
-                    // Clear fillCanvas (preview layer)
-                    this.fillCtx.clearRect(0, 0, this.fillCanvas.width, this.fillCanvas.height);
-
-                    // Reset fill state
-                    brushState.fillDown = false;
-                    brushState.fillPath = [];
-                }
-
-                // Handle set fill color
-                handleSetFillColor(entityId, color) {
-                    const entityKey = this.getEntityId(entityId);
-                    if (entityKey === null) return;
-                    const brushState = this.getBrushState(entityKey);
-                    brushState.fillColor = color;
-                }
-
-                // Draw real-time fill preview on fillCanvas
-                drawFillPreview(entityKey) {
-                    const brushState = this.brushStates.get(entityKey);
-                    if (!brushState || !brushState.fillDown || brushState.fillPath.length < 3) {
-                        return;
-                    }
-
-                    // Clear fillCanvas and redraw the polygon
-                    this.fillCtx.clearRect(0, 0, this.fillCanvas.width, this.fillCanvas.height);
-
-                    this.fillCtx.beginPath();
-                    this.fillCtx.moveTo(brushState.fillPath[0].x, brushState.fillPath[0].y);
-
-                    for (let i = 1; i < brushState.fillPath.length; i++) {
-                        this.fillCtx.lineTo(brushState.fillPath[i].x, brushState.fillPath[i].y);
-                    }
-
-                    this.fillCtx.closePath();
-                    this.fillCtx.fillStyle = brushState.fillColor;
-                    this.fillCtx.fill();
-                }
-
-                // Draw brush lines for entities that have brush_down
-                updateBrushDrawing(entities) {
-                    for (const entity of entities) {
-                        // Get or create brush state using entity.id (which is a number index from WASM)
-                        const entityKey = entity.id;
-                        const brushState = this.getBrushState(entityKey);
-
-                        // Sync brush state from entity render data (WASM state)
-                        const wasBrushDown = brushState.down;
-                        brushState.down = entity.brushDown || false;
-                        brushState.color = entity.brushColor || brushState.color;
-                        brushState.size = entity.brushSize || brushState.size;
-
-                        // If brush just went down, reset last position
-                        if (!wasBrushDown && brushState.down) {
-                            brushState.lastX = null;
-                            brushState.lastY = null;
-                        }
-
-                        // Convert to canvas coordinates
-                        const screenX = 240 + entity.x;
-                        const screenY = 180 - entity.y;
-
-                        // Track fill path if fill mode is active
-                        if (brushState.fillDown) {
-                            // Add point to fill path with minimum distance threshold to prevent memory bloat
-                            const lastPoint = brushState.fillPath[brushState.fillPath.length - 1];
-                            let pointAdded = false;
-                            if (lastPoint) {
-                                const dx = screenX - lastPoint.x;
-                                const dy = screenY - lastPoint.y;
-                                const distance = Math.sqrt(dx * dx + dy * dy);
-                                if (distance >= 2) {
-                                    // Minimum 2px distance between points
-                                    brushState.fillPath.push({ x: screenX, y: screenY });
-                                    pointAdded = true;
-                                }
-                            } else {
-                                // Fallback: add first point if somehow missing
-                                brushState.fillPath.push({ x: screenX, y: screenY });
-                                pointAdded = true;
-                            }
-
-                            // Draw real-time fill preview only when a point is added
-                            if (pointAdded && this.fillCtx) {
-                                this.drawFillPreview(entityKey);
-                            }
-                        }
-
-                        // If brush is not down, skip drawing but reset last position
-                        if (!brushState.down) {
-                            brushState.lastX = null;
-                            brushState.lastY = null;
-                            continue;
-                        }
-
-                        if (brushState.lastX !== null && brushState.lastY !== null) {
-                            // Draw line from last position to current position
-                            this.brushCtx.beginPath();
-                            this.brushCtx.strokeStyle = brushState.color;
-                            this.brushCtx.lineWidth = brushState.size;
-                            this.brushCtx.lineCap = 'round';
-                            this.brushCtx.lineJoin = 'round';
-                            this.brushCtx.globalAlpha = 1 - brushState.opacity / 100;
-                            this.brushCtx.moveTo(brushState.lastX, brushState.lastY);
-                            this.brushCtx.lineTo(screenX, screenY);
-                            this.brushCtx.stroke();
-                            this.brushCtx.globalAlpha = 1;
-                        }
-
-                        // Update last position
-                        brushState.lastX = screenX;
-                        brushState.lastY = screenY;
-                    }
-                }
-
-                render() {
-                    // Clear canvas
-                    this.ctx.fillStyle = '#ffffff';
-                    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-
-                    // Draw brush canvas layer first (behind entities)
-                    if (this.brushCanvas) {
-                        this.ctx.drawImage(this.brushCanvas, 0, 0);
-                    }
-
-                    // Draw fill canvas layer (real-time fill preview)
-                    if (this.fillCanvas) {
-                        this.ctx.drawImage(this.fillCanvas, 0, 0);
-                    }
-
-                    if (this.isWasmEngineValid()) {
-                        // Get render data from WASM and draw
-                        try {
-                            const renderData = this.wasmEngine.get_render_data();
-                            this.drawRenderData(renderData);
-                            // Reset error counter on success
-                            this._renderErrorCount = 0;
-                        } catch (e) {
-                            // WASM call failed (possibly RuntimeError: unreachable)
-                            this._renderErrorCount = (this._renderErrorCount || 0) + 1;
-
-                            if (!this._renderDataErrorLogged) {
-                                this._renderDataErrorLogged = true;
-                                console.warn('get_render_data() 호출 실패:', e);
-                            }
-
-                            // 연속 5회 이상 실패 시 WASM 비활성화
-                            if (this._renderErrorCount >= 5) {
-                                console.error('WASM render 연속 실패, JS 폴백으로 전환');
-                                this.wasmEngine = null;
-                                this.wasmInitialized = false;
-                                if (!this.jsEngine && this.projectData?.objects) {
-                                    const objects =
-                                        typeof this.projectData.objects === 'string'
-                                            ? JSON.parse(this.projectData.objects)
-                                            : this.projectData.objects;
-                                    this.initJSEngine(objects);
-                                }
-                            }
-                        }
-                    } else if (this.jsEngine) {
-                        // Simple JS rendering
-                        this.drawJSEngine();
-                    }
-                }
-
-                drawRenderData(data) {
-                    if (!data) return;
-
-                    try {
-                        const entities = JSON.parse(data);
-
-                        // Update brush drawing for entities with brush_down
-                        this.updateBrushDrawing(entities);
-
-                        for (const entity of entities) {
-                            this.drawEntity(entity);
-                        }
-                    } catch (e) {
-                        // Log parse error only once to prevent console flood
-                        if (!this._renderParseErrorLogged) {
-                            this._renderParseErrorLogged = true;
-                            console.error('렌더 데이터 파싱 실패:', e);
-                        }
-                    }
-                }
-
-                drawEntity(entity) {
-                    this.ctx.save();
-
-                    // Transform to Entry coordinate system (center is 0,0)
-                    this.ctx.translate(240 + entity.x, 180 - entity.y);
-                    this.ctx.rotate((-entity.rotation * Math.PI) / 180);
-                    this.ctx.scale(entity.scaleX, entity.scaleY);
-
-                    // Draw
-                    if (entity.visible) {
-                        // Try to draw cached image
-                        const img = imageCache.get(entity.pictureId);
-
-                        // 이미지가 완전히 로드되었고, naturalWidth가 있는지 확인 (broken 이미지 체크)
-                        if (img && img.complete && img.naturalWidth > 0) {
-                            try {
-                                this.ctx.drawImage(
-                                    img,
-                                    -entity.width / 2,
-                                    -entity.height / 2,
-                                    entity.width,
-                                    entity.height
-                                );
-                            } catch (drawError) {
-                                // drawImage 실패 시 폴백
-                                this.drawFallbackRect(entity);
-                            }
-                        } else {
-                            // Fallback: draw colored rectangle
-                            this.drawFallbackRect(entity);
-                        }
-                    }
-
-                    this.ctx.restore();
-
-                    // Draw dialog balloon (after restore to use screen coordinates)
-                    if (entity.dialogMessage) {
-                        this.drawDialog(entity);
-                    }
-                }
-
-                drawFallbackRect(entity) {
-                    this.ctx.fillStyle = entity.color || '#4a90d9';
-                    this.ctx.fillRect(
-                        -entity.width / 2,
-                        -entity.height / 2,
-                        entity.width || 50,
-                        entity.height || 50
-                    );
-                }
-
-                // Draw dialog balloon (speak/think)
-                drawDialog(entity) {
-                    const message = entity.dialogMessage;
-                    const mode = entity.dialogMode || 'speak';
-
-                    this.ctx.save();
-
-                    // Calculate position in screen coordinates
-                    const screenX = 240 + entity.x;
-                    const screenY = 180 - entity.y;
-                    const entityHalfHeight = (entity.height || 50) / 2;
-
-                    // Set font and measure text
-                    this.ctx.font = '14px "Noto Sans KR", sans-serif';
-                    const textMetrics = this.ctx.measureText(message);
-                    const textWidth = textMetrics.width;
-                    const textHeight = 18; // Approximate line height
-
-                    // Balloon dimensions
-                    const padding = 12;
-                    const balloonWidth = textWidth + padding * 2;
-                    const balloonHeight = textHeight + padding * 2;
-                    const radius = 10;
-                    const margin = 5; // margin from canvas edge
-
-                    // Initial position: above entity
-                    let balloonX = screenX - balloonWidth / 2;
-                    let balloonY = screenY - entityHalfHeight - balloonHeight - 20;
-                    let isBelowEntity = false;
-
-                    // Clamp X position to stay within canvas
-                    balloonX = Math.max(margin, Math.min(480 - balloonWidth - margin, balloonX));
-
-                    // If balloon goes above canvas, place it below entity
-                    if (balloonY < margin) {
-                        balloonY = screenY + entityHalfHeight + 20;
-                        isBelowEntity = true;
-                    }
-
-                    // Also clamp Y to stay within canvas
-                    if (balloonY + balloonHeight > 360 - margin) {
-                        balloonY = 360 - balloonHeight - margin;
-                    }
-
-                    // Calculate tail target (entity edge)
-                    const tailTargetY = isBelowEntity
-                        ? screenY + entityHalfHeight + 5
-                        : screenY - entityHalfHeight - 5;
-
-                    if (mode === 'think') {
-                        // Think bubble: cloud-style with dots
-                        this.drawThinkBubble(
-                            balloonX,
-                            balloonY,
-                            balloonWidth,
-                            balloonHeight,
-                            radius,
-                            screenX,
-                            tailTargetY,
-                            isBelowEntity
-                        );
-                    } else {
-                        // Speak bubble: regular balloon with tail
-                        this.drawSpeakBubble(
-                            balloonX,
-                            balloonY,
-                            balloonWidth,
-                            balloonHeight,
-                            radius,
-                            screenX,
-                            tailTargetY,
-                            isBelowEntity
-                        );
-                    }
-
-                    // Draw text
-                    this.ctx.fillStyle = '#000000';
-                    this.ctx.textAlign = 'center';
-                    this.ctx.textBaseline = 'middle';
-                    this.ctx.fillText(
-                        message,
-                        balloonX + balloonWidth / 2,
-                        balloonY + balloonHeight / 2
-                    );
-
-                    this.ctx.restore();
-                }
-
-                // Draw speak balloon (with triangle tail)
-                drawSpeakBubble(x, y, width, height, radius, tailX, tailY, isBelowEntity = false) {
-                    const ctx = this.ctx;
-                    const tailWidth = 10;
-
-                    // Clamp tailX to be within balloon width
-                    const clampedTailX = Math.max(
-                        x + tailWidth,
-                        Math.min(x + width - tailWidth, tailX)
-                    );
-
-                    ctx.beginPath();
-
-                    if (isBelowEntity) {
-                        // Tail pointing UP (balloon is below entity)
-                        ctx.moveTo(x + radius, y);
-
-                        // Top edge with tail
-                        ctx.lineTo(clampedTailX - tailWidth / 2, y);
-                        ctx.lineTo(clampedTailX, tailY);
-                        ctx.lineTo(clampedTailX + tailWidth / 2, y);
-
-                        ctx.lineTo(x + width - radius, y);
-                        ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-                        ctx.lineTo(x + width, y + height - radius);
-                        ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-                        ctx.lineTo(x + radius, y + height);
-                        ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-                        ctx.lineTo(x, y + radius);
-                        ctx.quadraticCurveTo(x, y, x + radius, y);
-                    } else {
-                        // Tail pointing DOWN (balloon is above entity)
-                        ctx.moveTo(x + radius, y);
-                        ctx.lineTo(x + width - radius, y);
-                        ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-                        ctx.lineTo(x + width, y + height - radius);
-                        ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-
-                        // Bottom edge with tail
-                        ctx.lineTo(clampedTailX + tailWidth / 2, y + height);
-                        ctx.lineTo(clampedTailX, tailY);
-                        ctx.lineTo(clampedTailX - tailWidth / 2, y + height);
-
-                        ctx.lineTo(x + radius, y + height);
-                        ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-                        ctx.lineTo(x, y + radius);
-                        ctx.quadraticCurveTo(x, y, x + radius, y);
-                    }
-
-                    ctx.closePath();
-
-                    // Fill and stroke
-                    ctx.fillStyle = '#ffffff';
-                    ctx.fill();
-                    ctx.strokeStyle = '#000000';
-                    ctx.lineWidth = 2;
-                    ctx.stroke();
-                }
-
-                // Draw think bubble (cloud-style with dots)
-                drawThinkBubble(x, y, width, height, radius, tailX, tailY, isBelowEntity = false) {
-                    const ctx = this.ctx;
-
-                    // Draw cloud-like rounded rectangle
-                    ctx.beginPath();
-                    ctx.moveTo(x + radius, y);
-                    ctx.lineTo(x + width - radius, y);
-                    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-                    ctx.lineTo(x + width, y + height - radius);
-                    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-                    ctx.lineTo(x + radius, y + height);
-                    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-                    ctx.lineTo(x, y + radius);
-                    ctx.quadraticCurveTo(x, y, x + radius, y);
-                    ctx.closePath();
-
-                    // Fill and stroke
-                    ctx.fillStyle = '#ffffff';
-                    ctx.fill();
-                    ctx.strokeStyle = '#000000';
-                    ctx.lineWidth = 2;
-                    ctx.stroke();
-
-                    // Clamp tailX to be within balloon width
-                    const clampedTailX = Math.max(x + 10, Math.min(x + width - 10, tailX));
-
-                    // Draw thought dots (3 circles getting smaller)
-                    const dotSizes = [6, 4, 3];
-                    let dotY;
-
-                    if (isBelowEntity) {
-                        // Dots pointing UP (balloon is below entity)
-                        dotY = y - 8;
-                        for (const size of dotSizes) {
-                            ctx.beginPath();
-                            ctx.arc(clampedTailX, dotY, size, 0, Math.PI * 2);
-                            ctx.fillStyle = '#ffffff';
-                            ctx.fill();
-                            ctx.strokeStyle = '#000000';
-                            ctx.lineWidth = 1.5;
-                            ctx.stroke();
-                            dotY -= size * 2 + 3;
-                        }
-                    } else {
-                        // Dots pointing DOWN (balloon is above entity)
-                        dotY = y + height + 8;
-                        for (const size of dotSizes) {
-                            ctx.beginPath();
-                            ctx.arc(clampedTailX, dotY, size, 0, Math.PI * 2);
-                            ctx.fillStyle = '#ffffff';
-                            ctx.fill();
-                            ctx.strokeStyle = '#000000';
-                            ctx.lineWidth = 1.5;
-                            ctx.stroke();
-                            dotY += size * 2 + 3;
-                        }
-                    }
-                }
-
-                // Preload sprite images
-                async preloadImages() {
-                    if (!this.projectData?.objects) return;
-
-                    const objects =
-                        typeof this.projectData.objects === 'string'
-                            ? JSON.parse(this.projectData.objects)
-                            : this.projectData.objects;
-
-                    const loadPromises = [];
-
-                    for (const obj of objects) {
-                        if (obj.sprite?.pictures) {
-                            for (const pic of obj.sprite.pictures) {
-                                if (pic.fileurl || pic.filename) {
-                                    // 원본 URL 생성
-                                    let originalUrl = pic.fileurl;
-                                    if (!originalUrl && pic.filename) {
-                                        originalUrl = `uploads/${pic.filename.substring(0, 2)}/${pic.filename.substring(2, 4)}/image/${pic.filename}.png`;
+                                const loadPromises = [];
+
+                                for (const obj of objects) {
+                                    if (obj.sprite?.pictures) {
+                                        for (const pic of obj.sprite.pictures) {
+                                            if (pic.fileurl || pic.filename) {
+                                                // 원본 URL 생성
+                                                let originalUrl = pic.fileurl;
+                                                if (!originalUrl && pic.filename) {
+                                                    originalUrl = `uploads/${pic.filename.substring(0, 2)}/${pic.filename.substring(2, 4)}/image/${pic.filename}.png`;
+                                                }
+
+                                                // 프록시 URL로 변환 (playentry.org 직접 접근 대신 우리 서버 프록시 사용)
+                                                let proxyUrl;
+                                                if (
+                                                    originalUrl.startsWith('http://') ||
+                                                    originalUrl.startsWith('https://')
+                                                ) {
+                                                    // 절대 URL인 경우 playentry.org 부분을 프록시로 교체
+                                                    proxyUrl = originalUrl
+                                                        .replace(
+                                                            'https://playentry.org/',
+                                                            '/api/playentry/image/'
+                                                        )
+                                                        .replace(
+                                                            'http://playentry.org/',
+                                                            '/api/playentry/image/'
+                                                        );
+                                                } else {
+                                                    // 상대 URL인 경우
+                                                    proxyUrl = `/api/playentry/image/${originalUrl}`;
+                                                }
+
+                                                console.log(`이미지 로드: ${pic.id} -> ${proxyUrl}`);
+
+                                                const img = new Image();
+
+                                                // 이미지 로드 Promise 생성
+                                                const loadPromise = new Promise((resolve, reject) => {
+                                                    img.onload = () => {
+                                                        console.log(`이미지 로드 완료: ${pic.id}`);
+                                                        resolve(pic.id);
+                                                    };
+                                                    img.onerror = (e) => {
+                                                        console.warn(
+                                                            `이미지 로드 실패: ${pic.id} - ${proxyUrl}`,
+                                                            e
+                                                        );
+                                                        reject(new Error(`이미지 로드 실패: ${pic.id}`));
+                                                    };
+                                                });
+
+                                                img.src = proxyUrl;
+                                                imageCache.set(pic.id, img);
+                                                loadPromises.push(loadPromise.catch(() => null)); // 실패해도 계속 진행
+                                            }
+                                        }
                                     }
+                                }
 
-                                    // 프록시 URL로 변환 (playentry.org 직접 접근 대신 우리 서버 프록시 사용)
-                                    let proxyUrl;
-                                    if (
-                                        originalUrl.startsWith('http://') ||
-                                        originalUrl.startsWith('https://')
-                                    ) {
-                                        // 절대 URL인 경우 playentry.org 부분을 프록시로 교체
-                                        proxyUrl = originalUrl
-                                            .replace(
-                                                'https://playentry.org/',
-                                                '/api/playentry/image/'
-                                            )
-                                            .replace(
-                                                'http://playentry.org/',
-                                                '/api/playentry/image/'
-                                            );
+                                // 모든 이미지 로드 대기 (최대 10초)
+                                if (loadPromises.length > 0) {
+                                    console.log(`${loadPromises.length}개 이미지 로드 대기 중...`);
+                                    await Promise.race([
+                                        Promise.all(loadPromises),
+                                        new Promise((resolve) => setTimeout(resolve, 10000)), // 10초 타임아웃
+                                    ]);
+                                    console.log('이미지 로드 완료 또는 타임아웃');
+                                }
+                            }
+
+                            drawJSEngine() {
+                                // Simple placeholder drawing
+                                this.ctx.fillStyle = '#4a90d9';
+                                this.ctx.font = '20px sans-serif';
+                                this.ctx.textAlign = 'center';
+                                this.ctx.fillText(this.projectData?.name || 'Entry Project', 240, 180);
+                                this.ctx.font = '14px sans-serif';
+                                this.ctx.fillStyle = '#666';
+                                this.ctx.fillText('WASM 엔진 로딩 중...', 240, 210);
+                            }
+
+                            setupControls() {
+                                document
+                                    .getElementById('btn-play')
+                                    .addEventListener('click', () => this.toggle());
+                                document
+                                    .getElementById('btn-restart')
+                                    .addEventListener('click', () => this.restart());
+                                document.getElementById('btn-fullscreen').addEventListener('click', () => {
+                                    if (document.fullscreenElement) {
+                                        document.exitFullscreen();
                                     } else {
-                                        // 상대 URL인 경우
-                                        proxyUrl = `/api/playentry/image/${originalUrl}`;
+                                        document.documentElement.requestFullscreen();
                                     }
+                                });
 
-                                    console.log(`이미지 로드: ${pic.id} -> ${proxyUrl}`);
+                                // Keyboard controls
+                                document.addEventListener('keydown', (e) => {
+                                    if (e.code === 'Space') {
+                                        e.preventDefault();
+                                        this.toggle();
+                                    } else if (e.code === 'KeyR') {
+                                        this.restart();
+                                    } else if (e.code === 'KeyF') {
+                                        document.documentElement.requestFullscreen();
+                                    }
+                                });
 
-                                    const img = new Image();
+                                // Mouse tracking for WASM engine
+                                this.canvas.addEventListener('mousemove', (e) => {
+                                    this.updateMousePosition(e);
+                                });
 
-                                    // 이미지 로드 Promise 생성
-                                    const loadPromise = new Promise((resolve, reject) => {
-                                        img.onload = () => {
-                                            console.log(`이미지 로드 완료: ${pic.id}`);
-                                            resolve(pic.id);
-                                        };
-                                        img.onerror = (e) => {
-                                            console.warn(
-                                                `이미지 로드 실패: ${pic.id} - ${proxyUrl}`,
-                                                e
-                                            );
-                                            reject(new Error(`이미지 로드 실패: ${pic.id}`));
-                                        };
-                                    });
+                                this.canvas.addEventListener('mousedown', (e) => {
+                                    this.mouseClicked = true;
+                                    this.updateMousePosition(e);
+                                });
 
-                                    img.src = proxyUrl;
-                                    imageCache.set(pic.id, img);
-                                    loadPromises.push(loadPromise.catch(() => null)); // 실패해도 계속 진행
+                                this.canvas.addEventListener('mouseup', (e) => {
+                                    this.mouseClicked = false;
+                                    this.updateMousePosition(e);
+                                });
+
+                                this.canvas.addEventListener('mouseleave', (e) => {
+                                    this.mouseClicked = false;
+                                });
+
+                                // Touch support for mobile
+                                this.canvas.addEventListener('touchstart', (e) => {
+                                    e.preventDefault();
+                                    this.mouseClicked = true;
+                                    if (e.touches.length > 0) {
+                                        this.updateTouchPosition(e.touches[0]);
+                                    }
+                                });
+
+                                this.canvas.addEventListener('touchmove', (e) => {
+                                    e.preventDefault();
+                                    if (e.touches.length > 0) {
+                                        this.updateTouchPosition(e.touches[0]);
+                                    }
+                                });
+
+                                this.canvas.addEventListener('touchend', (e) => {
+                                    e.preventDefault();
+                                    this.mouseClicked = false;
+                                });
+                            }
+
+                            // Convert mouse event to Entry coordinates
+                            updateMousePosition(e) {
+                                const rect = this.canvas.getBoundingClientRect();
+                                const canvasX = e.clientX - rect.left;
+                                const canvasY = e.clientY - rect.top;
+
+                                // Convert to Entry coordinate system:
+                                // Canvas (0,0) to (480,360) -> Entry (-240,180) to (240,-180)
+                                this.mouseX = (canvasX / rect.width) * 480 - 240;
+                                this.mouseY = 180 - (canvasY / rect.height) * 360;
+                            }
+
+                            // Convert touch event to Entry coordinates
+                            updateTouchPosition(touch) {
+                                const rect = this.canvas.getBoundingClientRect();
+                                const canvasX = touch.clientX - rect.left;
+                                const canvasY = touch.clientY - rect.top;
+
+                                this.mouseX = (canvasX / rect.width) * 480 - 240;
+                                this.mouseY = 180 - (canvasY / rect.height) * 360;
+                            }
+
+                            updateProgress(percent, text) {
+                                document.getElementById('loading-progress-bar').style.width = percent + '%';
+                                document.getElementById('loading-text').textContent = text;
+                            }
+
+                            hideLoading() {
+                                document.getElementById('loading').classList.add('hidden');
+                            }
+
+                            showError(message) {
+                                const errorDiv = document.getElementById('error');
+                                errorDiv.textContent = message;
+                                errorDiv.style.display = 'block';
+                                document.getElementById('loading').classList.add('hidden');
+                            }
+
+                            // 에러 객체를 문자열로 포맷팅
+                            formatError(error) {
+                                if (!error) return '알 수 없는 에러 (null)';
+                                if (typeof error === 'string') return error;
+                                if (error.message) return error.message;
+                                if (error.toString && error.toString() !== '[object Object]')
+                                    return error.toString();
+                                try {
+                                    return JSON.stringify(error);
+                                } catch (e) {
+                                    return '에러 객체를 문자열로 변환할 수 없음';
                                 }
                             }
                         }
-                    }
 
-                    // 모든 이미지 로드 대기 (최대 10초)
-                    if (loadPromises.length > 0) {
-                        console.log(`${loadPromises.length}개 이미지 로드 대기 중...`);
-                        await Promise.race([
-                            Promise.all(loadPromises),
-                            new Promise((resolve) => setTimeout(resolve, 10000)), // 10초 타임아웃
-                        ]);
-                        console.log('이미지 로드 완료 또는 타임아웃');
-                    }
-                }
-
-                drawJSEngine() {
-                    // Simple placeholder drawing
-                    this.ctx.fillStyle = '#4a90d9';
-                    this.ctx.font = '20px sans-serif';
-                    this.ctx.textAlign = 'center';
-                    this.ctx.fillText(this.projectData?.name || 'Entry Project', 240, 180);
-                    this.ctx.font = '14px sans-serif';
-                    this.ctx.fillStyle = '#666';
-                    this.ctx.fillText('WASM 엔진 로딩 중...', 240, 210);
-                }
-
-                setupControls() {
-                    document
-                        .getElementById('btn-play')
-                        .addEventListener('click', () => this.toggle());
-                    document
-                        .getElementById('btn-restart')
-                        .addEventListener('click', () => this.restart());
-                    document.getElementById('btn-fullscreen').addEventListener('click', () => {
-                        if (document.fullscreenElement) {
-                            document.exitFullscreen();
-                        } else {
-                            document.documentElement.requestFullscreen();
-                        }
-                    });
-
-                    // Keyboard controls
-                    document.addEventListener('keydown', (e) => {
-                        if (e.code === 'Space') {
-                            e.preventDefault();
-                            this.toggle();
-                        } else if (e.code === 'KeyR') {
-                            this.restart();
-                        } else if (e.code === 'KeyF') {
-                            document.documentElement.requestFullscreen();
-                        }
-                    });
-
-                    // Mouse tracking for WASM engine
-                    this.canvas.addEventListener('mousemove', (e) => {
-                        this.updateMousePosition(e);
-                    });
-
-                    this.canvas.addEventListener('mousedown', (e) => {
-                        this.mouseClicked = true;
-                        this.updateMousePosition(e);
-                    });
-
-                    this.canvas.addEventListener('mouseup', (e) => {
-                        this.mouseClicked = false;
-                        this.updateMousePosition(e);
-                    });
-
-                    this.canvas.addEventListener('mouseleave', (e) => {
-                        this.mouseClicked = false;
-                    });
-
-                    // Touch support for mobile
-                    this.canvas.addEventListener('touchstart', (e) => {
-                        e.preventDefault();
-                        this.mouseClicked = true;
-                        if (e.touches.length > 0) {
-                            this.updateTouchPosition(e.touches[0]);
-                        }
-                    });
-
-                    this.canvas.addEventListener('touchmove', (e) => {
-                        e.preventDefault();
-                        if (e.touches.length > 0) {
-                            this.updateTouchPosition(e.touches[0]);
-                        }
-                    });
-
-                    this.canvas.addEventListener('touchend', (e) => {
-                        e.preventDefault();
-                        this.mouseClicked = false;
-                    });
-                }
-
-                // Convert mouse event to Entry coordinates
-                updateMousePosition(e) {
-                    const rect = this.canvas.getBoundingClientRect();
-                    const canvasX = e.clientX - rect.left;
-                    const canvasY = e.clientY - rect.top;
-
-                    // Convert to Entry coordinate system:
-                    // Canvas (0,0) to (480,360) -> Entry (-240,180) to (240,-180)
-                    this.mouseX = (canvasX / rect.width) * 480 - 240;
-                    this.mouseY = 180 - (canvasY / rect.height) * 360;
-                }
-
-                // Convert touch event to Entry coordinates
-                updateTouchPosition(touch) {
-                    const rect = this.canvas.getBoundingClientRect();
-                    const canvasX = touch.clientX - rect.left;
-                    const canvasY = touch.clientY - rect.top;
-
-                    this.mouseX = (canvasX / rect.width) * 480 - 240;
-                    this.mouseY = 180 - (canvasY / rect.height) * 360;
-                }
-
-                updateProgress(percent, text) {
-                    document.getElementById('loading-progress-bar').style.width = percent + '%';
-                    document.getElementById('loading-text').textContent = text;
-                }
-
-                hideLoading() {
-                    document.getElementById('loading').classList.add('hidden');
-                }
-
-                showError(message) {
-                    const errorDiv = document.getElementById('error');
-                    errorDiv.textContent = message;
-                    errorDiv.style.display = 'block';
-                    document.getElementById('loading').classList.add('hidden');
-                }
-
-                // 에러 객체를 문자열로 포맷팅
-                formatError(error) {
-                    if (!error) return '알 수 없는 에러 (null)';
-                    if (typeof error === 'string') return error;
-                    if (error.message) return error.message;
-                    if (error.toString && error.toString() !== '[object Object]')
-                        return error.toString();
-                    try {
-                        return JSON.stringify(error);
-                    } catch (e) {
-                        return '에러 객체를 문자열로 변환할 수 없음';
-                    }
-                }
-            }
-
-            // Start player
-            const player = new EntryPlayer();
-            player.initialize();
+                        // Start player
+                        const player = new EntryPlayer();
+                        player.initialize();
         </script>
     </body>
 </html>
