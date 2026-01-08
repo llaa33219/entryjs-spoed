@@ -20,14 +20,8 @@ pub enum ExecuteResult {
     JumpedToBlock, // Jumped to a new block list (don't increment block_index)
 }
 
-/// Maximum call stack depth to prevent infinite recursion
-/// Set very high to allow deep recursion - user preference
-/// This is safe because we use heap-based stacks, not the Rust call stack
 const MAX_CALL_STACK_DEPTH: usize = 1_000_000;
-
-/// Maximum evaluation depth for nested expressions
-/// Prevents infinite loops in malformed block data
-const MAX_EVAL_DEPTH: usize = 10_000;
+const MAX_EVAL_ITERATIONS: usize = 100_000;
 
 /// Executor manages the execution of a thread of blocks
 #[derive(Clone, Debug)]
@@ -1693,39 +1687,15 @@ impl Executor {
         Value::Null
     }
 
-    /// Iterative value evaluation using a heap-based stack
-    /// This avoids Rust call stack usage for deeply nested expressions
     fn evaluate_value(&self, json: &serde_json::Value, variables: &HashMap<String, Value>) -> Value {
-        // For simple values, return immediately without using the eval stack
-        match json {
-            serde_json::Value::Number(n) => return Value::Number(n.as_f64().unwrap_or(0.0)),
-            serde_json::Value::String(s) => return Value::String(s.clone()),
-            serde_json::Value::Bool(b) => return Value::Bool(*b),
-            serde_json::Value::Null => return Value::Null,
-            serde_json::Value::Array(arr) => {
-                // For arrays, evaluate each element (arrays are typically not deeply nested)
-                let list: Vec<Value> = arr.iter().map(|v| self.evaluate_value_simple(v, variables)).collect();
-                return Value::List(list);
-            }
-            serde_json::Value::Object(obj) => {
-                // For complex objects (blocks), use iterative evaluation
-                if let Some(block_type) = obj.get("type").and_then(|v| v.as_str()) {
-                    return self.evaluate_block_iterative(block_type, obj, variables);
-                }
-                return Value::Null;
-            }
-        }
-    }
-    
-    /// Simple value evaluation for leaf nodes (no recursion needed)
-    fn evaluate_value_simple(&self, json: &serde_json::Value, variables: &HashMap<String, Value>) -> Value {
         match json {
             serde_json::Value::Number(n) => Value::Number(n.as_f64().unwrap_or(0.0)),
             serde_json::Value::String(s) => Value::String(s.clone()),
             serde_json::Value::Bool(b) => Value::Bool(*b),
             serde_json::Value::Null => Value::Null,
             serde_json::Value::Array(arr) => {
-                Value::List(arr.iter().map(|v| self.evaluate_value_simple(v, variables)).collect())
+                let list: Vec<Value> = arr.iter().map(|v| self.evaluate_leaf_value(v, variables)).collect();
+                Value::List(list)
             }
             serde_json::Value::Object(obj) => {
                 if let Some(block_type) = obj.get("type").and_then(|v| v.as_str()) {
@@ -1736,311 +1706,340 @@ impl Executor {
         }
     }
     
-    /// Iterative block evaluation that avoids deep Rust call stacks
-    /// Uses a simple depth counter to prevent infinite loops
-    fn evaluate_block_iterative(&self, block_type: &str, obj: &serde_json::Map<String, serde_json::Value>, variables: &HashMap<String, Value>) -> Value {
-        // Use a simple iterative approach with depth limiting
-        self.evaluate_block_with_depth(block_type, obj, variables, 0)
-    }
-    
-    /// Evaluate block with depth tracking to prevent stack overflow
-    fn evaluate_block_with_depth(&self, block_type: &str, obj: &serde_json::Map<String, serde_json::Value>, variables: &HashMap<String, Value>, depth: usize) -> Value {
-        // Prevent infinite recursion
-        if depth >= MAX_EVAL_DEPTH {
-            return Value::Null;
-        }
-        
-        // Helper closure to evaluate nested values with increased depth
-        let eval_param = |idx: usize| -> Value {
-            if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
-                if let Some(param) = params.get(idx) {
-                    return self.evaluate_with_depth(param, variables, depth + 1);
-                }
+    /// Leaf value evaluation - NO recursion, only handles primitive types
+    fn evaluate_leaf_value(&self, json: &serde_json::Value, variables: &HashMap<String, Value>) -> Value {
+        match json {
+            serde_json::Value::Number(n) => Value::Number(n.as_f64().unwrap_or(0.0)),
+            serde_json::Value::String(s) => Value::String(s.clone()),
+            serde_json::Value::Bool(b) => Value::Bool(*b),
+            serde_json::Value::Null => Value::Null,
+            serde_json::Value::Array(arr) => {
+                let list: Vec<Value> = arr.iter().map(|v| {
+                    match v {
+                        serde_json::Value::Number(n) => Value::Number(n.as_f64().unwrap_or(0.0)),
+                        serde_json::Value::String(s) => Value::String(s.clone()),
+                        serde_json::Value::Bool(b) => Value::Bool(*b),
+                        _ => Value::Null,
+                    }
+                }).collect();
+                Value::List(list)
             }
-            Value::Null
-        };
-        
-        let eval_param_num = |idx: usize| -> f64 {
-            eval_param(idx).as_number()
-        };
-        
-        let eval_param_str = |idx: usize| -> String {
-            if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
-                if let Some(param) = params.get(idx) {
-                    if let Some(s) = param.as_str() {
-                        return s.to_string();
+            serde_json::Value::Object(obj) => {
+                if let Some(block_type) = obj.get("type").and_then(|v| v.as_str()) {
+                    if block_type == "get_variable" {
+                        if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
+                            if let Some(var_id) = params.first().and_then(|v| v.as_str()) {
+                                return variables.get(var_id).cloned().unwrap_or(Value::Number(0.0));
+                            }
+                        }
                     }
                 }
+                Value::Null
             }
-            String::new()
+        }
+    }
+    
+    fn evaluate_block_iterative(&self, _block_type: &str, obj: &serde_json::Map<String, serde_json::Value>, variables: &HashMap<String, Value>) -> Value {
+        #[derive(Clone)]
+        enum EvalTask {
+            Evaluate(serde_json::Value),
+            ApplyOp { op: String, arg_count: usize },
+        }
+        
+        let mut task_stack: Vec<EvalTask> = Vec::with_capacity(64);
+        let mut value_stack: Vec<Value> = Vec::with_capacity(64);
+        
+        task_stack.push(EvalTask::Evaluate(serde_json::Value::Object(obj.clone())));
+        
+        let mut iterations = 0usize;
+        
+        while let Some(task) = task_stack.pop() {
+            iterations += 1;
+            if iterations > MAX_EVAL_ITERATIONS {
+                return Value::Null;
+            }
+            
+            match task {
+                EvalTask::Evaluate(json) => {
+                    match json {
+                        serde_json::Value::Number(n) => {
+                            value_stack.push(Value::Number(n.as_f64().unwrap_or(0.0)));
+                        }
+                        serde_json::Value::String(s) => {
+                            value_stack.push(Value::String(s));
+                        }
+                        serde_json::Value::Bool(b) => {
+                            value_stack.push(Value::Bool(b));
+                        }
+                        serde_json::Value::Null => {
+                            value_stack.push(Value::Null);
+                        }
+                        serde_json::Value::Array(arr) => {
+                            let list: Vec<Value> = arr.iter().map(|v| {
+                                match v {
+                                    serde_json::Value::Number(n) => Value::Number(n.as_f64().unwrap_or(0.0)),
+                                    serde_json::Value::String(s) => Value::String(s.clone()),
+                                    serde_json::Value::Bool(b) => Value::Bool(*b),
+                                    _ => Value::Null,
+                                }
+                            }).collect();
+                            value_stack.push(Value::List(list));
+                        }
+                        serde_json::Value::Object(obj_map) => {
+                            if let Some(bt) = obj_map.get("type").and_then(|v| v.as_str()) {
+                                let params = obj_map.get("params").and_then(|v| v.as_array());
+                                
+                                match bt {
+                                    "number" | "angle" => {
+                                        if let Some(p) = params.and_then(|p| p.first()) {
+                                            let val = p.as_str().and_then(|s| s.parse().ok())
+                                                .or_else(|| p.as_f64())
+                                                .unwrap_or(0.0);
+                                            value_stack.push(Value::Number(val));
+                                        } else {
+                                            value_stack.push(Value::Number(0.0));
+                                        }
+                                    }
+                                    "text" => {
+                                        let val = params.and_then(|p| p.first())
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("");
+                                        value_stack.push(Value::String(val.to_string()));
+                                    }
+                                    "color" | "Color" => {
+                                        let val = params.and_then(|p| p.first())
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("");
+                                        value_stack.push(Value::String(val.to_string()));
+                                    }
+                                    "True" => value_stack.push(Value::Bool(true)),
+                                    "False" => value_stack.push(Value::Bool(false)),
+                                    "get_variable" => {
+                                        if let Some(var_id) = params.and_then(|p| p.first()).and_then(|v| v.as_str()) {
+                                            let val = variables.get(var_id).cloned().unwrap_or(Value::Number(0.0));
+                                            value_stack.push(val);
+                                        } else {
+                                            value_stack.push(Value::Number(0.0));
+                                        }
+                                    }
+                                    "calc_basic" => {
+                                        if let Some(p) = params {
+                                            let op = p.get(1).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                            task_stack.push(EvalTask::ApplyOp { op: format!("calc_basic:{}", op), arg_count: 2 });
+                                            if let Some(right) = p.get(2) { task_stack.push(EvalTask::Evaluate(right.clone())); }
+                                            else { value_stack.push(Value::Number(0.0)); }
+                                            if let Some(left) = p.get(0) { task_stack.push(EvalTask::Evaluate(left.clone())); }
+                                            else { value_stack.push(Value::Number(0.0)); }
+                                        } else {
+                                            value_stack.push(Value::Number(0.0));
+                                        }
+                                    }
+                                    "calc_rand" => {
+                                        if let Some(p) = params {
+                                            task_stack.push(EvalTask::ApplyOp { op: "calc_rand".to_string(), arg_count: 2 });
+                                            if let Some(max) = p.get(1) { task_stack.push(EvalTask::Evaluate(max.clone())); }
+                                            else { value_stack.push(Value::Number(0.0)); }
+                                            if let Some(min) = p.get(0) { task_stack.push(EvalTask::Evaluate(min.clone())); }
+                                            else { value_stack.push(Value::Number(0.0)); }
+                                        } else {
+                                            value_stack.push(Value::Number(0.0));
+                                        }
+                                    }
+                                    "boolean_basic_operator" => {
+                                        if let Some(p) = params {
+                                            let op = p.get(1).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                            task_stack.push(EvalTask::ApplyOp { op: format!("boolean_basic:{}", op), arg_count: 2 });
+                                            if let Some(right) = p.get(2) { task_stack.push(EvalTask::Evaluate(right.clone())); }
+                                            else { value_stack.push(Value::Number(0.0)); }
+                                            if let Some(left) = p.get(0) { task_stack.push(EvalTask::Evaluate(left.clone())); }
+                                            else { value_stack.push(Value::Number(0.0)); }
+                                        } else {
+                                            value_stack.push(Value::Bool(false));
+                                        }
+                                    }
+                                    "boolean_and_or" => {
+                                        if let Some(p) = params {
+                                            let op = p.get(1).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                            task_stack.push(EvalTask::ApplyOp { op: format!("boolean_and_or:{}", op), arg_count: 2 });
+                                            if let Some(right) = p.get(2) { task_stack.push(EvalTask::Evaluate(right.clone())); }
+                                            else { value_stack.push(Value::Bool(false)); }
+                                            if let Some(left) = p.get(0) { task_stack.push(EvalTask::Evaluate(left.clone())); }
+                                            else { value_stack.push(Value::Bool(false)); }
+                                        } else {
+                                            value_stack.push(Value::Bool(false));
+                                        }
+                                    }
+                                    "boolean_not" => {
+                                        if let Some(p) = params {
+                                            task_stack.push(EvalTask::ApplyOp { op: "boolean_not".to_string(), arg_count: 1 });
+                                            if let Some(val) = p.get(0) { task_stack.push(EvalTask::Evaluate(val.clone())); }
+                                            else { value_stack.push(Value::Bool(false)); }
+                                        } else {
+                                            value_stack.push(Value::Bool(true));
+                                        }
+                                    }
+                                    "calc_operation" => {
+                                        if let Some(p) = params {
+                                            let op = p.get(3).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                            task_stack.push(EvalTask::ApplyOp { op: format!("calc_op:{}", op), arg_count: 1 });
+                                            if let Some(val) = p.get(1) { task_stack.push(EvalTask::Evaluate(val.clone())); }
+                                            else { value_stack.push(Value::Number(0.0)); }
+                                        } else {
+                                            value_stack.push(Value::Number(0.0));
+                                        }
+                                    }
+                                    "combine_something" => {
+                                        if let Some(p) = params {
+                                            task_stack.push(EvalTask::ApplyOp { op: "combine".to_string(), arg_count: 2 });
+                                            if let Some(v2) = p.get(3) { task_stack.push(EvalTask::Evaluate(v2.clone())); }
+                                            else { value_stack.push(Value::String(String::new())); }
+                                            if let Some(v1) = p.get(1) { task_stack.push(EvalTask::Evaluate(v1.clone())); }
+                                            else { value_stack.push(Value::String(String::new())); }
+                                        } else {
+                                            value_stack.push(Value::String(String::new()));
+                                        }
+                                    }
+                                    "length_of_string" => {
+                                        if let Some(p) = params {
+                                            task_stack.push(EvalTask::ApplyOp { op: "strlen".to_string(), arg_count: 1 });
+                                            if let Some(val) = p.get(1) { task_stack.push(EvalTask::Evaluate(val.clone())); }
+                                            else { value_stack.push(Value::String(String::new())); }
+                                        } else {
+                                            value_stack.push(Value::Number(0.0));
+                                        }
+                                    }
+                                    "get_x" => value_stack.push(Value::Number(self.cached_entity_x)),
+                                    "get_y" => value_stack.push(Value::Number(self.cached_entity_y)),
+                                    "get_rotation" => value_stack.push(Value::Number(self.cached_entity_rotation)),
+                                    "get_direction" => value_stack.push(Value::Number(self.cached_entity_direction)),
+                                    "get_scale" => value_stack.push(Value::Number(self.cached_entity_scale)),
+                                    "coordinate_mouse" | "mouse_x" => value_stack.push(Value::Number(self.cached_mouse_x)),
+                                    "mouse_y" => value_stack.push(Value::Number(self.cached_mouse_y)),
+                                    "is_clicked" => value_stack.push(Value::Bool(self.mouse_clicked)),
+                                    _ => {
+                                        let result = self.evaluate_block_simple(bt, &obj_map, variables);
+                                        value_stack.push(result);
+                                    }
+                                }
+                            } else {
+                                value_stack.push(Value::Null);
+                            }
+                        }
+                    }
+                }
+                EvalTask::ApplyOp { op, arg_count } => {
+                    if value_stack.len() < arg_count {
+                        value_stack.push(Value::Null);
+                        continue;
+                    }
+                    
+                    let result = if op.starts_with("calc_basic:") {
+                        let right = value_stack.pop().unwrap_or(Value::Number(0.0)).as_number();
+                        let left = value_stack.pop().unwrap_or(Value::Number(0.0)).as_number();
+                        let op_type = &op[11..];
+                        Value::Number(match op_type {
+                            "PLUS" | "+" => left + right,
+                            "MINUS" | "-" => left - right,
+                            "MULTI" | "*" => left * right,
+                            "DIVIDE" | "/" => if right != 0.0 { left / right } else { 0.0 },
+                            _ => 0.0,
+                        })
+                    } else if op == "calc_rand" {
+                        let max = value_stack.pop().unwrap_or(Value::Number(0.0)).as_number();
+                        let min = value_stack.pop().unwrap_or(Value::Number(0.0)).as_number();
+                        let random = js_sys::Math::random();
+                        Value::Number(min + random * (max - min))
+                    } else if op.starts_with("boolean_basic:") {
+                        let right = value_stack.pop().unwrap_or(Value::Number(0.0)).as_number();
+                        let left = value_stack.pop().unwrap_or(Value::Number(0.0)).as_number();
+                        let op_type = &op[14..];
+                        Value::Bool(match op_type {
+                            "EQUAL" | "==" => (left - right).abs() < f64::EPSILON,
+                            "NOT_EQUAL" | "!=" => (left - right).abs() >= f64::EPSILON,
+                            "GREATER" | ">" => left > right,
+                            "GREATER_OR_EQUAL" | ">=" => left >= right,
+                            "LESS" | "<" => left < right,
+                            "LESS_OR_EQUAL" | "<=" => left <= right,
+                            _ => false,
+                        })
+                    } else if op.starts_with("boolean_and_or:") {
+                        let right = value_stack.pop().unwrap_or(Value::Bool(false)).as_bool();
+                        let left = value_stack.pop().unwrap_or(Value::Bool(false)).as_bool();
+                        let op_type = &op[15..];
+                        Value::Bool(match op_type {
+                            "AND" => left && right,
+                            "OR" => left || right,
+                            _ => false,
+                        })
+                    } else if op == "boolean_not" {
+                        let val = value_stack.pop().unwrap_or(Value::Bool(false)).as_bool();
+                        Value::Bool(!val)
+                    } else if op.starts_with("calc_op:") {
+                        let val = value_stack.pop().unwrap_or(Value::Number(0.0)).as_number();
+                        let op_type = &op[8..];
+                        Value::Number(match op_type {
+                            "square" => val * val,
+                            "root" | "sqrt" => val.sqrt(),
+                            "sin" => val.to_radians().sin(),
+                            "cos" => val.to_radians().cos(),
+                            "tan" => val.to_radians().tan(),
+                            "asin" | "asin_radian" => val.asin().to_degrees(),
+                            "acos" | "acos_radian" => val.acos().to_degrees(),
+                            "atan" | "atan_radian" => val.atan().to_degrees(),
+                            "log" => val.log10(),
+                            "ln" => val.ln(),
+                            "floor" => val.floor(),
+                            "ceil" => val.ceil(),
+                            "round" => val.round(),
+                            "abs" => val.abs(),
+                            _ => val,
+                        })
+                    } else if op == "combine" {
+                        let v2 = value_stack.pop().unwrap_or(Value::String(String::new()));
+                        let v1 = value_stack.pop().unwrap_or(Value::String(String::new()));
+                        Value::String(format!("{}{}", Self::value_as_string(&v1), Self::value_as_string(&v2)))
+                    } else if op == "strlen" {
+                        let val = value_stack.pop().unwrap_or(Value::String(String::new()));
+                        Value::Number(Self::value_as_string(&val).chars().count() as f64)
+                    } else {
+                        Value::Null
+                    };
+                    
+                    value_stack.push(result);
+                }
+            }
+        }
+        
+        value_stack.pop().unwrap_or(Value::Null)
+    }
+    
+    fn evaluate_block_simple(&self, block_type: &str, obj: &serde_json::Map<String, serde_json::Value>, variables: &HashMap<String, Value>) -> Value {
+        let params = obj.get("params").and_then(|v| v.as_array());
+        
+        let get_param_str = |idx: usize| -> String {
+            params.and_then(|p| p.get(idx)).and_then(|v| v.as_str()).unwrap_or("").to_string()
+        };
+        
+        let get_param_num = |idx: usize| -> f64 {
+            params.and_then(|p| p.get(idx)).and_then(|v| {
+                v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+            }).unwrap_or(0.0)
         };
         
         match block_type {
-            "number" | "angle" => {
-                if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
-                    if let Some(val) = params.first() {
-                        if let Some(s) = val.as_str() {
-                            return Value::Number(s.parse().unwrap_or(0.0));
-                        }
-                        if let Some(n) = val.as_f64() {
-                            return Value::Number(n);
-                        }
-                    }
-                }
-                Value::Number(0.0)
-            }
-            
-            "text" => {
-                if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
-                    if let Some(val) = params.first() {
-                        if let Some(s) = val.as_str() {
-                            return Value::String(s.to_string());
-                        }
-                    }
-                }
-                Value::String(String::new())
-            }
-            
-            "color" | "Color" => {
-                if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
-                    if let Some(val) = params.first() {
-                        if let Some(s) = val.as_str() {
-                            return Value::String(s.to_string());
-                        }
-                    }
-                }
-                Value::String(String::new())
-            }
-            
-            "True" => Value::Bool(true),
-            "False" => Value::Bool(false),
-            
-            "get_variable" => {
-                if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
-                    if let Some(var_id) = params.first().and_then(|v| v.as_str()) {
-                        if let Some(val) = variables.get(var_id) {
-                            return val.clone();
-                        }
-                    }
-                }
-                Value::Number(0.0)
-            }
-            
-            "calc_basic" => {
-                let left = eval_param_num(0);
-                let op = eval_param_str(1);
-                let right = eval_param_num(2);
-                
-                let result = match op.as_str() {
-                    "PLUS" | "+" => left + right,
-                    "MINUS" | "-" => left - right,
-                    "MULTI" | "*" => left * right,
-                    "DIVIDE" | "/" => if right != 0.0 { left / right } else { 0.0 },
-                    _ => 0.0,
-                };
-                Value::Number(result)
-            }
-            
-            "calc_rand" => {
-                let min = eval_param_num(0);
-                let max = eval_param_num(1);
-                let random = js_sys::Math::random();
-                Value::Number(min + random * (max - min))
-            }
-            
-            "boolean_basic_operator" => {
-                let left = eval_param_num(0);
-                let op = eval_param_str(1);
-                let right = eval_param_num(2);
-                
-                let result = match op.as_str() {
-                    "EQUAL" | "==" => (left - right).abs() < f64::EPSILON,
-                    "NOT_EQUAL" | "!=" => (left - right).abs() >= f64::EPSILON,
-                    "GREATER" | ">" => left > right,
-                    "GREATER_OR_EQUAL" | ">=" => left >= right,
-                    "LESS" | "<" => left < right,
-                    "LESS_OR_EQUAL" | "<=" => left <= right,
-                    _ => false,
-                };
-                Value::Bool(result)
-            }
-            
-            "boolean_and_or" => {
-                let left = eval_param(0).as_bool();
-                let op = eval_param_str(1);
-                let right = eval_param(2).as_bool();
-                
-                let result = match op.as_str() {
-                    "AND" => left && right,
-                    "OR" => left || right,
-                    _ => false,
-                };
-                Value::Bool(result)
-            }
-            
-            "boolean_not" => {
-                let val = eval_param(0).as_bool();
-                Value::Bool(!val)
-            }
-            
-            // Entity property blocks
-            "get_x" => Value::Number(self.cached_entity_x),
-            "get_y" => Value::Number(self.cached_entity_y),
-            "get_rotation" => Value::Number(self.cached_entity_rotation),
-            "get_direction" => Value::Number(self.cached_entity_direction),
-            "get_scale" => Value::Number(self.cached_entity_scale),
-            
-            "coordinate_mouse" => Value::Number(0.0),
-            
             "coordinate_object" => {
-                if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
-                    let coord = params.get(3).and_then(|v| v.as_str()).unwrap_or("x");
-                    match coord {
-                        "x" => return Value::Number(self.cached_entity_x),
-                        "y" => return Value::Number(self.cached_entity_y),
-                        "rotation" => return Value::Number(self.cached_entity_rotation),
-                        "direction" => return Value::Number(self.cached_entity_direction),
-                        "size" => return Value::Number(self.cached_entity_scale),
-                        _ => return Value::Number(0.0),
-                    }
-                }
-                Value::Number(0.0)
-            }
-            
-            "calc_operation" => {
-                let value = eval_param_num(1);
-                let op = eval_param_str(3);
-                
-                let result = match op.as_str() {
-                    "square" => value * value,
-                    "root" | "sqrt" => value.sqrt(),
-                    "sin" => (value.to_radians()).sin(),
-                    "cos" => (value.to_radians()).cos(),
-                    "tan" => (value.to_radians()).tan(),
-                    "asin" | "asin_radian" => value.asin().to_degrees(),
-                    "acos" | "acos_radian" => value.acos().to_degrees(),
-                    "atan" | "atan_radian" => value.atan().to_degrees(),
-                    "log" => value.log10(),
-                    "ln" => value.ln(),
-                    "floor" => value.floor(),
-                    "ceil" => value.ceil(),
-                    "round" => value.round(),
-                    "abs" => value.abs(),
-                    "factorial" => {
-                        let n = value as u64;
-                        let mut result = 1u64;
-                        for i in 2..=n.min(20) { // Cap at 20 to prevent overflow
-                            result = result.saturating_mul(i);
-                        }
-                        result as f64
-                    }
-                    "unnatural" => value - value.floor(),
-                    _ => value.round(),
-                };
-                Value::Number(result)
-            }
-            
-            "length_of_string" => {
-                let val = eval_param(1);
-                let s = Self::value_as_string(&val);
-                Value::Number(s.len() as f64)
-            }
-            
-            "char_at" => {
-                let val = eval_param(1);
-                let s = Self::value_as_string(&val);
-                let idx_f64 = eval_param_num(3);
-                if idx_f64.is_finite() && idx_f64 >= 1.0 {
-                    let idx = idx_f64 as usize;
-                    if idx <= s.chars().count() {
-                        Value::String(s.chars().nth(idx - 1).map(|c| c.to_string()).unwrap_or_default())
-                    } else {
-                        Value::String(String::new())
-                    }
-                } else {
-                    Value::String(String::new())
-                }
-            }
-            
-            "combine_something" => {
-                let val1 = eval_param(1);
-                let val2 = eval_param(3);
-                let s1 = Self::value_as_string(&val1);
-                let s2 = Self::value_as_string(&val2);
-                Value::String(format!("{}{}", s1, s2))
-            }
-            
-            "substring" => {
-                let val = eval_param(1);
-                let s = Self::value_as_string(&val);
-                let start_f64 = eval_param_num(3);
-                let end_f64 = eval_param_num(5);
-                
-                if start_f64.is_finite() && end_f64.is_finite() && start_f64 >= 1.0 && end_f64 >= 1.0 {
-                    let start = start_f64 as usize;
-                    let end = end_f64 as usize;
-                    let min_idx = start.min(end).saturating_sub(1);
-                    let max_idx = start.max(end);
-                    let chars: Vec<char> = s.chars().collect();
-                    if min_idx < chars.len() && max_idx <= chars.len() {
-                        return Value::String(chars.get(min_idx..max_idx).map(|slice| slice.iter().collect()).unwrap_or_default());
-                    }
-                }
-                Value::String(String::new())
-            }
-            
-            "index_of_string" => {
-                let val = eval_param(1);
-                let s = Self::value_as_string(&val);
-                let target_val = eval_param(3);
-                let target = Self::value_as_string(&target_val);
-                
-                if let Some(idx) = s.find(&target) {
-                    Value::Number((idx + 1) as f64)
-                } else {
-                    Value::Number(0.0)
-                }
-            }
-            
-            "replace_string" => {
-                let val = eval_param(1);
-                let s = Self::value_as_string(&val);
-                let old_val = eval_param(3);
-                let old_word = Self::value_as_string(&old_val);
-                let new_val = eval_param(5);
-                let new_word = Self::value_as_string(&new_val);
-                Value::String(s.replace(&old_word, &new_word))
-            }
-            
-            "change_string_case" => {
-                let val = eval_param(1);
-                let s = Self::value_as_string(&val);
-                let case_type = eval_param_str(3);
-                Value::String(match case_type.as_str() {
-                    "toUpperCase" => s.to_uppercase(),
-                    "toLowerCase" => s.to_lowercase(),
-                    _ => s,
+                let coord = params.and_then(|p| p.get(3)).and_then(|v| v.as_str()).unwrap_or("x");
+                Value::Number(match coord {
+                    "x" => self.cached_entity_x,
+                    "y" => self.cached_entity_y,
+                    "rotation" => self.cached_entity_rotation,
+                    "direction" => self.cached_entity_direction,
+                    "size" => self.cached_entity_scale,
+                    _ => 0.0,
                 })
             }
-            
-            "quotient_and_mod" => {
-                let left = eval_param_num(1);
-                let right = eval_param_num(3);
-                let op = eval_param_str(5);
-                
-                if right != 0.0 {
-                    Value::Number(match op.as_str() {
-                        "QUOTIENT" => (left / right).floor(),
-                        "MOD" => left - right * (left / right).floor(),
-                        _ => 0.0,
-                    })
-                } else {
-                    Value::Number(0.0)
-                }
-            }
-            
             "get_date" => {
-                let date_type = eval_param_str(1);
+                let date_type = get_param_str(1);
                 let date = js_sys::Date::new_0();
                 Value::Number(match date_type.as_str() {
                     "YEAR" => date.get_full_year() as f64,
@@ -2053,251 +2052,91 @@ impl Executor {
                     _ => 0.0,
                 })
             }
-            
-            "distance_something" => {
-                let target = eval_param_str(1);
-                let (target_x, target_y) = if target == "mouse" {
-                    (self.cached_mouse_x, self.cached_mouse_y)
-                } else {
-                    (self.cached_entity_x, self.cached_entity_y)
-                };
-                let dx = self.cached_entity_x - target_x;
-                let dy = self.cached_entity_y - target_y;
-                Value::Number((dx * dx + dy * dy).sqrt())
-            }
-            
-            "get_project_timer_value" => Value::Number(0.0),
-            "get_sound_volume" => Value::Number(100.0),
-            "get_sound_speed" => Value::Number(1.0),
-            "get_sound_duration" => Value::Number(0.0),
-            "get_canvas_input_value" => Value::String(String::new()),
-            
-            "value_of_index_from_list" | "value_of_list_index" => {
-                let list_id = eval_param_str(1);
-                let index_f64 = eval_param_num(3);
-                if index_f64.is_finite() && index_f64 >= 1.0 {
-                    let index = index_f64 as usize;
-                    if let Some(list_var) = variables.get(&list_id) {
-                        if let Value::List(list) = list_var {
-                            if let Some(item) = list.get(index - 1) {
-                                return item.clone();
-                            }
-                        }
-                    }
-                }
-                Value::Null
-            }
-            
-            "length_of_list" => {
-                let list_id = eval_param_str(1);
-                if let Some(list_var) = variables.get(&list_id) {
-                    if let Value::List(list) = list_var {
-                        return Value::Number(list.len() as f64);
-                    }
-                }
-                Value::Number(0.0)
-            }
-            
-            "is_included_in_list" => {
-                let list_id = eval_param_str(1);
-                let data = eval_param(3);
-                let data_str = Self::value_as_string(&data);
-                if let Some(list_var) = variables.get(&list_id) {
-                    if let Value::List(list) = list_var {
-                        for item in list {
-                            if Self::value_as_string(item) == data_str {
-                                return Value::Bool(true);
-                            }
-                        }
-                    }
-                }
-                Value::Bool(false)
-            }
-            
-            "index_of_list" => {
-                let list_id = eval_param_str(1);
-                let data = eval_param(3);
-                let data_str = Self::value_as_string(&data);
-                if let Some(list_var) = variables.get(&list_id) {
-                    if let Value::List(list) = list_var {
-                        for (idx, item) in list.iter().enumerate() {
-                            if Self::value_as_string(item) == data_str {
-                                return Value::Number((idx + 1) as f64);
-                            }
-                        }
-                    }
-                }
-                Value::Number(0.0)
-            }
-            
-            "reverse_of_string" => {
-                let val = eval_param(1);
-                let s = Self::value_as_string(&val);
-                Value::String(s.chars().rev().collect())
-            }
-            
-            "count_match_string" => {
-                let val = eval_param(0);
-                let s = Self::value_as_string(&val);
-                let target_val = eval_param(2);
-                let target = Self::value_as_string(&target_val);
-                if target.is_empty() {
-                    Value::Number(0.0)
-                } else {
-                    Value::Number(s.matches(&target).count() as f64)
-                }
-            }
-            
-            "get_user_name" | "get_nickname" => Value::String(String::new()),
-            "get_block_count" => Value::Number(0.0),
-            
-            "change_rgb_to_hex" => {
-                let r = eval_param_num(0) as u8;
-                let g = eval_param_num(1) as u8;
-                let b = eval_param_num(2) as u8;
-                Value::String(format!("#{:02x}{:02x}{:02x}", r, g, b))
-            }
-            
-            "change_hex_to_rgb" => {
-                let hex_val = eval_param(0);
-                let hex = Self::value_as_string(&hex_val);
-                let color_type = eval_param_str(1);
-                let hex = hex.trim_start_matches('#');
-                // Use safe string access with get() to prevent panic on short strings
-                if hex.len() >= 6 {
-                    let r = hex.get(0..2)
-                        .and_then(|s| u8::from_str_radix(s, 16).ok())
-                        .unwrap_or(0) as f64;
-                    let g = hex.get(2..4)
-                        .and_then(|s| u8::from_str_radix(s, 16).ok())
-                        .unwrap_or(0) as f64;
-                    let b = hex.get(4..6)
-                        .and_then(|s| u8::from_str_radix(s, 16).ok())
-                        .unwrap_or(0) as f64;
-                    Value::Number(match color_type.as_str() {
-                        "r" => r,
-                        "g" => g,
-                        "b" => b,
-                        _ => r,
+            "quotient_and_mod" => {
+                let left = get_param_num(1);
+                let right = get_param_num(3);
+                let op = get_param_str(5);
+                if right != 0.0 {
+                    Value::Number(match op.as_str() {
+                        "QUOTIENT" => (left / right).floor(),
+                        "MOD" => left - right * (left / right).floor(),
+                        _ => 0.0,
                     })
                 } else {
                     Value::Number(0.0)
                 }
             }
-            
-            "get_boolean_value" => {
-                let val = eval_param(0).as_bool();
-                Value::String(if val { "TRUE".to_string() } else { "FALSE".to_string() })
+            "value_of_index_from_list" | "value_of_list_index" => {
+                let list_id = get_param_str(1);
+                let index = get_param_num(3) as usize;
+                if index >= 1 {
+                    if let Some(Value::List(list)) = variables.get(&list_id) {
+                        return list.get(index - 1).cloned().unwrap_or(Value::Null);
+                    }
+                }
+                Value::Null
             }
-            
-            "is_type" => {
-                let val = eval_param(0);
-                let val_str = Self::value_as_string(&val);
-                let type_check = eval_param_str(2);
-                let result = match type_check.as_str() {
-                    "number" => val_str.parse::<f64>().is_ok(),
-                    "en" => val_str.chars().all(|c| c.is_ascii_alphabetic()),
-                    "ko" => val_str.chars().all(|c| {
-                        let code = c as u32;
-                        (0x1100..=0x11FF).contains(&code) ||
-                        (0x3130..=0x318F).contains(&code) ||
-                        (0xAC00..=0xD7AF).contains(&code)
-                    }),
-                    _ => false,
-                };
-                Value::Bool(result)
+            "length_of_list" => {
+                let list_id = get_param_str(1);
+                if let Some(Value::List(list)) = variables.get(&list_id) {
+                    Value::Number(list.len() as f64)
+                } else {
+                    Value::Number(0.0)
+                }
             }
-            
-            "is_boost_mode" | "is_current_device_type" | "is_touch_supported" => Value::Bool(false),
-            
             "reach_something" => {
-                let target = eval_param_str(1);
+                let target = get_param_str(1);
                 let half_width = 25.0;
                 let half_height = 25.0;
                 let x = self.cached_entity_x;
                 let y = self.cached_entity_y;
                 
-                let touches_left = x - half_width <= -240.0;
-                let touches_right = x + half_width >= 240.0;
-                let touches_up = y + half_height >= 180.0;
-                let touches_down = y - half_height <= -180.0;
-                
                 let result = match target.as_str() {
-                    "wall" => touches_left || touches_right || touches_up || touches_down,
-                    "wall_up" => touches_up,
-                    "wall_down" => touches_down,
-                    "wall_left" => touches_left,
-                    "wall_right" => touches_right,
+                    "wall" => x - half_width <= -240.0 || x + half_width >= 240.0 || y + half_height >= 180.0 || y - half_height <= -180.0,
+                    "wall_up" => y + half_height >= 180.0,
+                    "wall_down" => y - half_height <= -180.0,
+                    "wall_left" => x - half_width <= -240.0,
+                    "wall_right" => x + half_width >= 240.0,
                     "mouse" => {
                         let mx = self.cached_mouse_x;
                         let my = self.cached_mouse_y;
-                        mx >= x - half_width && mx <= x + half_width &&
-                        my >= y - half_height && my <= y + half_height
+                        mx >= x - half_width && mx <= x + half_width && my >= y - half_height && my <= y + half_height
                     }
                     _ => false,
                 };
                 Value::Bool(result)
             }
-            
-            "is_clicked" => Value::Bool(self.mouse_clicked),
-            
-            "is_object_clicked" => {
-                if self.mouse_clicked {
-                    let half_width = 25.0;
-                    let half_height = 25.0;
-                    let x = self.cached_entity_x;
-                    let y = self.cached_entity_y;
-                    let mx = self.cached_mouse_x;
-                    let my = self.cached_mouse_y;
-                    Value::Bool(mx >= x - half_width && mx <= x + half_width &&
-                                my >= y - half_height && my <= y + half_height)
-                } else {
-                    Value::Bool(false)
-                }
-            }
-            
             "is_press_some_key" => {
-                if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
-                    let keycode = params.get(0)
-                        .and_then(|v| v.as_str())
-                        .and_then(|s| s.parse::<u32>().ok())
-                        .or_else(|| params.get(0).and_then(|v| v.as_f64()).map(|n| n as u32))
-                        .unwrap_or(0);
-                    Value::Bool(self.pressed_keys.contains(&keycode))
-                } else {
-                    Value::Bool(false)
-                }
+                let keycode = params.and_then(|p| p.get(0))
+                    .and_then(|v| v.as_str().and_then(|s| s.parse::<u32>().ok()).or_else(|| v.as_f64().map(|n| n as u32)))
+                    .unwrap_or(0);
+                Value::Bool(self.pressed_keys.contains(&keycode))
             }
-            
-            _ => Value::Null
+            "get_project_timer_value" => Value::Number(0.0),
+            "get_sound_volume" => Value::Number(100.0),
+            _ => Value::Null,
         }
     }
     
-    /// Evaluate a JSON value with depth tracking
-    fn evaluate_with_depth(&self, json: &serde_json::Value, variables: &HashMap<String, Value>, depth: usize) -> Value {
-        if depth >= MAX_EVAL_DEPTH {
-            return Value::Null;
-        }
-        
+    fn evaluate_json_iterative(&self, json: &serde_json::Value, variables: &HashMap<String, Value>) -> Value {
         match json {
             serde_json::Value::Number(n) => Value::Number(n.as_f64().unwrap_or(0.0)),
             serde_json::Value::String(s) => Value::String(s.clone()),
             serde_json::Value::Bool(b) => Value::Bool(*b),
             serde_json::Value::Null => Value::Null,
             serde_json::Value::Array(arr) => {
-                Value::List(arr.iter().map(|v| self.evaluate_with_depth(v, variables, depth + 1)).collect())
+                let list: Vec<Value> = arr.iter().map(|v| self.evaluate_leaf_value(v, variables)).collect();
+                Value::List(list)
             }
             serde_json::Value::Object(obj) => {
                 if let Some(block_type) = obj.get("type").and_then(|v| v.as_str()) {
-                    return self.evaluate_block_with_depth(block_type, obj, variables, depth + 1);
+                    return self.evaluate_block_iterative(block_type, obj, variables);
                 }
                 Value::Null
             }
         }
     }
 
-    // Note: The old evaluate_block function has been replaced by evaluate_block_with_depth
-    // which provides depth-limited evaluation to prevent stack overflow
 }
 
 #[cfg(test)]
