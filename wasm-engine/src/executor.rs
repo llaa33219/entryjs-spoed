@@ -1403,17 +1403,14 @@ impl Executor {
             }
             
             "start_drawing" => {
-                let (x, y) = if let Some(e) = entity {
+                if let Some(e) = entity {
                     e.brush_down = true;
-                    (e.x, e.y)
-                } else {
-                    (0.0, 0.0)
-                };
-                js_actions.push(JsAction::StartDrawing {
-                    entity_id: self.entity_idx,
-                    x,
-                    y,
-                });
+                    js_actions.push(JsAction::StartDrawing {
+                        entity_id: self.entity_idx,
+                        x: e.x,
+                        y: e.y,
+                    });
+                }
                 ExecuteResult::Continue
             }
             
@@ -1428,17 +1425,14 @@ impl Executor {
             }
             
             "start_fill" => {
-                let (x, y) = if let Some(e) = entity {
+                if let Some(e) = entity {
                     e.fill_down = true;
-                    (e.x, e.y)
-                } else {
-                    (0.0, 0.0)
-                };
-                js_actions.push(JsAction::StartFill {
-                    entity_id: self.entity_idx,
-                    x,
-                    y,
-                });
+                    js_actions.push(JsAction::StartFill {
+                        entity_id: self.entity_idx,
+                        x: e.x,
+                        y: e.y,
+                    });
+                }
                 ExecuteResult::Continue
             }
             
@@ -1692,6 +1686,7 @@ impl Executor {
     fn accumulate_brush_and_fill_path(&self, entity: &mut Entity) {
         if entity.brush_down {
             entity.frame_brush_path.push((entity.x, entity.y));
+            web_sys::console::log_1(&format!("brush path push: ({}, {}), total: {}", entity.x, entity.y, entity.frame_brush_path.len()).into());
         }
         if entity.fill_down {
             entity.frame_fill_path.push((entity.x, entity.y));
