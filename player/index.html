@@ -224,10 +224,11 @@
                     // WASM initialization state
                     this.wasmInitialized = false;
 
-                    // Brush drawing state
-                    this.brushCanvas = null;
-                    this.brushCtx = null;
+                    // Brush drawing state - per entity canvas layers
+                    this.brushCanvases = new Map(); // entity_id -> canvas
+                    this.brushContexts = new Map(); // entity_id -> context
                     this.brushStates = new Map(); // entity_id -> BrushState
+                    this.entityOrder = []; // entity order for z-index (first = bottom)
                 }
 
                 async initialize() {
@@ -678,11 +679,11 @@
                     this.canvas.width = 480;
                     this.canvas.height = 360;
 
-                    // Initialize brush canvas (separate layer for drawing)
-                    this.brushCanvas = document.createElement('canvas');
-                    this.brushCanvas.width = 480;
-                    this.brushCanvas.height = 360;
-                    this.brushCtx = this.brushCanvas.getContext('2d');
+                    // Initialize entity order from objects array (reverse order: first object = top layer)
+                    this.entityOrder = [];
+                    for (let i = objects.length - 1; i >= 0; i--) {
+                        this.entityOrder.push(i);
+                    }
 
                     // Initialize fill canvas (separate layer for real-time fill preview)
                     this.fillCanvas = document.createElement('canvas');
@@ -1100,12 +1101,27 @@
                     }
                 }
 
-                // Get or create brush state for an entity (by string ID)
                 getBrushState(entityStringId) {
                     if (!this.brushStates.has(entityStringId)) {
                         this.brushStates.set(entityStringId, new BrushState());
                     }
                     return this.brushStates.get(entityStringId);
+                }
+
+                getBrushCanvas(entityId) {
+                    if (!this.brushCanvases.has(entityId)) {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = 480;
+                        canvas.height = 360;
+                        this.brushCanvases.set(entityId, canvas);
+                        this.brushContexts.set(entityId, canvas.getContext('2d'));
+                    }
+                    return this.brushCanvases.get(entityId);
+                }
+
+                getBrushCtx(entityId) {
+                    this.getBrushCanvas(entityId);
+                    return this.brushContexts.get(entityId);
                 }
 
                 // Convert entity index to entity.id by looking up in render data
@@ -1123,10 +1139,8 @@
                     }
                 }
 
-                // Handle brush stamp (copy entity image to brush canvas)
                 handleBrushStamp(entityId) {
                     if (!this.isWasmEngineValid()) return;
-                    // Get current render data to find entity position
                     let renderData;
                     try {
                         renderData = this.wasmEngine.get_render_data();
@@ -1137,23 +1151,21 @@
 
                     try {
                         const entities = JSON.parse(renderData);
-                        const entity = entities[entityId]; // Access by index
+                        const entity = entities[entityId];
                         if (!entity || !entity.visible) return;
 
-                        // Convert to canvas coordinates
                         const screenX = 240 + entity.x;
                         const screenY = 180 - entity.y;
-
-                        // Try to get cached image
                         const img = imageCache.get(entity.pictureId);
+                        const ctx = this.getBrushCtx(entityId);
 
-                        this.brushCtx.save();
-                        this.brushCtx.translate(screenX, screenY);
-                        this.brushCtx.rotate((-entity.rotation * Math.PI) / 180);
-                        this.brushCtx.scale(entity.scaleX, entity.scaleY);
+                        ctx.save();
+                        ctx.translate(screenX, screenY);
+                        ctx.rotate((-entity.rotation * Math.PI) / 180);
+                        ctx.scale(entity.scaleX, entity.scaleY);
 
                         if (img && img.complete && img.naturalWidth > 0) {
-                            this.brushCtx.drawImage(
+                            ctx.drawImage(
                                 img,
                                 -entity.width / 2,
                                 -entity.height / 2,
@@ -1161,9 +1173,8 @@
                                 entity.height
                             );
                         } else {
-                            // Fallback: draw colored rectangle
-                            this.brushCtx.fillStyle = entity.color || '#4a90d9';
-                            this.brushCtx.fillRect(
+                            ctx.fillStyle = entity.color || '#4a90d9';
+                            ctx.fillRect(
                                 -entity.width / 2,
                                 -entity.height / 2,
                                 entity.width || 50,
@@ -1171,9 +1182,8 @@
                             );
                         }
 
-                        this.brushCtx.restore();
+                        ctx.restore();
                     } catch (e) {
-                        // Log error only once to prevent console flood
                         if (!this._brushStampErrorLogged) {
                             this._brushStampErrorLogged = true;
                             console.error('Failed to handle brush stamp:', e);
@@ -1181,9 +1191,11 @@
                     }
                 }
 
-                // Handle erase all brush content
                 handleBrushEraseAll() {
-                    this.brushCtx.clearRect(0, 0, this.brushCanvas.width, this.brushCanvas.height);
+                    for (const [entityId, canvas] of this.brushCanvases) {
+                        const ctx = this.brushContexts.get(entityId);
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    }
                 }
 
                 handleStartDrawing(entityId, x, y) {
@@ -1226,7 +1238,8 @@
                     if (entityKey === null) return;
                     const brushState = this.getBrushState(entityKey);
                     if (brushState.fillPath.length >= 3) {
-                        this.brushCtx.drawImage(this.fillCanvas, 0, 0);
+                        const ctx = this.getBrushCtx(entityId);
+                        ctx.drawImage(this.fillCanvas, 0, 0);
                     }
                     this.fillCtx.clearRect(0, 0, this.fillCanvas.width, this.fillCanvas.height);
                     brushState.fillDown = false;
@@ -1244,19 +1257,20 @@
                     const entityKey = this.getEntityId(entityId);
                     if (entityKey === null) return;
                     const brushState = this.getBrushState(entityKey);
+                    const ctx = this.getBrushCtx(entityId);
                     const screenX = 240 + x;
                     const screenY = 180 - y;
                     if (brushState.lastX !== null && brushState.lastY !== null) {
-                        this.brushCtx.beginPath();
-                        this.brushCtx.strokeStyle = brushState.color;
-                        this.brushCtx.lineWidth = brushState.size;
-                        this.brushCtx.lineCap = 'round';
-                        this.brushCtx.lineJoin = 'round';
-                        this.brushCtx.globalAlpha = 1 - brushState.opacity / 100;
-                        this.brushCtx.moveTo(brushState.lastX, brushState.lastY);
-                        this.brushCtx.lineTo(screenX, screenY);
-                        this.brushCtx.stroke();
-                        this.brushCtx.globalAlpha = 1;
+                        ctx.beginPath();
+                        ctx.strokeStyle = brushState.color;
+                        ctx.lineWidth = brushState.size;
+                        ctx.lineCap = 'round';
+                        ctx.lineJoin = 'round';
+                        ctx.globalAlpha = 1 - brushState.opacity / 100;
+                        ctx.moveTo(brushState.lastX, brushState.lastY);
+                        ctx.lineTo(screenX, screenY);
+                        ctx.stroke();
+                        ctx.globalAlpha = 1;
                     }
                     brushState.lastX = screenX;
                     brushState.lastY = screenY;
@@ -1305,32 +1319,25 @@
                     this.fillCtx.fill();
                 }
 
-                // Draw brush lines for entities that have brush_down
                 updateBrushDrawing(entities) {
                     for (const entity of entities) {
-                        // Get or create brush state using entity.id (which is a number index from WASM)
                         const entityKey = entity.id;
                         const brushState = this.getBrushState(entityKey);
 
-                        // Sync brush state from entity render data (WASM state)
                         const wasBrushDown = brushState.down;
                         brushState.down = entity.brushDown || false;
                         brushState.color = entity.brushColor || brushState.color;
                         brushState.size = entity.brushSize || brushState.size;
 
-                        // If brush just went down, reset last position
                         if (!wasBrushDown && brushState.down) {
                             brushState.lastX = null;
                             brushState.lastY = null;
                         }
 
-                        // Convert to canvas coordinates
                         const screenX = 240 + entity.x;
                         const screenY = 180 - entity.y;
 
-                        // Track fill path if fill mode is active
                         if (brushState.fillDown) {
-                            // Add point to fill path with minimum distance threshold to prevent memory bloat
                             const lastPoint = brushState.fillPath[brushState.fillPath.length - 1];
                             let pointAdded = false;
                             if (lastPoint) {
@@ -1338,23 +1345,18 @@
                                 const dy = screenY - lastPoint.y;
                                 const distance = Math.sqrt(dx * dx + dy * dy);
                                 if (distance >= 2) {
-                                    // Minimum 2px distance between points
                                     brushState.fillPath.push({ x: screenX, y: screenY });
                                     pointAdded = true;
                                 }
                             } else {
-                                // Fallback: add first point if somehow missing
                                 brushState.fillPath.push({ x: screenX, y: screenY });
                                 pointAdded = true;
                             }
-
-                            // Draw real-time fill preview only when a point is added
                             if (pointAdded && this.fillCtx) {
                                 this.drawFillPreview(entityKey);
                             }
                         }
 
-                        // If brush is not down, skip drawing but reset last position
                         if (!brushState.down) {
                             brushState.lastX = null;
                             brushState.lastY = null;
@@ -1362,57 +1364,39 @@
                         }
 
                         if (brushState.lastX !== null && brushState.lastY !== null) {
-                            // Draw line from last position to current position
-                            this.brushCtx.beginPath();
-                            this.brushCtx.strokeStyle = brushState.color;
-                            this.brushCtx.lineWidth = brushState.size;
-                            this.brushCtx.lineCap = 'round';
-                            this.brushCtx.lineJoin = 'round';
-                            this.brushCtx.globalAlpha = 1 - brushState.opacity / 100;
-                            this.brushCtx.moveTo(brushState.lastX, brushState.lastY);
-                            this.brushCtx.lineTo(screenX, screenY);
-                            this.brushCtx.stroke();
-                            this.brushCtx.globalAlpha = 1;
+                            const ctx = this.getBrushCtx(entityKey);
+                            ctx.beginPath();
+                            ctx.strokeStyle = brushState.color;
+                            ctx.lineWidth = brushState.size;
+                            ctx.lineCap = 'round';
+                            ctx.lineJoin = 'round';
+                            ctx.globalAlpha = 1 - brushState.opacity / 100;
+                            ctx.moveTo(brushState.lastX, brushState.lastY);
+                            ctx.lineTo(screenX, screenY);
+                            ctx.stroke();
+                            ctx.globalAlpha = 1;
                         }
 
-                        // Update last position
                         brushState.lastX = screenX;
                         brushState.lastY = screenY;
                     }
                 }
 
                 render() {
-                    // Clear canvas
                     this.ctx.fillStyle = '#ffffff';
                     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
-                    // Draw brush canvas layer first (behind entities)
-                    if (this.brushCanvas) {
-                        this.ctx.drawImage(this.brushCanvas, 0, 0);
-                    }
-
-                    // Draw fill canvas layer (real-time fill preview)
-                    if (this.fillCanvas) {
-                        this.ctx.drawImage(this.fillCanvas, 0, 0);
-                    }
-
                     if (this.isWasmEngineValid()) {
-                        // Get render data from WASM and draw
                         try {
                             const renderData = this.wasmEngine.get_render_data();
                             this.drawRenderData(renderData);
-                            // Reset error counter on success
                             this._renderErrorCount = 0;
                         } catch (e) {
-                            // WASM call failed (possibly RuntimeError: unreachable)
                             this._renderErrorCount = (this._renderErrorCount || 0) + 1;
-
                             if (!this._renderDataErrorLogged) {
                                 this._renderDataErrorLogged = true;
                                 console.warn('get_render_data() 호출 실패:', e);
                             }
-
-                            // 연속 5회 이상 실패 시 WASM 비활성화
                             if (this._renderErrorCount >= 5) {
                                 console.error('WASM render 연속 실패, JS 폴백으로 전환');
                                 this.wasmEngine = null;
@@ -1427,7 +1411,6 @@
                             }
                         }
                     } else if (this.jsEngine) {
-                        // Simple JS rendering
                         this.drawJSEngine();
                     }
                 }
@@ -1437,15 +1420,27 @@
 
                     try {
                         const entities = JSON.parse(data);
-
-                        // Update brush drawing for entities with brush_down
                         this.updateBrushDrawing(entities);
 
-                        for (const entity of entities) {
-                            this.drawEntity(entity);
+                        // Draw in reverse entity order (last entity = top, first entity = bottom)
+                        // entityOrder: [2, 1, 0] means entity 2 is bottom, entity 0 is top
+                        for (let i = this.entityOrder.length - 1; i >= 0; i--) {
+                            const entityId = this.entityOrder[i];
+                            const brushCanvas = this.brushCanvases.get(entityId);
+                            if (brushCanvas) {
+                                this.ctx.drawImage(brushCanvas, 0, 0);
+                            }
+                            const entity = entities[entityId];
+                            if (entity) {
+                                this.drawEntity(entity);
+                            }
+                        }
+
+                        // Draw fill preview on top
+                        if (this.fillCanvas) {
+                            this.ctx.drawImage(this.fillCanvas, 0, 0);
                         }
                     } catch (e) {
-                        // Log parse error only once to prevent console flood
                         if (!this._renderParseErrorLogged) {
                             this._renderParseErrorLogged = true;
                             console.error('렌더 데이터 파싱 실패:', e);
