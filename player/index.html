@@ -871,9 +871,7 @@
 
                 restart() {
                     this.stop();
-                    if (this.wasmEngine) {
-                        this.wasmEngine.reset();
-                    }
+
                     // Clear brush canvas on restart
                     if (this.brushCtx) {
                         this.brushCtx.clearRect(
@@ -888,6 +886,51 @@
                         this.fillCtx.clearRect(0, 0, this.fillCanvas.width, this.fillCanvas.height);
                     }
                     this.brushStates.clear();
+
+                    // Reset error flags for fresh start
+                    this._jsActionsErrorLogged = false;
+                    this._jsActionsParseErrorLogged = false;
+                    this._brushStampErrorLogged = false;
+                    this._renderErrorLogged = false;
+
+                    // WASM 엔진 완전 재생성 (reset만으로는 내부 상태 불일치 발생 가능)
+                    if (this.wasmEngine && this.projectData && WasmEngine) {
+                        try {
+                            // 기존 엔진 정리
+                            this.wasmEngine.stop();
+
+                            // 새 엔진 인스턴스 생성
+                            this.wasmEngine = new WasmEngine();
+
+                            // 프로젝트 다시 로드
+                            const projectForWasm = this.prepareProjectForWasm(this.projectData);
+                            this.wasmEngine.load_project(JSON.stringify(projectForWasm));
+
+                            console.log('WASM 엔진 재생성 완료');
+                        } catch (e) {
+                            console.error('WASM 엔진 재생성 실패:', e);
+                            // 폴백: 기존 reset 방식 시도
+                            try {
+                                if (this.wasmEngine) {
+                                    this.wasmEngine.reset();
+                                }
+                            } catch (resetError) {
+                                console.error('WASM reset도 실패:', resetError);
+                                this.wasmEngine = null;
+                                this.wasmInitialized = false;
+                            }
+                        }
+                    } else if (this.wasmEngine) {
+                        // projectData가 없으면 기존 방식으로 reset
+                        try {
+                            this.wasmEngine.reset();
+                        } catch (e) {
+                            console.error('WASM reset 실패:', e);
+                            this.wasmEngine = null;
+                            this.wasmInitialized = false;
+                        }
+                    }
+
                     setTimeout(() => this.start(), 100);
                 }
 
@@ -895,12 +938,35 @@
                     if (!this.isRunning) return;
 
                     // Update mouse state in WASM engine
-                    if (this.wasmEngine) {
-                        this.wasmEngine.update_mouse(this.mouseX, this.mouseY, this.mouseClicked);
-                        this.wasmEngine.tick();
+                    if (this.wasmEngine && this.wasmInitialized) {
+                        try {
+                            this.wasmEngine.update_mouse(
+                                this.mouseX,
+                                this.mouseY,
+                                this.mouseClicked
+                            );
+                            this.wasmEngine.tick();
 
-                        // Process JS actions from WASM (brush, sound, etc.)
-                        this.handleJsActions();
+                            // Process JS actions from WASM (brush, sound, etc.)
+                            this.handleJsActions();
+                        } catch (e) {
+                            // WASM tick failed - likely engine is in bad state
+                            if (!this._tickErrorLogged) {
+                                this._tickErrorLogged = true;
+                                console.error('WASM tick() 실패, JS 폴백으로 전환:', e);
+                            }
+                            // Disable WASM engine and fall back to JS
+                            this.wasmEngine = null;
+                            this.wasmInitialized = false;
+                            // Initialize JS fallback if not already done
+                            if (!this.jsEngine && this.projectData?.objects) {
+                                const objects =
+                                    typeof this.projectData.objects === 'string'
+                                        ? JSON.parse(this.projectData.objects)
+                                        : this.projectData.objects;
+                                this.initJSEngine(objects);
+                            }
+                        }
                     } else if (this.jsEngine) {
                         this.jsEngine.tick++;
                     }
@@ -1289,11 +1355,29 @@
                         try {
                             const renderData = this.wasmEngine.get_render_data();
                             this.drawRenderData(renderData);
+                            // Reset error counter on success
+                            this._renderErrorCount = 0;
                         } catch (e) {
-                            // WASM call failed (possibly RuntimeError: unreachable) - log once, skip frame
+                            // WASM call failed (possibly RuntimeError: unreachable)
+                            this._renderErrorCount = (this._renderErrorCount || 0) + 1;
+
                             if (!this._renderDataErrorLogged) {
                                 this._renderDataErrorLogged = true;
                                 console.warn('get_render_data() 호출 실패:', e);
+                            }
+
+                            // 연속 5회 이상 실패 시 WASM 비활성화
+                            if (this._renderErrorCount >= 5) {
+                                console.error('WASM render 연속 실패, JS 폴백으로 전환');
+                                this.wasmEngine = null;
+                                this.wasmInitialized = false;
+                                if (!this.jsEngine && this.projectData?.objects) {
+                                    const objects =
+                                        typeof this.projectData.objects === 'string'
+                                            ? JSON.parse(this.projectData.objects)
+                                            : this.projectData.objects;
+                                    this.initJSEngine(objects);
+                                }
                             }
                         }
                     } else if (this.jsEngine) {

@@ -217,9 +217,6 @@ export class WasmEngine {
     stop() {
         wasm.wasmengine_stop(this.__wbg_ptr);
     }
-    /**
-     * Execute one tick of the engine
-     */
     tick() {
         wasm.wasmengine_tick(this.__wbg_ptr);
     }

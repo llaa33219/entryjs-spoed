@@ -280,7 +280,8 @@ impl WasmEngine {
         let mut inner = match self.inner.try_borrow_mut() {
             Ok(inner) => inner,
             Err(_) => {
-                // Already borrowed, can't reset now
+                // Already borrowed, can't reset now - set stop flag instead
+                self.stop_requested.set(true);
                 return;
             }
         };
@@ -288,6 +289,7 @@ impl WasmEngine {
         inner.state = EngineState::Stopped;
         inner.tick_count = 0;
         inner.executors.clear();
+        inner.pending_js_actions.clear(); // Clear pending actions to prevent stale data
         self.stop_requested.set(false);
         self.error_logged.set(false); // Reset error flag on reset
         
@@ -310,10 +312,8 @@ impl WasmEngine {
         self.inner.try_borrow_mut().is_err()
     }
 
-    /// Execute one tick of the engine
     #[wasm_bindgen]
     pub fn tick(&self) {
-        // Wrap entire tick in catch_unwind to ensure RefCell borrow is always released
         let tick_result = catch_unwind(AssertUnwindSafe(|| {
             self.tick_inner()
         }));
