@@ -1686,7 +1686,6 @@ impl Executor {
     fn accumulate_brush_and_fill_path(&self, entity: &mut Entity) {
         if entity.brush_down {
             entity.frame_brush_path.push((entity.x, entity.y));
-            web_sys::console::log_1(&format!("brush path push: ({}, {}), total: {}", entity.x, entity.y, entity.frame_brush_path.len()).into());
         }
         if entity.fill_down {
             entity.frame_fill_path.push((entity.x, entity.y));
