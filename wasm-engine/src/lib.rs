@@ -468,7 +468,8 @@ impl WasmEngine {
             let mut new_executors = Vec::new();
             
             for i in initial_action_count..pending_js_actions.len() {
-                if let JsAction::MessageCast { message_id } = &pending_js_actions[i] {
+                let action = &pending_js_actions[i];
+                if let JsAction::MessageCast { message_id } | JsAction::MessageCastWait { message_id } = action {
                     if let Some(project) = &inner.project_data {
                         if let Some(objects) = &project.objects {
                             for (entity_idx, obj) in objects.iter().enumerate() {
@@ -478,7 +479,14 @@ impl WasmEngine {
                                             if first_block.block_type == "when_message_cast" {
                                                 if let Some(params) = &first_block.params {
                                                     if let Some(msg_param) = params.first() {
-                                                        let matches = msg_param.as_str().map_or(false, |s| s == message_id);
+                                                        let matches = if let Some(s) = msg_param.as_str() {
+                                                            s == message_id
+                                                        } else if let Some(n) = msg_param.as_f64() {
+                                                            n.to_string() == *message_id
+                                                        } else {
+                                                            false
+                                                        };
+                                                        
                                                         if matches {
                                                             let executor = Executor::new(
                                                                 entity_idx,
