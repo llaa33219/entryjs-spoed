@@ -857,18 +857,24 @@ impl WasmEngine {
                                 if first_block.block_type == "when_message_cast" {
                                     if let Some(params) = &first_block.params {
                                         if let Some(msg_param) = params.first() {
-                                            if let Some(block_msg_id) = msg_param.as_str() {
-                                                if block_msg_id == message_id {
-                                                    let executor = Executor::new(
-                                                        entity_idx,
-                                                        thread.clone(),
-                                                    );
-                                                    let mut exec_with_state = executor;
-                                                    exec_with_state.cached_mouse_x = inner.mouse_x;
-                                                    exec_with_state.cached_mouse_y = inner.mouse_y;
-                                                    exec_with_state.mouse_clicked = inner.mouse_clicked;
-                                                    inner.executors.push(exec_with_state);
-                                                }
+                                            let matches = if let Some(s) = msg_param.as_str() {
+                                                s == message_id
+                                            } else if let Some(n) = msg_param.as_f64() {
+                                                n.to_string() == message_id
+                                            } else {
+                                                false
+                                            };
+                                            
+                                            if matches {
+                                                let executor = Executor::new(
+                                                    entity_idx,
+                                                    thread.clone(),
+                                                );
+                                                let mut exec_with_state = executor;
+                                                exec_with_state.cached_mouse_x = inner.mouse_x;
+                                                exec_with_state.cached_mouse_y = inner.mouse_y;
+                                                exec_with_state.mouse_clicked = inner.mouse_clicked;
+                                                inner.executors.push(exec_with_state);
                                             }
                                         }
                                     }

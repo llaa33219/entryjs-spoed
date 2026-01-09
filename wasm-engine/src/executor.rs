@@ -1726,6 +1726,10 @@ impl Executor {
             if let Some(param) = params.get(index) {
                 if let Some(s) = param.as_str() {
                     return s.to_string();
+                } else if let Some(n) = param.as_f64() {
+                    return n.to_string();
+                } else if let Some(b) = param.as_bool() {
+                    return b.to_string();
                 }
             }
         }
