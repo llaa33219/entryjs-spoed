@@ -1068,12 +1068,14 @@ impl Executor {
             
             "message_cast" => {
                 let message_id = self.get_param_string(block, 0, variables);
+                web_sys::console::log_1(&format!("[Executor] Executing message_cast: {}", message_id).into());
                 js_actions.push(JsAction::MessageCast { message_id });
                 ExecuteResult::Continue
             }
             
             "message_cast_wait" => {
                 let message_id = self.get_param_string(block, 0, variables);
+                web_sys::console::log_1(&format!("[Executor] Executing message_cast_wait: {}", message_id).into());
                 js_actions.push(JsAction::MessageCastWait { message_id });
                 // This would need to wait for message handlers to complete
                 ExecuteResult::Continue

@@ -470,6 +470,7 @@ impl WasmEngine {
             for i in initial_action_count..pending_js_actions.len() {
                 let action = &pending_js_actions[i];
                 if let JsAction::MessageCast { message_id } | JsAction::MessageCastWait { message_id } = action {
+                    web_sys::console::log_1(&format!("[Engine] Processing MessageCast action for id: {}", message_id).into());
                     if let Some(project) = &inner.project_data {
                         if let Some(objects) = &project.objects {
                             for (entity_idx, obj) in objects.iter().enumerate() {
@@ -488,6 +489,7 @@ impl WasmEngine {
                                                         };
                                                         
                                                         if matches {
+                                                            web_sys::console::log_1(&format!("[Engine] Found matching handler in entity {}", entity_idx).into());
                                                             let executor = Executor::new(
                                                                 entity_idx,
                                                                 thread.clone(),
