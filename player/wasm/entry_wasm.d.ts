@@ -44,6 +44,8 @@ export class WasmEngine {
    * Fire scene start event
    */
   fire_scene_start(): void;
+  fire_message_cast(message_id: string): void;
+  fire_object_click(entity_id: number): void;
   /**
    * Fire mouse clicked event
    */
@@ -53,6 +55,7 @@ export class WasmEngine {
    * Fire mouse click cancelled event
    */
   fire_mouse_click_cancled(): void;
+  fire_object_click_canceled(entity_id: number): void;
   /**
    * Create a new WASM engine instance
    */
@@ -88,8 +91,11 @@ export interface InitOutput {
   readonly memory: WebAssembly.Memory;
   readonly __wbg_wasmengine_free: (a: number, b: number) => void;
   readonly wasmengine_fire_key_event: (a: number, b: number) => void;
+  readonly wasmengine_fire_message_cast: (a: number, b: number, c: number) => void;
   readonly wasmengine_fire_mouse_click_cancled: (a: number) => void;
   readonly wasmengine_fire_mouse_clicked: (a: number) => void;
+  readonly wasmengine_fire_object_click: (a: number, b: number) => void;
+  readonly wasmengine_fire_object_click_canceled: (a: number, b: number) => void;
   readonly wasmengine_fire_scene_start: (a: number) => void;
   readonly wasmengine_get_js_actions: (a: number) => [number, number];
   readonly wasmengine_get_render_data: (a: number) => [number, number];

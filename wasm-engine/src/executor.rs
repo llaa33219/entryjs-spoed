@@ -40,6 +40,10 @@ pub struct Executor {
     cached_entity_rotation: f64,
     cached_entity_direction: f64,
     cached_entity_scale: f64,
+    cached_entity_scale_x: f64,
+    cached_entity_scale_y: f64,
+    cached_entity_width: f64,
+    cached_entity_height: f64,
     
     // Input state (set from JavaScript)
     pub cached_mouse_x: f64,
@@ -81,6 +85,10 @@ impl Executor {
             cached_entity_rotation: 0.0,
             cached_entity_direction: 90.0,
             cached_entity_scale: 100.0,
+            cached_entity_scale_x: 1.0,
+            cached_entity_scale_y: 1.0,
+            cached_entity_width: 0.0,
+            cached_entity_height: 0.0,
             
             cached_mouse_x: 0.0,
             cached_mouse_y: 0.0,
@@ -106,6 +114,10 @@ impl Executor {
             self.cached_entity_rotation = e.rotation;
             self.cached_entity_direction = e.direction;
             self.cached_entity_scale = e.get_scale();
+            self.cached_entity_scale_x = e.scale_x;
+            self.cached_entity_scale_y = e.scale_y;
+            self.cached_entity_width = e.width;
+            self.cached_entity_height = e.height;
         }
     }
     
@@ -1972,6 +1984,37 @@ impl Executor {
                                     "mouse_x" => value_stack.push(Value::Number(self.cached_mouse_x)),
                                     "mouse_y" => value_stack.push(Value::Number(self.cached_mouse_y)),
                                     "is_clicked" => value_stack.push(Value::Bool(self.mouse_clicked)),
+                                    "is_object_clicked" => {
+                                        let clicked = self.mouse_clicked;
+                                        let mx = self.cached_mouse_x;
+                                        let my = self.cached_mouse_y;
+                                        let x = self.cached_entity_x;
+                                        let y = self.cached_entity_y;
+                                        let half_width = self.cached_entity_width * self.cached_entity_scale_x.abs() / 2.0; 
+                                        let half_height = self.cached_entity_height * self.cached_entity_scale_y.abs() / 2.0;
+                                        let touching = mx >= x - half_width && mx <= x + half_width && my >= y - half_height && my <= y + half_height;
+                                        value_stack.push(Value::Bool(clicked && touching));
+                                    }
+                                    "is_included_in_list" => {
+                                        if let Some(p) = params {
+                                            let list_id = p.get(1).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                            task_stack.push(EvalTask::ApplyOp { op: format!("is_included:{}", list_id), arg_count: 1 });
+                                            if let Some(val) = p.get(0) { task_stack.push(EvalTask::Evaluate(val.clone())); }
+                                            else { value_stack.push(Value::Null); }
+                                        } else {
+                                            value_stack.push(Value::Bool(false));
+                                        }
+                                    }
+                                    "index_of_list" => {
+                                        if let Some(p) = params {
+                                            let list_id = p.get(1).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                            task_stack.push(EvalTask::ApplyOp { op: format!("index_of_list:{}", list_id), arg_count: 1 });
+                                            if let Some(val) = p.get(0) { task_stack.push(EvalTask::Evaluate(val.clone())); }
+                                            else { value_stack.push(Value::Null); }
+                                        } else {
+                                            value_stack.push(Value::Number(0.0));
+                                        }
+                                    }
                                     _ => {
                                         let result = self.evaluate_block_simple(bt, &obj_map, variables);
                                         value_stack.push(result);
@@ -2053,6 +2096,26 @@ impl Executor {
                     } else if op == "strlen" {
                         let val = value_stack.pop().unwrap_or(Value::String(String::new()));
                         Value::Number(Self::value_as_string(&val).chars().count() as f64)
+                    } else if let Some(list_id) = op.strip_prefix("is_included:") {
+                        let val = value_stack.pop().unwrap_or(Value::Null);
+                        let result = if let Some(Value::List(list)) = variables.get(list_id) {
+                            let val_str = Self::value_as_string(&val);
+                            list.iter().any(|v| Self::value_as_string(v) == val_str)
+                        } else {
+                            false
+                        };
+                        Value::Bool(result)
+                    } else if let Some(list_id) = op.strip_prefix("index_of_list:") {
+                        let val = value_stack.pop().unwrap_or(Value::Null);
+                        let result = if let Some(Value::List(list)) = variables.get(list_id) {
+                            let val_str = Self::value_as_string(&val);
+                            list.iter().position(|v| Self::value_as_string(v) == val_str)
+                                .map(|i| (i + 1) as f64)
+                                .unwrap_or(0.0)
+                        } else {
+                            0.0
+                        };
+                        Value::Number(result)
                     } else {
                         Value::Null
                     };
@@ -2138,8 +2201,8 @@ impl Executor {
             }
             "reach_something" => {
                 let target = get_param_str(1);
-                let half_width = 25.0;
-                let half_height = 25.0;
+                let half_width = self.cached_entity_width * self.cached_entity_scale_x.abs() / 2.0;
+                let half_height = self.cached_entity_height * self.cached_entity_scale_y.abs() / 2.0;
                 let x = self.cached_entity_x;
                 let y = self.cached_entity_y;
                 

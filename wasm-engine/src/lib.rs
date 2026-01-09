@@ -714,7 +714,111 @@ impl WasmEngine {
         
         Self::fire_event_inner(&mut inner, "mouse_click_cancled");
     }
+
+    #[wasm_bindgen]
+    pub fn fire_message_cast(&self, message_id: &str) {
+        let mut inner = match self.inner.try_borrow_mut() {
+            Ok(inner) => inner,
+            Err(_) => return,
+        };
+        
+        if inner.state != EngineState::Running {
+            return;
+        }
+        
+        if let Some(project) = &inner.project_data.clone() {
+            if let Some(objects) = &project.objects {
+                for (entity_idx, obj) in objects.iter().enumerate() {
+                    if let Some(scripts) = &obj.script {
+                        for thread in scripts.iter() {
+                            if let Some(first_block) = thread.first() {
+                                if first_block.block_type == "when_message_cast" {
+                                    if let Some(params) = &first_block.params {
+                                        if let Some(msg_param) = params.first() {
+                                            if let Some(block_msg_id) = msg_param.as_str() {
+                                                if block_msg_id == message_id {
+                                                    let executor = Executor::new(
+                                                        entity_idx,
+                                                        thread.clone(),
+                                                    );
+                                                    inner.executors.push(executor);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn fire_object_click(&self, entity_id: usize) {
+        let mut inner = match self.inner.try_borrow_mut() {
+            Ok(inner) => inner,
+            Err(_) => return,
+        };
+        
+        if inner.state != EngineState::Running {
+            return;
+        }
+        
+        if let Some(project) = &inner.project_data.clone() {
+            if let Some(objects) = &project.objects {
+                if let Some(obj) = objects.get(entity_id) {
+                    if let Some(scripts) = &obj.script {
+                        for thread in scripts.iter() {
+                            if let Some(first_block) = thread.first() {
+                                if first_block.block_type == "when_object_click" {
+                                    let executor = Executor::new(
+                                        entity_id,
+                                        thread.clone(),
+                                    );
+                                    inner.executors.push(executor);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     
+    #[wasm_bindgen]
+    pub fn fire_object_click_canceled(&self, entity_id: usize) {
+        let mut inner = match self.inner.try_borrow_mut() {
+            Ok(inner) => inner,
+            Err(_) => return,
+        };
+        
+        if inner.state != EngineState::Running {
+            return;
+        }
+        
+        if let Some(project) = &inner.project_data.clone() {
+            if let Some(objects) = &project.objects {
+                if let Some(obj) = objects.get(entity_id) {
+                    if let Some(scripts) = &obj.script {
+                        for thread in scripts.iter() {
+                            if let Some(first_block) = thread.first() {
+                                if first_block.block_type == "when_object_click_canceled" {
+                                    let executor = Executor::new(
+                                        entity_id,
+                                        thread.clone(),
+                                    );
+                                    inner.executors.push(executor);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// Fire scene start event
     #[wasm_bindgen]
     pub fn fire_scene_start(&self) {

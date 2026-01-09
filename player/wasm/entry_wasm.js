@@ -242,6 +242,20 @@ export class WasmEngine {
         wasm.wasmengine_fire_scene_start(this.__wbg_ptr);
     }
     /**
+     * @param {string} message_id
+     */
+    fire_message_cast(message_id) {
+        const ptr0 = passStringToWasm0(message_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.wasmengine_fire_message_cast(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
+     * @param {number} entity_id
+     */
+    fire_object_click(entity_id) {
+        wasm.wasmengine_fire_object_click(this.__wbg_ptr, entity_id);
+    }
+    /**
      * Fire mouse clicked event
      */
     fire_mouse_clicked() {
@@ -259,6 +273,12 @@ export class WasmEngine {
      */
     fire_mouse_click_cancled() {
         wasm.wasmengine_fire_mouse_click_cancled(this.__wbg_ptr);
+    }
+    /**
+     * @param {number} entity_id
+     */
+    fire_object_click_canceled(entity_id) {
+        wasm.wasmengine_fire_object_click_canceled(this.__wbg_ptr, entity_id);
     }
     /**
      * Create a new WASM engine instance
