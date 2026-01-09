@@ -1433,19 +1433,10 @@
                     return this.brushContexts.get(entityId);
                 }
 
-                // Convert entity index to entity.id by looking up in render data
-                // Note: entity.id from WASM is a number (usize), not a string
+                // Convert entity index to entity.id
+                // Note: entity.id from WASM equals entityIndex directly
                 getEntityId(entityIndex) {
-                    if (!this.isWasmEngineValid()) return null;
-                    try {
-                        const renderData = this.wasmEngine.get_render_data();
-                        if (!renderData || renderData === '[]') return null;
-                        const entities = JSON.parse(renderData);
-                        const entity = entities[entityIndex];
-                        return entity != null ? entity.id : null;
-                    } catch (e) {
-                        return null;
-                    }
+                    return entityIndex;
                 }
 
                 handleBrushStamp(entityId) {
