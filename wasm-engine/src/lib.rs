@@ -117,6 +117,11 @@ struct EngineInner {
     project_data: Option<ProjectData>,
     functions: HashMap<String, FunctionData>,
     pending_js_actions: Vec<JsAction>,
+    
+    // Global input state
+    mouse_x: f64,
+    mouse_y: f64,
+    mouse_clicked: bool,
 }
 
 impl EngineInner {
@@ -132,6 +137,9 @@ impl EngineInner {
             project_data: None,
             functions: HashMap::new(),
             pending_js_actions: Vec::new(),
+            mouse_x: 0.0,
+            mouse_y: 0.0,
+            mouse_clicked: false,
         }
     }
 }
@@ -585,6 +593,10 @@ impl WasmEngine {
             Err(_) => return,
         };
         
+        inner.mouse_x = x;
+        inner.mouse_y = y;
+        inner.mouse_clicked = clicked;
+        
         for executor in &mut inner.executors {
             executor.cached_mouse_x = x;
             executor.cached_mouse_y = y;
@@ -698,6 +710,53 @@ impl WasmEngine {
         }
         
         Self::fire_event_inner(&mut inner, "mouse_clicked");
+        
+        let mouse_x = inner.mouse_x;
+        let mouse_y = inner.mouse_y;
+        
+        let mut clicked_entities = Vec::new();
+        
+        for entity in &inner.entities {
+            if !entity.visible {
+                continue;
+            }
+            
+            let half_width = entity.width * entity.scale_x.abs() / 2.0;
+            let half_height = entity.height * entity.scale_y.abs() / 2.0;
+            
+            if mouse_x >= entity.x - half_width && 
+               mouse_x <= entity.x + half_width && 
+               mouse_y >= entity.y - half_height && 
+               mouse_y <= entity.y + half_height {
+                clicked_entities.push(entity.id);
+            }
+        }
+        
+        if let Some(project) = &inner.project_data.clone() {
+            if let Some(objects) = &project.objects {
+                for entity_id in clicked_entities {
+                     if let Some(obj) = objects.get(entity_id) {
+                        if let Some(scripts) = &obj.script {
+                            for thread in scripts.iter() {
+                                if let Some(first_block) = thread.first() {
+                                    if first_block.block_type == "when_object_click" {
+                                        let executor = Executor::new(
+                                            entity_id,
+                                            thread.clone(),
+                                        );
+                                        let mut exec_with_state = executor;
+                                        exec_with_state.cached_mouse_x = mouse_x;
+                                        exec_with_state.cached_mouse_y = mouse_y;
+                                        exec_with_state.mouse_clicked = true;
+                                        inner.executors.push(exec_with_state);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
     
     /// Fire mouse click cancelled event
