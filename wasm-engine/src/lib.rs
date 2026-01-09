@@ -457,6 +457,7 @@ impl WasmEngine {
         for entity in &mut entities {
             if !entity.frame_brush_path.is_empty() {
                 let points = std::mem::take(&mut entity.frame_brush_path);
+                web_sys::console::log_1(&format!("BrushPath emit: entity={}, points={}", entity.id, points.len()).into());
                 pending_js_actions.push(JsAction::BrushPath {
                     entity_id: entity.id,
                     points,
@@ -464,6 +465,7 @@ impl WasmEngine {
             }
             if !entity.frame_fill_path.is_empty() {
                 let points = std::mem::take(&mut entity.frame_fill_path);
+                web_sys::console::log_1(&format!("FillPath emit: entity={}, points={}", entity.id, points.len()).into());
                 pending_js_actions.push(JsAction::FillPath {
                     entity_id: entity.id,
                     points,
