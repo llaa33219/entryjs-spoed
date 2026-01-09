@@ -471,46 +471,8 @@ impl WasmEngine {
                 let action = &pending_js_actions[i];
                 if let JsAction::MessageCast { message_id } | JsAction::MessageCastWait { message_id } = action {
                     web_sys::console::log_1(&format!("[Engine] Processing MessageCast action for id: {}", message_id).into());
-                    if let Some(project) = &inner.project_data {
-                        if let Some(objects) = &project.objects {
-                            for (entity_idx, obj) in objects.iter().enumerate() {
-                                if let Some(scripts) = &obj.script {
-                                    for thread in scripts.iter() {
-                                        if let Some(first_block) = thread.first() {
-                                            if first_block.block_type == "when_message_cast" {
-                                                if let Some(params) = &first_block.params {
-                                                    web_sys::console::log_1(&format!("[Engine] Checking 'when_message_cast' block. Incoming ID: '{}', Params: {:?}", message_id, params).into());
-                                                    
-                                                    if let Some(msg_param) = params.first() {
-                                                        let matches = if let Some(s) = msg_param.as_str() {
-                                                            s == message_id
-                                                        } else if let Some(n) = msg_param.as_f64() {
-                                                            n.to_string() == *message_id
-                                                        } else {
-                                                            false 
-                                                        };
-                                                        
-                                                        if matches {
-                                                            web_sys::console::log_1(&format!("[Engine] Found matching handler in entity {}", entity_idx).into());
-                                                            let executor = Executor::new(
-                                                                entity_idx,
-                                                                thread.clone(),
-                                                            );
-                                                            let mut exec_with_state = executor;
-                                                            exec_with_state.cached_mouse_x = inner.mouse_x;
-                                                            exec_with_state.cached_mouse_y = inner.mouse_y;
-                                                            exec_with_state.mouse_clicked = inner.mouse_clicked;
-                                                            new_executors.push(exec_with_state);
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    let mut executors_for_msg = Self::find_executors_for_message(&inner, message_id);
+                    new_executors.append(&mut executors_for_msg);
                 }
             }
             executors.append(&mut new_executors);
@@ -852,43 +814,8 @@ impl WasmEngine {
             return;
         }
         
-        if let Some(project) = &inner.project_data.clone() {
-            if let Some(objects) = &project.objects {
-                for (entity_idx, obj) in objects.iter().enumerate() {
-                    if let Some(scripts) = &obj.script {
-                        for thread in scripts.iter() {
-                            if let Some(first_block) = thread.first() {
-                                if first_block.block_type == "when_message_cast" {
-                                    if let Some(params) = &first_block.params {
-                                        if let Some(msg_param) = params.first() {
-                                            let matches = if let Some(s) = msg_param.as_str() {
-                                                s == message_id
-                                            } else if let Some(n) = msg_param.as_f64() {
-                                                n.to_string() == message_id
-                                            } else {
-                                                false
-                                            };
-                                            
-                                            if matches {
-                                                let executor = Executor::new(
-                                                    entity_idx,
-                                                    thread.clone(),
-                                                );
-                                                let mut exec_with_state = executor;
-                                                exec_with_state.cached_mouse_x = inner.mouse_x;
-                                                exec_with_state.cached_mouse_y = inner.mouse_y;
-                                                exec_with_state.mouse_clicked = inner.mouse_clicked;
-                                                inner.executors.push(exec_with_state);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        let mut new_executors = Self::find_executors_for_message(&inner, message_id);
+        inner.executors.append(&mut new_executors);
     }
 
     #[wasm_bindgen]
@@ -984,6 +911,67 @@ impl WasmEngine {
             entity.take_snapshot();
         }
         inner.variables_snapshot = inner.variables.clone();
+    }
+
+    fn check_message_match(block: &Block, message_id: &str) -> bool {
+        if let Some(params) = &block.params {
+            if let Some(param) = params.get(1) {
+                if let Some(s) = param.as_str() {
+                    if s == message_id {
+                        return true;
+                    }
+                } else if let Some(n) = param.as_f64() {
+                    if n.to_string() == message_id {
+                        return true;
+                    }
+                }
+            }
+            
+            for param in params {
+                if let Some(s) = param.as_str() {
+                    if s == message_id {
+                        return true;
+                    }
+                } else if let Some(n) = param.as_f64() {
+                    if n.to_string() == message_id {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    fn find_executors_for_message(inner: &EngineInner, message_id: &str) -> Vec<Executor> {
+        let mut executors = Vec::new();
+        
+        if let Some(project) = &inner.project_data {
+            if let Some(objects) = &project.objects {
+                for (entity_idx, obj) in objects.iter().enumerate() {
+                    if let Some(scripts) = &obj.script {
+                        for thread in scripts.iter() {
+                            if let Some(first_block) = thread.first() {
+                                if first_block.block_type == "when_message_cast" {
+                                    if Self::check_message_match(first_block, message_id) {
+                                        web_sys::console::log_1(&format!("[Engine] Found matching handler in entity {}", entity_idx).into());
+                                        let executor = Executor::new(
+                                            entity_idx,
+                                            thread.clone(),
+                                        );
+                                        let mut exec_with_state = executor;
+                                        exec_with_state.cached_mouse_x = inner.mouse_x;
+                                        exec_with_state.cached_mouse_y = inner.mouse_y;
+                                        exec_with_state.mouse_clicked = inner.mouse_clicked;
+                                        executors.push(exec_with_state);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        executors
     }
 }
 
