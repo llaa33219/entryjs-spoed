@@ -721,13 +721,18 @@ impl WasmEngine {
                 continue;
             }
             
-            let half_width = entity.width * entity.scale_x.abs() / 2.0;
-            let half_height = entity.height * entity.scale_y.abs() / 2.0;
+            let x1 = entity.x - (entity.reg_x * entity.scale_x);
+            let x2 = entity.x + ((entity.width - entity.reg_x) * entity.scale_x);
+            let min_x = x1.min(x2);
+            let max_x = x1.max(x2);
             
-            if mouse_x >= entity.x - half_width && 
-               mouse_x <= entity.x + half_width && 
-               mouse_y >= entity.y - half_height && 
-               mouse_y <= entity.y + half_height {
+            let y1 = entity.y + (entity.reg_y * entity.scale_y);
+            let y2 = entity.y - ((entity.height - entity.reg_y) * entity.scale_y);
+            let min_y = y1.min(y2);
+            let max_y = y1.max(y2);
+            
+            if mouse_x >= min_x && mouse_x <= max_x && 
+               mouse_y >= min_y && mouse_y <= max_y {
                 clicked_entities.push(entity.id);
             }
         }

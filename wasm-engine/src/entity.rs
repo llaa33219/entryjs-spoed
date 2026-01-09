@@ -18,6 +18,8 @@ pub struct Entity {
     pub scale_y: f64,
     pub width: f64,
     pub height: f64,
+    pub reg_x: f64,
+    pub reg_y: f64,
     
     // Visibility
     pub visible: bool,
@@ -60,6 +62,8 @@ struct EntitySnapshot {
     direction: f64,
     scale_x: f64,
     scale_y: f64,
+    reg_x: f64,
+    reg_y: f64,
     visible: bool,
     current_picture_id: Option<String>,
     brightness: f64,
@@ -94,6 +98,8 @@ impl Entity {
             scale_y: entity_data.and_then(|e| e.scale_y).unwrap_or(1.0),
             width: entity_data.and_then(|e| e.width).unwrap_or(100.0),
             height: entity_data.and_then(|e| e.height).unwrap_or(100.0),
+            reg_x: entity_data.and_then(|e| e.reg_x).unwrap_or(50.0),
+            reg_y: entity_data.and_then(|e| e.reg_y).unwrap_or(50.0),
             
             visible: entity_data.and_then(|e| e.visible).unwrap_or(true),
             
@@ -130,6 +136,8 @@ impl Entity {
             direction: self.direction,
             scale_x: self.scale_x,
             scale_y: self.scale_y,
+            reg_x: self.reg_x,
+            reg_y: self.reg_y,
             visible: self.visible,
             current_picture_id: self.current_picture_id.clone(),
             brightness: self.brightness,
@@ -347,6 +355,8 @@ mod tests {
             scale_y: 1.0,
             width: 100.0,
             height: 100.0,
+            reg_x: 50.0,
+            reg_y: 50.0,
             visible: true,
             current_picture_id: None,
             pictures: vec!["pic1".to_string(), "pic2".to_string()],

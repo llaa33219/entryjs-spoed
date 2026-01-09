@@ -44,6 +44,8 @@ pub struct Executor {
     cached_entity_scale_y: f64,
     cached_entity_width: f64,
     cached_entity_height: f64,
+    cached_entity_reg_x: f64,
+    cached_entity_reg_y: f64,
     
     // Input state (set from JavaScript)
     pub cached_mouse_x: f64,
@@ -89,6 +91,8 @@ impl Executor {
             cached_entity_scale_y: 1.0,
             cached_entity_width: 0.0,
             cached_entity_height: 0.0,
+            cached_entity_reg_x: 0.0,
+            cached_entity_reg_y: 0.0,
             
             cached_mouse_x: 0.0,
             cached_mouse_y: 0.0,
@@ -118,6 +122,8 @@ impl Executor {
             self.cached_entity_scale_y = e.scale_y;
             self.cached_entity_width = e.width;
             self.cached_entity_height = e.height;
+            self.cached_entity_reg_x = e.reg_x;
+            self.cached_entity_reg_y = e.reg_y;
         }
     }
     
@@ -1990,9 +1996,18 @@ impl Executor {
                                         let my = self.cached_mouse_y;
                                         let x = self.cached_entity_x;
                                         let y = self.cached_entity_y;
-                                        let half_width = self.cached_entity_width * self.cached_entity_scale_x.abs() / 2.0; 
-                                        let half_height = self.cached_entity_height * self.cached_entity_scale_y.abs() / 2.0;
-                                        let touching = mx >= x - half_width && mx <= x + half_width && my >= y - half_height && my <= y + half_height;
+                                        
+                                        let x1 = x - (self.cached_entity_reg_x * self.cached_entity_scale_x);
+                                        let x2 = x + ((self.cached_entity_width - self.cached_entity_reg_x) * self.cached_entity_scale_x);
+                                        let min_x = x1.min(x2);
+                                        let max_x = x1.max(x2);
+                                        
+                                        let y1 = y + (self.cached_entity_reg_y * self.cached_entity_scale_y);
+                                        let y2 = y - ((self.cached_entity_height - self.cached_entity_reg_y) * self.cached_entity_scale_y);
+                                        let min_y = y1.min(y2);
+                                        let max_y = y1.max(y2);
+                                        
+                                        let touching = mx >= min_x && mx <= max_x && my >= min_y && my <= max_y;
                                         value_stack.push(Value::Bool(clicked && touching));
                                     }
                                     "is_included_in_list" => {
@@ -2201,21 +2216,28 @@ impl Executor {
             }
             "reach_something" => {
                 let target = get_param_str(1);
-                let half_width = self.cached_entity_width * self.cached_entity_scale_x.abs() / 2.0;
-                let half_height = self.cached_entity_height * self.cached_entity_scale_y.abs() / 2.0;
                 let x = self.cached_entity_x;
                 let y = self.cached_entity_y;
+                let x1 = x - (self.cached_entity_reg_x * self.cached_entity_scale_x);
+                let x2 = x + ((self.cached_entity_width - self.cached_entity_reg_x) * self.cached_entity_scale_x);
+                let min_x = x1.min(x2);
+                let max_x = x1.max(x2);
+                
+                let y1 = y + (self.cached_entity_reg_y * self.cached_entity_scale_y);
+                let y2 = y - ((self.cached_entity_height - self.cached_entity_reg_y) * self.cached_entity_scale_y);
+                let min_y = y1.min(y2);
+                let max_y = y1.max(y2);
                 
                 let result = match target.as_str() {
-                    "wall" => x - half_width <= -240.0 || x + half_width >= 240.0 || y + half_height >= 180.0 || y - half_height <= -180.0,
-                    "wall_up" => y + half_height >= 180.0,
-                    "wall_down" => y - half_height <= -180.0,
-                    "wall_left" => x - half_width <= -240.0,
-                    "wall_right" => x + half_width >= 240.0,
+                    "wall" => min_x <= -240.0 || max_x >= 240.0 || max_y >= 135.0 || min_y <= -135.0,
+                    "wall_up" => max_y >= 135.0,
+                    "wall_down" => min_y <= -135.0,
+                    "wall_left" => min_x <= -240.0,
+                    "wall_right" => max_x >= 240.0,
                     "mouse" => {
                         let mx = self.cached_mouse_x;
                         let my = self.cached_mouse_y;
-                        mx >= x - half_width && mx <= x + half_width && my >= y - half_height && my <= y + half_height
+                        mx >= min_x && mx <= max_x && my >= min_y && my <= max_y
                     }
                     _ => false,
                 };
