@@ -1405,6 +1405,7 @@ impl Executor {
             "start_drawing" => {
                 if let Some(e) = entity {
                     e.brush_down = true;
+                    e.frame_brush_path.push((e.x, e.y));
                     js_actions.push(JsAction::StartDrawing {
                         entity_id: self.entity_idx,
                         x: e.x,
@@ -1427,6 +1428,7 @@ impl Executor {
             "start_fill" => {
                 if let Some(e) = entity {
                     e.fill_down = true;
+                    e.frame_fill_path.push((e.x, e.y));
                     js_actions.push(JsAction::StartFill {
                         entity_id: self.entity_idx,
                         x: e.x,
@@ -1686,7 +1688,6 @@ impl Executor {
     fn accumulate_brush_and_fill_path(&self, entity: &mut Entity) {
         if entity.brush_down {
             entity.frame_brush_path.push((entity.x, entity.y));
-            web_sys::console::log_1(&format!("accumulate: ({}, {}), stack_depth: {}", entity.x, entity.y, self.call_stack.len()).into());
         }
         if entity.fill_down {
             entity.frame_fill_path.push((entity.x, entity.y));
