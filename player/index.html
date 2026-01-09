@@ -2203,11 +2203,39 @@
                     this.canvas.addEventListener('mousedown', (e) => {
                         this.mouseClicked = true;
                         this.updateMousePosition(e);
+
+                        if (this.isWasmEngineValid()) {
+                            // Update mouse position in WASM before firing click event
+                            // This ensures the click happens at the correct coordinates
+                            try {
+                                this.wasmEngine.update_mouse(
+                                    this.mouseX,
+                                    this.mouseY,
+                                    this.mouseClicked
+                                );
+                                this.wasmEngine.fire_mouse_clicked();
+                            } catch (err) {
+                                console.warn('WASM mouse click error:', err);
+                            }
+                        }
                     });
 
                     this.canvas.addEventListener('mouseup', (e) => {
                         this.mouseClicked = false;
                         this.updateMousePosition(e);
+
+                        if (this.isWasmEngineValid()) {
+                            try {
+                                this.wasmEngine.update_mouse(
+                                    this.mouseX,
+                                    this.mouseY,
+                                    this.mouseClicked
+                                );
+                                this.wasmEngine.fire_mouse_click_cancled();
+                            } catch (err) {
+                                console.warn('WASM mouse release error:', err);
+                            }
+                        }
                     });
 
                     this.canvas.addEventListener('mouseleave', (e) => {
@@ -2221,6 +2249,19 @@
                         if (e.touches.length > 0) {
                             this.updateTouchPosition(e.touches[0]);
                         }
+
+                        if (this.isWasmEngineValid()) {
+                            try {
+                                this.wasmEngine.update_mouse(
+                                    this.mouseX,
+                                    this.mouseY,
+                                    this.mouseClicked
+                                );
+                                this.wasmEngine.fire_mouse_clicked();
+                            } catch (err) {
+                                console.warn('WASM touch start error:', err);
+                            }
+                        }
                     });
 
                     this.canvas.addEventListener('touchmove', (e) => {
@@ -2233,6 +2274,19 @@
                     this.canvas.addEventListener('touchend', (e) => {
                         e.preventDefault();
                         this.mouseClicked = false;
+
+                        if (this.isWasmEngineValid()) {
+                            try {
+                                this.wasmEngine.update_mouse(
+                                    this.mouseX,
+                                    this.mouseY,
+                                    this.mouseClicked
+                                );
+                                this.wasmEngine.fire_mouse_click_cancled();
+                            } catch (err) {
+                                console.warn('WASM touch end error:', err);
+                            }
+                        }
                     });
                 }
 
