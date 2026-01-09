@@ -480,13 +480,17 @@ impl WasmEngine {
                                             if first_block.block_type == "when_message_cast" {
                                                 if let Some(params) = &first_block.params {
                                                     if let Some(msg_param) = params.first() {
-                                                        let matches = if let Some(s) = msg_param.as_str() {
-                                                            s == message_id
+                                                        let param_str = if let Some(s) = msg_param.as_str() {
+                                                            s.to_string()
                                                         } else if let Some(n) = msg_param.as_f64() {
-                                                            n.to_string() == *message_id
+                                                            n.to_string()
                                                         } else {
-                                                            false
+                                                            String::new()
                                                         };
+                                                        
+                                                        web_sys::console::log_1(&format!("[Engine] Comparing incoming '{}' vs block param '{}'", message_id, param_str).into());
+
+                                                        let matches = param_str == *message_id;
                                                         
                                                         if matches {
                                                             web_sys::console::log_1(&format!("[Engine] Found matching handler in entity {}", entity_idx).into());
