@@ -2008,6 +2008,14 @@ impl Executor {
                                         let max_y = y1.max(y2);
                                         
                                         let touching = mx >= min_x && mx <= max_x && my >= min_y && my <= max_y;
+                                        
+                                        if clicked {
+                                             web_sys::console::log_1(&format!(
+                                                "is_object_clicked Check: Mouse({},{}) vs Entity[X:{:.1}~{:.1}, Y:{:.1}~{:.1}] => Touching: {}", 
+                                                mx, my, min_x, max_x, min_y, max_y, touching
+                                            ).into());
+                                        }
+                                        
                                         value_stack.push(Value::Bool(clicked && touching));
                                     }
                                     "is_included_in_list" => {

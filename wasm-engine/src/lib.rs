@@ -722,6 +722,8 @@ impl WasmEngine {
         let mouse_x = inner.mouse_x;
         let mouse_y = inner.mouse_y;
         
+        web_sys::console::log_1(&format!("Mouse Click: ({}, {})", mouse_x, mouse_y).into());
+        
         let mut clicked_entities = Vec::new();
         
         for entity in &inner.entities {
@@ -739,8 +741,15 @@ impl WasmEngine {
             let min_y = y1.min(y2);
             let max_y = y1.max(y2);
             
+            web_sys::console::log_1(&format!(
+               "Entity {}: x={}, y={}, w={}, h={}, regX={}, regY={}, scaleX={}, scaleY={} => X[{:.1}, {:.1}], Y[{:.1}, {:.1}]", 
+               entity.id, entity.x, entity.y, entity.width, entity.height, entity.reg_x, entity.reg_y, entity.scale_x, entity.scale_y,
+               min_x, max_x, min_y, max_y
+            ).into());
+            
             if mouse_x >= min_x && mouse_x <= max_x && 
                mouse_y >= min_y && mouse_y <= max_y {
+                web_sys::console::log_1(&format!("HIT Entity {}", entity.id).into());
                 clicked_entities.push(entity.id);
             }
         }

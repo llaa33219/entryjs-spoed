@@ -410,6 +410,9 @@ function __wbg_get_imports() {
         const ret = arg0.getSeconds();
         return ret;
     };
+    imports.wbg.__wbg_log_1d990106d99dacb7 = function(arg0) {
+        console.log(arg0);
+    };
     imports.wbg.__wbg_new_0_23cedd11d9b40c9d = function() {
         const ret = new Date();
         return ret;
