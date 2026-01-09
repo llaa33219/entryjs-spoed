@@ -479,18 +479,16 @@ impl WasmEngine {
                                         if let Some(first_block) = thread.first() {
                                             if first_block.block_type == "when_message_cast" {
                                                 if let Some(params) = &first_block.params {
+                                                    web_sys::console::log_1(&format!("[Engine] Checking 'when_message_cast' block. Incoming ID: '{}', Params: {:?}", message_id, params).into());
+                                                    
                                                     if let Some(msg_param) = params.first() {
-                                                        let param_str = if let Some(s) = msg_param.as_str() {
-                                                            s.to_string()
+                                                        let matches = if let Some(s) = msg_param.as_str() {
+                                                            s == message_id
                                                         } else if let Some(n) = msg_param.as_f64() {
-                                                            n.to_string()
+                                                            n.to_string() == *message_id
                                                         } else {
-                                                            String::new()
+                                                            false 
                                                         };
-                                                        
-                                                        web_sys::console::log_1(&format!("[Engine] Comparing incoming '{}' vs block param '{}'", message_id, param_str).into());
-
-                                                        let matches = param_str == *message_id;
                                                         
                                                         if matches {
                                                             web_sys::console::log_1(&format!("[Engine] Found matching handler in entity {}", entity_idx).into());
