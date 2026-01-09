@@ -631,7 +631,11 @@ impl WasmEngine {
                                         entity_idx,
                                         thread.clone(),
                                     );
-                                    inner.executors.push(executor);
+                                    let mut exec_with_state = executor;
+                                    exec_with_state.cached_mouse_x = inner.mouse_x;
+                                    exec_with_state.cached_mouse_y = inner.mouse_y;
+                                    exec_with_state.mouse_clicked = inner.mouse_clicked;
+                                    inner.executors.push(exec_with_state);
                                 }
                             }
                         }
@@ -684,7 +688,11 @@ impl WasmEngine {
                                                     entity_idx,
                                                     thread.clone(),
                                                 );
-                                                inner.executors.push(executor);
+                                                let mut exec_with_state = executor;
+                                                exec_with_state.cached_mouse_x = inner.mouse_x;
+                                                exec_with_state.cached_mouse_y = inner.mouse_y;
+                                                exec_with_state.mouse_clicked = inner.mouse_clicked;
+                                                inner.executors.push(exec_with_state);
                                             }
                                         }
                                     }
@@ -805,7 +813,11 @@ impl WasmEngine {
                                                         entity_idx,
                                                         thread.clone(),
                                                     );
-                                                    inner.executors.push(executor);
+                                                    let mut exec_with_state = executor;
+                                                    exec_with_state.cached_mouse_x = inner.mouse_x;
+                                                    exec_with_state.cached_mouse_y = inner.mouse_y;
+                                                    exec_with_state.mouse_clicked = inner.mouse_clicked;
+                                                    inner.executors.push(exec_with_state);
                                                 }
                                             }
                                         }
@@ -841,7 +853,11 @@ impl WasmEngine {
                                         entity_id,
                                         thread.clone(),
                                     );
-                                    inner.executors.push(executor);
+                                    let mut exec_with_state = executor;
+                                    exec_with_state.cached_mouse_x = inner.mouse_x;
+                                    exec_with_state.cached_mouse_y = inner.mouse_y;
+                                    exec_with_state.mouse_clicked = inner.mouse_clicked;
+                                    inner.executors.push(exec_with_state);
                                 }
                             }
                         }
@@ -873,7 +889,11 @@ impl WasmEngine {
                                         entity_id,
                                         thread.clone(),
                                     );
-                                    inner.executors.push(executor);
+                                    let mut exec_with_state = executor;
+                                    exec_with_state.cached_mouse_x = inner.mouse_x;
+                                    exec_with_state.cached_mouse_y = inner.mouse_y;
+                                    exec_with_state.mouse_clicked = inner.mouse_clicked;
+                                    inner.executors.push(exec_with_state);
                                 }
                             }
                         }

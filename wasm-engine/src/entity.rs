@@ -98,8 +98,8 @@ impl Entity {
             scale_y: entity_data.and_then(|e| e.scale_y).unwrap_or(1.0),
             width: entity_data.and_then(|e| e.width).unwrap_or(100.0),
             height: entity_data.and_then(|e| e.height).unwrap_or(100.0),
-            reg_x: entity_data.and_then(|e| e.reg_x).unwrap_or(50.0),
-            reg_y: entity_data.and_then(|e| e.reg_y).unwrap_or(50.0),
+            reg_x: entity_data.and_then(|e| e.reg_x).or_else(|| entity_data.and_then(|e| e.width).map(|w| w / 2.0)).unwrap_or(50.0),
+            reg_y: entity_data.and_then(|e| e.reg_y).or_else(|| entity_data.and_then(|e| e.height).map(|h| h / 2.0)).unwrap_or(50.0),
             
             visible: entity_data.and_then(|e| e.visible).unwrap_or(true),
             
