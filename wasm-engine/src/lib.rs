@@ -470,7 +470,6 @@ impl WasmEngine {
             for i in initial_action_count..pending_js_actions.len() {
                 let action = &pending_js_actions[i];
                 if let JsAction::MessageCast { message_id } | JsAction::MessageCastWait { message_id } = action {
-                    web_sys::console::log_1(&format!("[Engine] Processing MessageCast action for id: {}", message_id).into());
                     let mut executors_for_msg = Self::find_executors_for_message(&inner, message_id);
                     new_executors.append(&mut executors_for_msg);
                 }
@@ -953,7 +952,6 @@ impl WasmEngine {
                             if let Some(first_block) = thread.first() {
                                 if first_block.block_type == "when_message_cast" {
                                     if Self::check_message_match(first_block, message_id) {
-                                        web_sys::console::log_1(&format!("[Engine] Found matching handler in entity {}", entity_idx).into());
                                         let executor = Executor::new(
                                             entity_idx,
                                             thread.clone(),

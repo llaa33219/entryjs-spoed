@@ -1068,14 +1068,12 @@ impl Executor {
             
             "message_cast" => {
                 let message_id = self.get_param_string(block, 0, variables);
-                web_sys::console::log_1(&format!("[Executor] Executing message_cast: {}", message_id).into());
                 js_actions.push(JsAction::MessageCast { message_id });
                 ExecuteResult::Continue
             }
             
             "message_cast_wait" => {
                 let message_id = self.get_param_string(block, 0, variables);
-                web_sys::console::log_1(&format!("[Executor] Executing message_cast_wait: {}", message_id).into());
                 js_actions.push(JsAction::MessageCastWait { message_id });
                 // This would need to wait for message handlers to complete
                 ExecuteResult::Continue
@@ -1572,7 +1570,15 @@ impl Executor {
             "set_variable" => {
                 let var_id = self.get_param_string(block, 0, variables);
                 let value = self.get_param_value(block, 1, variables);
-                variables.insert(var_id, value);
+                
+                if self.func_params.contains_key(&var_id) {
+                    self.func_params.insert(var_id, value);
+                } else if variables.contains_key(&var_id) {
+                    variables.insert(var_id, value);
+                } else {
+                    self.func_params.insert(var_id, value);
+            }
+
                 ExecuteResult::Continue
             }
             
@@ -1586,7 +1592,11 @@ impl Executor {
             "change_variable" => {
                 let var_id = self.get_param_string(block, 0, variables);
                 let delta = self.get_param_number(block, 1, variables);
-                if let Some(var) = variables.get_mut(&var_id) {
+                
+                if let Some(var) = self.func_params.get_mut(&var_id) {
+                    let current = var.as_number();
+                    *var = Value::Number(current + delta);
+                } else if let Some(var) = variables.get_mut(&var_id) {
                     let current = var.as_number();
                     *var = Value::Number(current + delta);
                 }
@@ -1794,6 +1804,9 @@ impl Executor {
                     if block_type == "get_variable" {
                         if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
                             if let Some(var_id) = params.first().and_then(|v| v.as_str()) {
+                                if let Some(val) = self.func_params.get(var_id) {
+                                    return val.clone();
+                                }
                                 return variables.get(var_id).cloned().unwrap_or(Value::Number(0.0));
                             }
                         }
@@ -1881,7 +1894,11 @@ impl Executor {
                                     "False" => value_stack.push(Value::Bool(false)),
                                     "get_variable" => {
                                         if let Some(var_id) = params.and_then(|p| p.first()).and_then(|v| v.as_str()) {
-                                            let val = variables.get(var_id).cloned().unwrap_or(Value::Number(0.0));
+                                            let val = if let Some(local) = self.func_params.get(var_id) {
+                                                local.clone()
+                                            } else {
+                                                variables.get(var_id).cloned().unwrap_or(Value::Number(0.0))
+                                            };
                                             value_stack.push(val);
                                         } else {
                                             value_stack.push(Value::Number(0.0));
