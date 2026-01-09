@@ -1619,10 +1619,15 @@
                 }
 
                 handleBrushPath(entityId, points) {
+                    console.log('handleBrushPath called:', entityId, points);
                     const entityKey = this.getEntityId(entityId);
-                    if (entityKey === null) return;
+                    if (entityKey === null) {
+                        console.log('entityKey is null');
+                        return;
+                    }
                     const brushState = this.getBrushState(entityKey);
                     const ctx = this.getBrushCtx(entityId);
+                    console.log('brushState:', brushState, 'ctx:', ctx);
 
                     if (points.length === 0) return;
 
@@ -1634,15 +1639,18 @@
                     ctx.globalAlpha = 1 - brushState.opacity / 100;
 
                     if (brushState.lastX !== null && brushState.lastY !== null) {
+                        console.log('moveTo from lastX/Y:', brushState.lastX, brushState.lastY);
                         ctx.moveTo(brushState.lastX, brushState.lastY);
                     } else {
                         const [firstX, firstY] = points[0];
+                        console.log('moveTo from first point:', 240 + firstX, 180 - firstY);
                         ctx.moveTo(240 + firstX, 180 - firstY);
                     }
 
                     for (const [x, y] of points) {
                         const screenX = 240 + x;
                         const screenY = 180 - y;
+                        console.log('lineTo:', screenX, screenY);
                         ctx.lineTo(screenX, screenY);
                     }
                     ctx.stroke();
@@ -1651,6 +1659,7 @@
                     const lastPoint = points[points.length - 1];
                     brushState.lastX = 240 + lastPoint[0];
                     brushState.lastY = 180 - lastPoint[1];
+                    console.log('updated lastX/Y:', brushState.lastX, brushState.lastY);
                 }
 
                 handleFillPath(entityId, points) {
