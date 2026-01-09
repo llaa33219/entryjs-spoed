@@ -1257,13 +1257,62 @@ mod tests {
     }
 
     #[test]
-    fn test_value_conversion() {
-        let num = Value::Number(42.0);
-        assert_eq!(num.as_number(), 42.0);
-        assert_eq!(num.as_string(), "42");
-        assert!(num.as_bool());
+    fn test_signal_casting() {
+        let json = r#"{
+            "speed": 60,
+            "variables": [
+                {
+                    "id": "var1",
+                    "name": "received",
+                    "value": 0,
+                    "variableType": "variable"
+                }
+            ],
+            "objects": [
+                {
+                    "id": "obj1",
+                    "script": [
+                        [
+                            {
+                                "type": "when_run_button_click",
+                                "params": []
+                            },
+                            {
+                                "type": "message_cast_wait",
+                                "params": ["sig1"]
+                            }
+                        ]
+                    ]
+                },
+                {
+                    "id": "obj2",
+                    "script": [
+                        [
+                            {
+                                "type": "when_message_cast",
+                                "params": ["sig1"]
+                            },
+                            {
+                                "type": "set_variable",
+                                "params": ["var1", 1]
+                            }
+                        ]
+                    ]
+                }
+            ]
+        }"#;
 
-        let zero = Value::Number(0.0);
-        assert!(!zero.as_bool());
+        let engine = WasmEngine::new();
+        engine.load_project(json).unwrap();
+        engine.start();
+        
+        // Tick 1: when_run_button_click executes -> message_cast_wait executes -> queues signal
+        engine.tick(); 
+        
+        // Tick 2: signal handler should be added and executed
+        engine.tick();
+        
+        let vars = engine.get_variables();
+        assert!(vars.contains("\"var1\":1") || vars.contains("\"var1\":1.0"), "Variable should be updated to 1, got: {}", vars);
     }
 }

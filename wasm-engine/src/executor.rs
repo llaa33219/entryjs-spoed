@@ -568,7 +568,7 @@ impl Executor {
                 // Move to another object or mouse position
                 // This requires knowing target entity position - for now, move to mouse
                 if let Some(e) = entity {
-                    let target = self.get_param_string(block, 0);
+                    let target = self.get_param_string(block, 0, variables);
                     if target == "mouse" {
                         e.x = self.cached_mouse_x;
                         e.y = self.cached_mouse_y;
@@ -581,7 +581,7 @@ impl Executor {
             "see_angle_object" => {
                 // Look at another object or mouse
                 if let Some(e) = entity {
-                    let target = self.get_param_string(block, 0);
+                    let target = self.get_param_string(block, 0, variables);
                     let target_x: f64;
                     let target_y: f64;
                     
@@ -636,7 +636,7 @@ impl Executor {
                         return ExecuteResult::Wait;
                     } else {
                         let time_value = self.get_param_number(block, 0, variables);
-                        let target = self.get_param_string(block, 1);
+                        let target = self.get_param_string(block, 1, variables);
                         
                         let (target_x, target_y) = if target == "mouse" {
                             (self.cached_mouse_x, self.cached_mouse_y)
@@ -699,7 +699,7 @@ impl Executor {
             "change_to_some_shape" => {
                 if let Some(e) = entity {
                     // Get the picture ID from params
-                    let picture_id = self.get_param_string(block, 0);
+                    let picture_id = self.get_param_string(block, 0, variables);
                     if !picture_id.is_empty() {
                         e.set_picture(&picture_id);
                     }
@@ -709,7 +709,7 @@ impl Executor {
             
             "set_effect" => {
                 if let Some(e) = entity {
-                    let effect = self.get_param_string(block, 0);
+                    let effect = self.get_param_string(block, 0, variables);
                     let value = self.get_param_number(block, 1, variables);
                     e.set_effect(&effect, value);
                 }
@@ -718,7 +718,7 @@ impl Executor {
             
             "change_effect" => {
                 if let Some(e) = entity {
-                    let effect = self.get_param_string(block, 0);
+                    let effect = self.get_param_string(block, 0, variables);
                     let value = self.get_param_number(block, 1, variables);
                     e.change_effect(&effect, value);
                 }
@@ -735,7 +735,7 @@ impl Executor {
             "add_effect_amount" => {
                 // This is different from change_effect - it adds to different effect types
                 if let Some(e) = entity {
-                    let effect = self.get_param_string(block, 0);
+                    let effect = self.get_param_string(block, 0, variables);
                     let value = self.get_param_number(block, 1, variables);
                     // In Entry.js, add_effect_amount works with color/brightness/transparency
                     // using a different mapping than set_effect
@@ -759,7 +759,7 @@ impl Executor {
             "change_effect_amount" => {
                 // This sets the effect to an absolute value
                 if let Some(e) = entity {
-                    let effect = self.get_param_string(block, 0);
+                    let effect = self.get_param_string(block, 0, variables);
                     let value = self.get_param_number(block, 1, variables);
                     match effect.as_str() {
                         "color" => {
@@ -809,7 +809,7 @@ impl Executor {
             
             "change_object_index" => {
                 // Change z-index (layer order) - handled by JavaScript side
-                let location = self.get_param_string(block, 0);
+                let location = self.get_param_string(block, 0, variables);
                 js_actions.push(JsAction::ChangeObjectIndex {
                     entity_id: self.entity_idx,
                     location,
@@ -825,9 +825,9 @@ impl Executor {
                     
                     // Get mode (speak/think) - different param index for dialog vs dialog_time
                     let mode = if block_type == "dialog_time" {
-                        self.get_param_string(block, 2)  // dialog_time: params[2] is option
+                        self.get_param_string(block, 2, variables)  // dialog_time: params[2] is option
                     } else {
-                        self.get_param_string(block, 1)  // dialog: params[1] is option
+                        self.get_param_string(block, 1, variables)  // dialog: params[1] is option
                     };
                     let mode = if mode.is_empty() { "speak".to_string() } else { mode };
                     
@@ -992,7 +992,7 @@ impl Executor {
             "repeat_while_true" => {
                 // Get the condition and option (until/while)
                 let condition = self.get_param_bool(block, 0, variables);
-                let option = self.get_param_string(block, 1);
+                let option = self.get_param_string(block, 1, variables);
                 
                 // If option is "until", invert the condition
                 // "until" means loop UNTIL condition becomes true (loop while condition is false)
@@ -1046,7 +1046,7 @@ impl Executor {
             }
             
             "create_clone" => {
-                let target = self.get_param_string(block, 0);
+                let target = self.get_param_string(block, 0, variables);
                 js_actions.push(JsAction::CreateClone {
                     entity_id: self.entity_idx,
                     target,
@@ -1067,26 +1067,26 @@ impl Executor {
             }
             
             "message_cast" => {
-                let message_id = self.get_param_string(block, 0);
+                let message_id = self.get_param_string(block, 0, variables);
                 js_actions.push(JsAction::MessageCast { message_id });
                 ExecuteResult::Continue
             }
             
             "message_cast_wait" => {
-                let message_id = self.get_param_string(block, 0);
+                let message_id = self.get_param_string(block, 0, variables);
                 js_actions.push(JsAction::MessageCastWait { message_id });
                 // This would need to wait for message handlers to complete
                 ExecuteResult::Continue
             }
             
             "start_scene" => {
-                let scene_id = self.get_param_string(block, 0);
+                let scene_id = self.get_param_string(block, 0, variables);
                 js_actions.push(JsAction::StartScene { scene_id });
                 ExecuteResult::End
             }
             
             "start_neighbor_scene" => {
-                let direction = self.get_param_string(block, 0);
+                let direction = self.get_param_string(block, 0, variables);
                 if direction == "next" {
                     js_actions.push(JsAction::StartNextScene);
                 } else {
@@ -1098,7 +1098,7 @@ impl Executor {
             // === List blocks ===
             "add_value_to_list" => {
                 // Lists are handled via variables HashMap for now
-                let list_id = self.get_param_string(block, 1);
+                let list_id = self.get_param_string(block, 1, variables);
                 let value = self.get_param_value(block, 0, variables);
                 
                 if let Some(list_var) = variables.get_mut(&list_id) {
@@ -1110,7 +1110,7 @@ impl Executor {
             }
             
             "remove_value_from_list" => {
-                let list_id = self.get_param_string(block, 1);
+                let list_id = self.get_param_string(block, 1, variables);
                 let index_f64 = self.get_param_number(block, 0, variables);
                 
                 if index_f64.is_finite() && index_f64 >= 1.0 {
@@ -1131,7 +1131,7 @@ impl Executor {
             }
             
             "insert_value_to_list" => {
-                let list_id = self.get_param_string(block, 1);
+                let list_id = self.get_param_string(block, 1, variables);
                 let value = self.get_param_value(block, 0, variables);
                 let index_f64 = self.get_param_number(block, 2, variables);
                 
@@ -1150,7 +1150,7 @@ impl Executor {
             }
             
             "change_value_list_index" => {
-                let list_id = self.get_param_string(block, 0);
+                let list_id = self.get_param_string(block, 0, variables);
                 let index_f64 = self.get_param_number(block, 1, variables);
                 let value = self.get_param_value(block, 2, variables);
                 
@@ -1170,25 +1170,25 @@ impl Executor {
             }
             
             "show_variable" => {
-                let variable_id = self.get_param_string(block, 0);
+                let variable_id = self.get_param_string(block, 0, variables);
                 js_actions.push(JsAction::ShowVariable { variable_id });
                 ExecuteResult::Continue
             }
             
             "hide_variable" => {
-                let variable_id = self.get_param_string(block, 0);
+                let variable_id = self.get_param_string(block, 0, variables);
                 js_actions.push(JsAction::HideVariable { variable_id });
                 ExecuteResult::Continue
             }
             
             "show_list" => {
-                let list_id = self.get_param_string(block, 0);
+                let list_id = self.get_param_string(block, 0, variables);
                 js_actions.push(JsAction::ShowList { list_id });
                 ExecuteResult::Continue
             }
             
             "hide_list" => {
-                let list_id = self.get_param_string(block, 0);
+                let list_id = self.get_param_string(block, 0, variables);
                 js_actions.push(JsAction::HideList { list_id });
                 ExecuteResult::Continue
             }
@@ -1206,7 +1206,7 @@ impl Executor {
             
             // === Sound blocks (require JS Audio handling) ===
             "sound_something" => {
-                let sound_id = self.get_param_string(block, 0);
+                let sound_id = self.get_param_string(block, 0, variables);
                 js_actions.push(JsAction::PlaySound {
                     entity_id: self.entity_idx,
                     sound_id,
@@ -1215,7 +1215,7 @@ impl Executor {
             }
             
             "sound_something_wait" => {
-                let sound_id = self.get_param_string(block, 0);
+                let sound_id = self.get_param_string(block, 0, variables);
                 js_actions.push(JsAction::PlaySoundWait {
                     entity_id: self.entity_idx,
                     sound_id,
@@ -1225,7 +1225,7 @@ impl Executor {
             }
             
             "sound_something_second" => {
-                let sound_id = self.get_param_string(block, 0);
+                let sound_id = self.get_param_string(block, 0, variables);
                 let start_second = self.get_param_number(block, 1, variables);
                 js_actions.push(JsAction::PlaySoundFromSecond {
                     entity_id: self.entity_idx,
@@ -1236,7 +1236,7 @@ impl Executor {
             }
             
             "sound_something_with_block" => {
-                let sound_id = self.get_param_string(block, 0);
+                let sound_id = self.get_param_string(block, 0, variables);
                 js_actions.push(JsAction::PlaySound {
                     entity_id: self.entity_idx,
                     sound_id,
@@ -1245,7 +1245,7 @@ impl Executor {
             }
             
             "sound_something_second_with_block" => {
-                let sound_id = self.get_param_string(block, 0);
+                let sound_id = self.get_param_string(block, 0, variables);
                 let duration = self.get_param_number(block, 1, variables);
                 js_actions.push(JsAction::PlaySoundDuration {
                     entity_id: self.entity_idx,
@@ -1256,7 +1256,7 @@ impl Executor {
             }
             
             "sound_something_wait_with_block" => {
-                let sound_id = self.get_param_string(block, 0);
+                let sound_id = self.get_param_string(block, 0, variables);
                 js_actions.push(JsAction::PlaySoundWait {
                     entity_id: self.entity_idx,
                     sound_id,
@@ -1266,7 +1266,7 @@ impl Executor {
             }
             
             "sound_something_second_wait_with_block" => {
-                let sound_id = self.get_param_string(block, 0);
+                let sound_id = self.get_param_string(block, 0, variables);
                 let duration = self.get_param_number(block, 1, variables);
                 js_actions.push(JsAction::PlaySoundDurationWait {
                     entity_id: self.entity_idx,
@@ -1278,7 +1278,7 @@ impl Executor {
             }
             
             "sound_from_to" => {
-                let sound_id = self.get_param_string(block, 0);
+                let sound_id = self.get_param_string(block, 0, variables);
                 let start = self.get_param_number(block, 1, variables);
                 let end = self.get_param_number(block, 2, variables);
                 js_actions.push(JsAction::PlaySoundFromTo {
@@ -1291,7 +1291,7 @@ impl Executor {
             }
             
             "sound_from_to_and_wait" => {
-                let sound_id = self.get_param_string(block, 0);
+                let sound_id = self.get_param_string(block, 0, variables);
                 let start = self.get_param_number(block, 1, variables);
                 let end = self.get_param_number(block, 2, variables);
                 js_actions.push(JsAction::PlaySoundFromToWait {
@@ -1315,7 +1315,7 @@ impl Executor {
             }
             
             "play_bgm" => {
-                let sound_id = self.get_param_string(block, 0);
+                let sound_id = self.get_param_string(block, 0, variables);
                 js_actions.push(JsAction::PlayBGM {
                     entity_id: self.entity_idx,
                     sound_id,
@@ -1354,13 +1354,13 @@ impl Executor {
             
             // === Timer blocks ===
             "choose_project_timer_action" => {
-                let action = self.get_param_string(block, 1);
+                let action = self.get_param_string(block, 1, variables);
                 js_actions.push(JsAction::TimerAction { action });
                 ExecuteResult::Continue
             }
             
             "set_visible_project_timer" => {
-                let action = self.get_param_string(block, 1);
+                let action = self.get_param_string(block, 1, variables);
                 let visible = action == "SHOW" || action == "show";
                 js_actions.push(JsAction::SetTimerVisible { visible });
                 ExecuteResult::Continue
@@ -1383,7 +1383,7 @@ impl Executor {
             
             "set_brush_color" => {
                 // Color can be a direct string or a nested "color" block
-                let mut color = self.get_param_string(block, 0);
+                let mut color = self.get_param_string(block, 0, variables);
                 if color.is_empty() {
                     // Try evaluating as a nested block (e.g., color picker block)
                     let color_value = self.get_param_value(block, 0, variables);
@@ -1468,7 +1468,7 @@ impl Executor {
             
             "set_color" => {
                 // Color can be a direct string or a nested "color" block
-                let mut color = self.get_param_string(block, 0);
+                let mut color = self.get_param_string(block, 0, variables);
                 if color.is_empty() {
                     // Try evaluating as a nested block (e.g., color picker block)
                     let color_value = self.get_param_value(block, 0, variables);
@@ -1497,7 +1497,7 @@ impl Executor {
             
             "set_fill_color" => {
                 // Color can be a direct string or a nested "color" block
-                let mut color = self.get_param_string(block, 0);
+                let mut color = self.get_param_string(block, 0, variables);
                 if color.is_empty() {
                     // Try evaluating as a nested block (e.g., color picker block)
                     let color_value = self.get_param_value(block, 0, variables);
@@ -1547,7 +1547,7 @@ impl Executor {
             // === Additional Looks blocks ===
             "stretch_scale_size" => {
                 if let Some(e) = entity {
-                    let dimension = self.get_param_string(block, 0);
+                    let dimension = self.get_param_string(block, 0, variables);
                     let value = self.get_param_number(block, 1, variables);
                     if dimension == "WIDTH" {
                         e.scale_x += value / 100.0;
@@ -1568,21 +1568,21 @@ impl Executor {
 
             // === Variable blocks ===
             "set_variable" => {
-                let var_id = self.get_param_string(block, 0);
+                let var_id = self.get_param_string(block, 0, variables);
                 let value = self.get_param_value(block, 1, variables);
                 variables.insert(var_id, value);
                 ExecuteResult::Continue
             }
             
             "set_visible_answer" => {
-                let action = self.get_param_string(block, 0);
+                let action = self.get_param_string(block, 0, variables);
                 let visible = action == "SHOW" || action == "show";
                 js_actions.push(JsAction::SetAnswerVisible { visible });
                 ExecuteResult::Continue
             }
             
             "change_variable" => {
-                let var_id = self.get_param_string(block, 0);
+                let var_id = self.get_param_string(block, 0, variables);
                 let delta = self.get_param_number(block, 1, variables);
                 if let Some(var) = variables.get_mut(&var_id) {
                     let current = var.as_number();
@@ -1721,16 +1721,10 @@ impl Executor {
         0.0
     }
 
-    fn get_param_string(&self, block: &Block, index: usize) -> String {
+    fn get_param_string(&self, block: &Block, index: usize, variables: &HashMap<String, Value>) -> String {
         if let Some(params) = &block.params {
             if let Some(param) = params.get(index) {
-                if let Some(s) = param.as_str() {
-                    return s.to_string();
-                } else if let Some(n) = param.as_f64() {
-                    return n.to_string();
-                } else if let Some(b) = param.as_bool() {
-                    return b.to_string();
-                }
+                return Self::value_as_string(&self.evaluate_value(param, variables));
             }
         }
         String::new()
