@@ -396,6 +396,8 @@ impl WasmEngine {
         let mut pending_js_actions = std::mem::take(&mut inner.pending_js_actions);
         let functions_ref = &inner.functions;
         
+        let initial_action_count = pending_js_actions.len();
+        
         for (idx, executor) in executors.iter_mut().enumerate() {
             if inner.state != EngineState::Running || self.stop_requested.get() {
                 break;
@@ -460,6 +462,46 @@ impl WasmEngine {
         
         for idx in completed.into_iter().rev() {
             executors.remove(idx);
+        }
+        
+        if pending_js_actions.len() > initial_action_count {
+            let mut new_executors = Vec::new();
+            
+            for i in initial_action_count..pending_js_actions.len() {
+                if let JsAction::MessageCast { message_id } = &pending_js_actions[i] {
+                    if let Some(project) = &inner.project_data {
+                        if let Some(objects) = &project.objects {
+                            for (entity_idx, obj) in objects.iter().enumerate() {
+                                if let Some(scripts) = &obj.script {
+                                    for thread in scripts.iter() {
+                                        if let Some(first_block) = thread.first() {
+                                            if first_block.block_type == "when_message_cast" {
+                                                if let Some(params) = &first_block.params {
+                                                    if let Some(msg_param) = params.first() {
+                                                        let matches = msg_param.as_str().map_or(false, |s| s == message_id);
+                                                        if matches {
+                                                            let executor = Executor::new(
+                                                                entity_idx,
+                                                                thread.clone(),
+                                                            );
+                                                            let mut exec_with_state = executor;
+                                                            exec_with_state.cached_mouse_x = inner.mouse_x;
+                                                            exec_with_state.cached_mouse_y = inner.mouse_y;
+                                                            exec_with_state.mouse_clicked = inner.mouse_clicked;
+                                                            new_executors.push(exec_with_state);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            executors.append(&mut new_executors);
         }
         
         for entity in &mut entities {
@@ -722,8 +764,6 @@ impl WasmEngine {
         let mouse_x = inner.mouse_x;
         let mouse_y = inner.mouse_y;
         
-        web_sys::console::log_1(&format!("Mouse Click: ({}, {})", mouse_x, mouse_y).into());
-        
         let mut clicked_entities = Vec::new();
         
         for entity in &inner.entities {
@@ -741,15 +781,8 @@ impl WasmEngine {
             let min_y = y1.min(y2);
             let max_y = y1.max(y2);
             
-            web_sys::console::log_1(&format!(
-               "Entity {}: x={}, y={}, w={}, h={}, regX={}, regY={}, scaleX={}, scaleY={} => X[{:.1}, {:.1}], Y[{:.1}, {:.1}]", 
-               entity.id, entity.x, entity.y, entity.width, entity.height, entity.reg_x, entity.reg_y, entity.scale_x, entity.scale_y,
-               min_x, max_x, min_y, max_y
-            ).into());
-            
             if mouse_x >= min_x && mouse_x <= max_x && 
                mouse_y >= min_y && mouse_y <= max_y {
-                web_sys::console::log_1(&format!("HIT Entity {}", entity.id).into());
                 clicked_entities.push(entity.id);
             }
         }
