@@ -190,6 +190,9 @@
             // Image cache for sprites
             const imageCache = new Map();
 
+            // Constants
+            const RENDER_STRIDE = 16;
+
             // Brush drawing helper
             class BrushState {
                 constructor() {
@@ -223,6 +226,7 @@
 
                     // WASM initialization state
                     this.wasmInitialized = false;
+                    this.wasmMemory = null;
 
                     // Brush drawing state - per entity canvas layers
                     this.brushCanvases = new Map(); // entity_id -> canvas
@@ -235,6 +239,7 @@
                     this.currentSceneId = null; // Currently active scene ID
                     this.allObjects = []; // All objects from project (parsed)
                     this.sceneObjectsMap = new Map(); // sceneId -> array of objects
+                    this.dialogs = new Map(); // entityId -> { message, mode }
                 }
 
                 async initialize() {
@@ -244,7 +249,8 @@
                         // Initialize WASM (모듈이 로드된 경우에만)
                         if (wasmInit && WasmEngine) {
                             console.log('WASM init() 호출 중...');
-                            await wasmInit();
+                            const wasmInstance = await wasmInit();
+                            this.wasmMemory = wasmInstance.memory;
                             this.wasmEngine = new WasmEngine();
                             this.wasmInitialized = true;
                             console.log('WASM 엔진 인스턴스 생성 완료');
@@ -1398,6 +1404,16 @@
                             this.switchToPreviousScene();
                             break;
                         }
+                        case 'ShowDialog': {
+                            const { entity_id, message, mode } = data;
+                            this.dialogs.set(entity_id, { message, mode });
+                            break;
+                        }
+                        case 'RemoveDialog': {
+                            const { entity_id } = data;
+                            this.dialogs.delete(entity_id);
+                            break;
+                        }
                         default:
                             // Suppress unhandled action logs to prevent console flood
                             // Uncomment the following line for debugging:
@@ -1759,14 +1775,23 @@
 
                     if (this.isWasmEngineValid()) {
                         try {
-                            const renderData = this.wasmEngine.get_render_data();
-                            this.drawRenderData(renderData);
-                            this._renderErrorCount = 0;
+                            // Zero-copy rendering
+                            const ptr = this.wasmEngine.get_render_buffer_ptr();
+                            const len = this.wasmEngine.get_render_buffer_len();
+
+                            if (ptr && len > 0 && this.wasmMemory) {
+                                const buffer = new Float64Array(this.wasmMemory.buffer, ptr, len);
+                                this.drawRenderBuffer(buffer);
+                                this._renderErrorCount = 0;
+                            } else {
+                                // Fallback to JSON if buffer is empty/invalid but engine is valid?
+                                // Should not happen if everything is correct.
+                            }
                         } catch (e) {
                             this._renderErrorCount = (this._renderErrorCount || 0) + 1;
                             if (!this._renderDataErrorLogged) {
                                 this._renderDataErrorLogged = true;
-                                console.warn('get_render_data() 호출 실패:', e);
+                                console.warn('Render error:', e);
                             }
                             if (this._renderErrorCount >= 5) {
                                 console.error('WASM render 연속 실패, JS 폴백으로 전환');
@@ -1786,68 +1811,127 @@
                     }
                 }
 
-                drawRenderData(data) {
-                    if (!data) return;
+                drawRenderBuffer(buffer) {
+                    // 1. Create a map of entity_id -> buffer_offset
+                    const entityMap = new Map();
+                    const len = buffer.length;
+                    for (let i = 0; i < len; i += RENDER_STRIDE) {
+                        const id = buffer[i];
+                        entityMap.set(id, i);
+                    }
 
-                    try {
-                        const entities = JSON.parse(data);
-                        this.updateBrushDrawing(entities);
+                    // 2. Update brush states first
+                    for (let i = 0; i < len; i += RENDER_STRIDE) {
+                        const id = buffer[i];
+                        const brushDown = buffer[i + 10] > 0.5;
+                        // Color is handled by JsAction, stored in state
+                        const brushSize = buffer[i + 11];
+                        const brushTransparency = buffer[i + 12];
+                        const fillDown = buffer[i + 13] > 0.5;
+                        // FillColor is handled by JsAction
+                        // FillTransparency is buffer[i + 14]
 
-                        // Draw in reverse entity order (last entity = top, first entity = bottom)
-                        // entityOrder: [2, 1, 0] means entity 2 is bottom, entity 0 is top
-                        for (let i = this.entityOrder.length - 1; i >= 0; i--) {
-                            const entityId = this.entityOrder[i];
-                            const brushCanvas = this.brushCanvases.get(entityId);
-                            if (brushCanvas) {
-                                this.ctx.drawImage(brushCanvas, 0, 0);
-                            }
-                            const entity = entities[entityId];
-                            if (entity) {
-                                this.drawEntity(entity);
-                            }
+                        const brushState = this.getBrushState(id);
+                        brushState.down = brushDown;
+                        brushState.size = brushSize;
+                        brushState.opacity = brushTransparency;
+                        brushState.fillDown = fillDown;
+                        // brushState.lastX/Y updated in handleBrushPath
+                    }
+
+                    // 3. Draw in reverse entity order (z-index)
+                    for (let i = this.entityOrder.length - 1; i >= 0; i--) {
+                        const entityId = this.entityOrder[i];
+                        const offset = entityMap.get(entityId);
+
+                        // Draw brush layer
+                        const brushCanvas = this.brushCanvases.get(entityId);
+                        if (brushCanvas) {
+                            this.ctx.drawImage(brushCanvas, 0, 0);
                         }
 
-                        // Draw fill preview on top
-                        if (this.fillCanvas) {
-                            this.ctx.drawImage(this.fillCanvas, 0, 0);
+                        // Draw entity if present in render buffer (visible)
+                        if (offset !== undefined) {
+                            this.drawEntityFromBuffer(buffer, offset);
                         }
-                    } catch (e) {
-                        if (!this._renderParseErrorLogged) {
-                            this._renderParseErrorLogged = true;
-                            console.error('렌더 데이터 파싱 실패:', e);
-                        }
+                    }
+
+                    // 4. Draw fill preview
+                    if (this.fillCanvas) {
+                        this.ctx.drawImage(this.fillCanvas, 0, 0);
                     }
                 }
 
-                drawEntity(entity) {
+                drawEntityFromBuffer(buffer, offset) {
+                    // Extract data from buffer
+                    const x = buffer[offset + 1];
+                    const y = buffer[offset + 2];
+                    const rotation = buffer[offset + 3];
+                    // direction at +4
+                    const scaleX = buffer[offset + 5];
+                    const scaleY = buffer[offset + 6];
+                    const width = buffer[offset + 7];
+                    const height = buffer[offset + 8];
+                    const visible = buffer[offset + 9] > 0.5;
+                    // brush/fill props...
+
+                    if (!visible) return;
+
                     this.ctx.save();
 
                     // Transform to Entry coordinate system (center is 0,0)
-                    this.ctx.translate(240 + entity.x, 180 - entity.y);
-                    this.ctx.rotate((-entity.rotation * Math.PI) / 180);
-                    this.ctx.scale(entity.scaleX, entity.scaleY);
+                    this.ctx.translate(240 + x, 180 - y);
+                    this.ctx.rotate((-rotation * Math.PI) / 180);
+                    this.ctx.scale(scaleX, scaleY);
 
-                    // Draw
-                    if (entity.visible) {
-                        // Try to draw cached image
-                        const img = imageCache.get(entity.pictureId);
+                    // We need pictureId to draw the image.
+                    // Buffer doesn't contain pictureId (string).
+                    // We need to look it up from the entity object in JS memory.
+                    const entityId = buffer[offset];
+                    const entityObj = this.findObjectById(entityId);
 
-                        // 이미지가 완전히 로드되었고, naturalWidth가 있는지 확인 (broken 이미지 체크)
+                    if (entityObj && entityObj.selectedPictureId) {
+                        const img = imageCache.get(entityObj.selectedPictureId);
                         if (img && img.complete && img.naturalWidth > 0) {
                             try {
                                 this.ctx.drawImage(
                                     img,
-                                    -entity.width / 2,
-                                    -entity.height / 2,
-                                    entity.width,
-                                    entity.height
+                                    -width / 2,
+                                    -height / 2,
+                                    width,
+                                    height
                                 );
                             } catch (drawError) {
-                                // drawImage 실패 시 폴백
-                                this.drawFallbackRect(entity);
+                                // Ignore
                             }
                         } else {
-                            // Fallback: draw colored rectangle
+                            // Fallback rect
+                            this.ctx.fillStyle = '#4a90d9';
+                            this.ctx.fillRect(-width / 2, -height / 2, width, height);
+                        }
+                    } else {
+                         // Fallback rect
+                         this.ctx.fillStyle = '#4a90d9';
+                         this.ctx.fillRect(-width / 2, -height / 2, width, height);
+                    }
+
+                    this.ctx.restore();
+                }
+
+                findObjectById(entityId) {
+                    // Fast lookup if possible, or search allObjects
+                    // objects are indexed by entityId in WASM (0 to N)
+                    // If allObjects matches WASM indices:
+                    return this.allObjects[entityId];
+                }
+
+                // drawRenderData(data) is deprecated/removed in favor of drawRenderBuffer
+
+                /*
+                drawRenderData(data) {
+                    // ... old JSON logic removed ...
+                }
+                */
                             this.drawFallbackRect(entity);
                         }
                     }
@@ -1855,8 +1939,18 @@
                     this.ctx.restore();
 
                     // Draw dialog balloon (after restore to use screen coordinates)
-                    if (entity.dialogMessage) {
-                        this.drawDialog(entity);
+                    const dialog = this.dialogs.get(entityId);
+                    if (dialog) {
+                        // Pass a mock entity object with dialog props
+                        const mockEntity = {
+                            x: x,
+                            y: y,
+                            width: width,
+                            height: height,
+                            dialogMessage: dialog.message,
+                            dialogMode: dialog.mode
+                        };
+                        this.drawDialog(mockEntity);
                     }
                 }
 

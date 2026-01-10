@@ -1,8 +1,9 @@
 //! Block type definitions with compile-time perfect hashing for O(1) dispatch
 
 use phf::phf_map;
+use serde::{Serialize, Deserialize};
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum BlockTypeId {
     Unknown = 0,
@@ -141,6 +142,7 @@ pub enum BlockTypeId {
     AskAndWait = 201,
     SetVisibleAnswer = 202,
     SetFuncVariable = 203,
+    GetVariable = 204,
     
     // Function (221-230)
     FunctionCreate = 221,

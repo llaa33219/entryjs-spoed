@@ -46,6 +46,8 @@ export class WasmEngine {
    * Fire mouse clicked event
    */
   fire_mouse_clicked(): void;
+  get_render_buffer_len(): number;
+  get_render_buffer_ptr(): number;
   has_pending_js_actions(): boolean;
   /**
    * Fire mouse click cancelled event
@@ -94,6 +96,8 @@ export interface InitOutput {
   readonly wasmengine_fire_object_click_canceled: (a: number, b: number) => void;
   readonly wasmengine_fire_scene_start: (a: number) => void;
   readonly wasmengine_get_js_actions: (a: number, b: number) => void;
+  readonly wasmengine_get_render_buffer_len: (a: number) => number;
+  readonly wasmengine_get_render_buffer_ptr: (a: number) => number;
   readonly wasmengine_get_render_data: (a: number, b: number) => void;
   readonly wasmengine_get_tick: (a: number) => bigint;
   readonly wasmengine_get_variables: (a: number, b: number) => void;

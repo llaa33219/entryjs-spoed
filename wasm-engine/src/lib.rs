@@ -16,10 +16,16 @@ pub fn new_hashmap<K, V>() -> HashMap<K, V> {
 mod blocks;
 mod executor;
 mod entity;
+mod bytecode;
+mod compiler;
+mod vm;
 
 pub use blocks::*;
 pub use executor::*;
 pub use entity::*;
+pub use bytecode::*;
+pub use compiler::*;
+pub use vm::*;
 
 /// Actions that need to be executed by JavaScript
 /// These are queued during WASM execution and consumed by JS after each tick
@@ -87,6 +93,10 @@ pub enum JsAction {
     // Object actions
     ChangeObjectIndex { entity_id: usize, location: String },
     
+    // Dialog actions
+    ShowDialog { entity_id: usize, message: String, mode: String },
+    RemoveDialog { entity_id: usize },
+    
     // Input actions
     AskAndWait { entity_id: usize, message: String },
     SetAnswerVisible { visible: bool },
@@ -133,6 +143,9 @@ struct EngineInner {
     mouse_x: f64,
     mouse_y: f64,
     mouse_clicked: bool,
+    
+    program: Option<Program>,
+    render_buffer: Vec<f64>,
 }
 
 impl EngineInner {
@@ -151,6 +164,8 @@ impl EngineInner {
             mouse_x: 0.0,
             mouse_y: 0.0,
             mouse_clicked: false,
+            program: None,
+            render_buffer: Vec::with_capacity(1024),
         }
     }
 }
@@ -187,6 +202,10 @@ impl WasmEngine {
             .map_err(|e| JsValue::from_str(&format!("JSON parse error: {}", e)))?;
         
         inner.fps = project.speed.unwrap_or(60);
+        
+        let compiler = Compiler::new();
+        inner.program = Some(compiler.compile(&project));
+        
         inner.project_data = Some(project.clone());
         
         // Initialize entities from objects
@@ -490,6 +509,30 @@ impl WasmEngine {
             inner.executors.clear();
             self.stop_requested.set(false);
         }
+        
+        let mut buffer = std::mem::take(&mut inner.render_buffer);
+        buffer.clear();
+        for entity in &inner.entities {
+            if entity.visible || entity.brush_down || entity.fill_down {
+                buffer.push(entity.id as f64);
+                buffer.push(entity.x);
+                buffer.push(entity.y);
+                buffer.push(entity.rotation);
+                buffer.push(entity.direction);
+                buffer.push(entity.scale_x);
+                buffer.push(entity.scale_y);
+                buffer.push(entity.width);
+                buffer.push(entity.height);
+                buffer.push(if entity.visible { 1.0 } else { 0.0 });
+                buffer.push(if entity.brush_down { 1.0 } else { 0.0 });
+                buffer.push(entity.brush_size);
+                buffer.push(entity.brush_transparency);
+                buffer.push(if entity.fill_down { 1.0 } else { 0.0 });
+                buffer.push(entity.fill_transparency);
+                buffer.push(0.0); 
+            }
+        }
+        inner.render_buffer = buffer;
     }
     
     #[wasm_bindgen]
@@ -530,6 +573,22 @@ impl WasmEngine {
             .collect();
         
         serde_json::to_string(&render_entities).unwrap_or_else(|_| "[]".to_string())
+    }
+
+    #[wasm_bindgen]
+    pub fn get_render_buffer_ptr(&self) -> *const f64 {
+        match self.inner.try_borrow() {
+            Ok(inner) => inner.render_buffer.as_ptr(),
+            Err(_) => std::ptr::null(),
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn get_render_buffer_len(&self) -> usize {
+        match self.inner.try_borrow() {
+            Ok(inner) => inner.render_buffer.len(),
+            Err(_) => 0,
+        }
     }
 
     /// Check if engine is running

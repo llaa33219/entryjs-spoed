@@ -858,8 +858,7 @@ impl Executor {
             }
             
             "dialog" | "dialog_time" => {
-                if let Some(e) = entity {
-                    // Get message from params
+                if let Some(_e) = entity {
                     let message = self.get_param_value(block, 0, variables);
                     let message_str = Self::value_as_string(&message);
                     
@@ -871,9 +870,11 @@ impl Executor {
                     };
                     let mode = if mode.is_empty() { "speak".to_string() } else { mode };
                     
-                    // Set dialog state on entity
-                    e.dialog_message = Some(message_str);
-                    e.dialog_mode = Some(mode);
+                    js_actions.push(JsAction::ShowDialog {
+                        entity_id: self.entity_idx,
+                        message: message_str,
+                        mode,
+                    });
                     
                     if block_type == "dialog_time" {
                         let seconds = self.get_param_number(block, 1, variables);
@@ -884,9 +885,10 @@ impl Executor {
             }
             
             "remove_dialog" => {
-                if let Some(e) = entity {
-                    e.dialog_message = None;
-                    e.dialog_mode = None;
+                if let Some(_e) = entity {
+                    js_actions.push(JsAction::RemoveDialog {
+                        entity_id: self.entity_idx,
+                    });
                 }
                 ExecuteResult::Continue
             }

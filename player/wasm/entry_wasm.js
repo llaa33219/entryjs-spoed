@@ -301,6 +301,20 @@ export class WasmEngine {
         wasm.wasmengine_fire_mouse_clicked(this.__wbg_ptr);
     }
     /**
+     * @returns {number}
+     */
+    get_render_buffer_len() {
+        const ret = wasm.wasmengine_get_render_buffer_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get_render_buffer_ptr() {
+        const ret = wasm.wasmengine_get_render_buffer_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * @returns {boolean}
      */
     has_pending_js_actions() {

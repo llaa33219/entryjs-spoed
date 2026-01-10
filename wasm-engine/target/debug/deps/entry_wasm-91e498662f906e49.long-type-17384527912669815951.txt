@@ -1,0 +1,4 @@
+<_::<impl Deserialize<'de> for FunctionData>::deserialize::__Visitor<'de> as Visitor<'de>>::visit_map::__DeserializeWith<'de>
+<_::<impl Deserialize<'de> for FunctionData>::deserialize::__Visitor<'de> as Visitor<'de>>::visit_seq::__DeserializeWith<'de>
+<_::<impl Deserialize<'de> for ObjectData>::deserialize::__Visitor<'de> as Visitor<'de>>::visit_map::__DeserializeWith<'de>
+<_::<impl Deserialize<'de> for ObjectData>::deserialize::__Visitor<'de> as Visitor<'de>>::visit_seq::__DeserializeWith<'de>
