@@ -104,6 +104,10 @@ pub struct FunctionData {
     pub id: String,
     #[serde(deserialize_with = "deserialize_script", default)]
     pub content: Option<Vec<Vec<Block>>>,
+    #[serde(rename = "localVariables")]
+    pub local_variables: Option<Vec<VariableData>>,
+    #[serde(rename = "useLocalVariables")]
+    pub use_local_variables: Option<bool>,
 }
 
 struct EngineInner {
@@ -235,6 +239,8 @@ impl WasmEngine {
                                                         let func_data = FunctionData {
                                                             id: func_id.to_string(),
                                                             content: Some(vec![thread.clone()]),
+                                                            local_variables: None,
+                                                            use_local_variables: None,
                                                         };
                                                         inner.functions.insert(func_id.to_string(), func_data);
                                                     }
