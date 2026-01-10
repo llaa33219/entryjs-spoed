@@ -643,7 +643,6 @@ impl WasmEngine {
         
         let render_entities: Vec<RenderEntity> = inner.entities
             .iter()
-            .rev()
             .filter(|e| e.visible || e.brush_down || e.fill_down)
             .map(|e| RenderEntity::from(e))
             .collect();
