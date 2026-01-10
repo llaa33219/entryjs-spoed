@@ -2079,6 +2079,18 @@ impl Executor {
                                             value_stack.push(Value::Number(0.0));
                                         }
                                     }
+                                    "value_of_index_from_list" | "value_of_list_index" => {
+                                        // params[1] = list_id (dropdown), params[2] = index (block)
+                                        if let Some(p) = params {
+                                            let list_id = p.get(1).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                            task_stack.push(EvalTask::ApplyOp { op: format!("value_of_list:{}", list_id), arg_count: 1 });
+                                            // Index is at params[2], not params[3]
+                                            if let Some(idx) = p.get(2) { task_stack.push(EvalTask::Evaluate(idx.clone())); }
+                                            else { value_stack.push(Value::Number(1.0)); }
+                                        } else {
+                                            value_stack.push(Value::Null);
+                                        }
+                                    }
                                     _ => {
                                         let result = self.evaluate_block_simple(bt, &obj_map, variables);
                                         value_stack.push(result);
@@ -2180,6 +2192,17 @@ impl Executor {
                             0.0
                         };
                         Value::Number(result)
+                    } else if let Some(list_id) = op.strip_prefix("value_of_list:") {
+                        let index = value_stack.pop().unwrap_or(Value::Number(1.0)).as_number() as usize;
+                        if index >= 1 {
+                            if let Some(Value::List(list)) = variables.get(list_id) {
+                                list.get(index - 1).cloned().unwrap_or(Value::Null)
+                            } else {
+                                Value::Null
+                            }
+                        } else {
+                            Value::Null
+                        }
                     } else {
                         Value::Null
                     };

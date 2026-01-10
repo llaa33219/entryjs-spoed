@@ -272,6 +272,7 @@ pub fn is_value_block(block_type: &str) -> bool {
         "value_of_index_from_list" |
         "length_of_list" |
         "is_included_in_list" |
+        "index_of_list" |
         "get_canvas_input_value" |
         "boolean_basic_operator" |
         "boolean_and_or" |
