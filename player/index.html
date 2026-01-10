@@ -1456,6 +1456,17 @@
                             this.handleRemoveAllClones();
                             break;
                         }
+                        case 'StopAll': {
+                            if (this.isWasmEngineValid()) {
+                                this.wasmEngine.stop();
+                            }
+                            break;
+                        }
+                        case 'StopEntity':
+                        case 'StopOtherThreads':
+                        case 'StopOtherEntities': {
+                            break;
+                        }
                         default:
                             // Suppress unhandled action logs to prevent console flood
                             // Uncomment the following line for debugging:

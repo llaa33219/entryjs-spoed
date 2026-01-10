@@ -106,6 +106,12 @@ pub enum JsAction {
     
     // Scene restore (for reset to initial scene)
     RestoreStartScene,
+    
+    // Stop actions (for stop_object block)
+    StopAll,
+    StopEntity { entity_id: usize },
+    StopOtherThreads { entity_id: usize },
+    StopOtherEntities { entity_id: usize },
 }
 
 /// Initialize panic hook for better error messages in browser console
@@ -471,15 +477,74 @@ impl WasmEngine {
         
         if pending_js_actions.len() > initial_action_count {
             let mut new_executors = Vec::new();
+            let mut clone_requests: Vec<(usize, String)> = Vec::new();
             
             for i in initial_action_count..pending_js_actions.len() {
                 let action = &pending_js_actions[i];
-                if let JsAction::MessageCast { message_id } | JsAction::MessageCastWait { message_id } = action {
-                    let mut executors_for_msg = Self::find_executors_for_message(&inner, message_id);
-                    new_executors.append(&mut executors_for_msg);
+                match action {
+                    JsAction::MessageCast { message_id } | JsAction::MessageCastWait { message_id } => {
+                        let mut executors_for_msg = Self::find_executors_for_message(&inner, message_id);
+                        new_executors.append(&mut executors_for_msg);
+                    }
+                    JsAction::CreateClone { entity_id, target } => {
+                        clone_requests.push((*entity_id, target.clone()));
+                    }
+                    _ => {}
                 }
             }
+            
+            for (source_entity_id, target) in clone_requests {
+                let target_entity_idx = if target == "self" {
+                    source_entity_id
+                } else {
+                    entities.iter().position(|e| e.object_id == target).unwrap_or(source_entity_id)
+                };
+                
+                if let Some(source_entity) = entities.get(target_entity_idx) {
+                    let new_id = entities.len();
+                    let mut cloned_entity = source_entity.clone();
+                    cloned_entity.id = new_id;
+                    
+                    if let Some(project) = &inner.project_data {
+                        if let Some(objects) = &project.objects {
+                            if let Some(obj) = objects.get(target_entity_idx) {
+                                if let Some(scripts) = &obj.script {
+                                    for thread in scripts.iter() {
+                                        if let Some(first_block) = thread.first() {
+                                            if first_block.block_type == "when_clone_start" {
+                                                let mut executor = Executor::new(new_id, thread.clone());
+                                                executor.cached_mouse_x = inner.mouse_x;
+                                                executor.cached_mouse_y = inner.mouse_y;
+                                                executor.mouse_clicked = inner.mouse_clicked;
+                                                new_executors.push(executor);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    entities.push(cloned_entity);
+                }
+            }
+            
             executors.append(&mut new_executors);
+        }
+        
+        for action in &pending_js_actions {
+            match action {
+                JsAction::StopAll => {
+                    executors.clear();
+                }
+                JsAction::StopEntity { entity_id } => {
+                    executors.retain(|e| e.entity_idx != *entity_id);
+                }
+                JsAction::StopOtherEntities { entity_id } => {
+                    executors.retain(|e| e.entity_idx == *entity_id);
+                }
+                _ => {}
+            }
         }
         
         for entity in &mut entities {
@@ -498,6 +563,13 @@ impl WasmEngine {
                 });
             }
         }
+        
+        pending_js_actions.retain(|action| !matches!(action, 
+            JsAction::CreateClone { .. } | 
+            JsAction::StopAll | 
+            JsAction::StopEntity { .. } | 
+            JsAction::StopOtherEntities { .. }
+        ));
         
         inner.executors = executors;
         inner.entities = entities;

@@ -1091,8 +1091,40 @@ impl Executor {
             }
             
             "stop_object" => {
-                // Stop execution
-                ExecuteResult::End
+                // Get the TARGET parameter (index 0)
+                // Options: "all", "thisOnly", "thisThread", "otherThread", "other_objects"
+                let target = self.get_param_string(block, 0, variables);
+                
+                match target.as_str() {
+                    "all" => {
+                        // Stop all executors - signal JS to clear all
+                        js_actions.push(JsAction::StopAll);
+                        ExecuteResult::End
+                    }
+                    "thisOnly" | "thisObject" => {
+                        // Stop all scripts in this object/entity
+                        js_actions.push(JsAction::StopEntity { entity_id: self.entity_idx });
+                        ExecuteResult::End
+                    }
+                    "thisThread" => {
+                        // Stop just this script/thread
+                        ExecuteResult::End
+                    }
+                    "otherThread" => {
+                        // Stop other scripts in this entity (not this one)
+                        js_actions.push(JsAction::StopOtherThreads { entity_id: self.entity_idx });
+                        ExecuteResult::Continue
+                    }
+                    "other_objects" => {
+                        // Stop scripts in all other objects
+                        js_actions.push(JsAction::StopOtherEntities { entity_id: self.entity_idx });
+                        ExecuteResult::Continue
+                    }
+                    _ => {
+                        // Default: stop this thread
+                        ExecuteResult::End
+                    }
+                }
             }
             
             "restart_project" => {
