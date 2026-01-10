@@ -1894,13 +1894,7 @@
                         const img = imageCache.get(entityObj.selectedPictureId);
                         if (img && img.complete && img.naturalWidth > 0) {
                             try {
-                                this.ctx.drawImage(
-                                    img,
-                                    -width / 2,
-                                    -height / 2,
-                                    width,
-                                    height
-                                );
+                                this.ctx.drawImage(img, -width / 2, -height / 2, width, height);
                             } catch (drawError) {
                                 // Ignore
                             }
@@ -1910,12 +1904,27 @@
                             this.ctx.fillRect(-width / 2, -height / 2, width, height);
                         }
                     } else {
-                         // Fallback rect
-                         this.ctx.fillStyle = '#4a90d9';
-                         this.ctx.fillRect(-width / 2, -height / 2, width, height);
+                        // Fallback rect
+                        this.ctx.fillStyle = '#4a90d9';
+                        this.ctx.fillRect(-width / 2, -height / 2, width, height);
                     }
 
                     this.ctx.restore();
+
+                    // Draw dialog balloon (after restore to use screen coordinates)
+                    const dialog = this.dialogs.get(entityId);
+                    if (dialog) {
+                        // Pass a mock entity object with dialog props
+                        const mockEntity = {
+                            x: x,
+                            y: y,
+                            width: width,
+                            height: height,
+                            dialogMessage: dialog.message,
+                            dialogMode: dialog.mode,
+                        };
+                        this.drawDialog(mockEntity);
+                    }
                 }
 
                 findObjectById(entityId) {
@@ -1932,27 +1941,6 @@
                     // ... old JSON logic removed ...
                 }
                 */
-                            this.drawFallbackRect(entity);
-                        }
-                    }
-
-                    this.ctx.restore();
-
-                    // Draw dialog balloon (after restore to use screen coordinates)
-                    const dialog = this.dialogs.get(entityId);
-                    if (dialog) {
-                        // Pass a mock entity object with dialog props
-                        const mockEntity = {
-                            x: x,
-                            y: y,
-                            width: width,
-                            height: height,
-                            dialogMessage: dialog.message,
-                            dialogMode: dialog.mode
-                        };
-                        this.drawDialog(mockEntity);
-                    }
-                }
 
                 drawFallbackRect(entity) {
                     this.ctx.fillStyle = entity.color || '#4a90d9';
