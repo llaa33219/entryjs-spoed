@@ -51,6 +51,7 @@ pub struct Executor {
     cached_entity_height: f64,
     cached_entity_reg_x: f64,
     cached_entity_reg_y: f64,
+    cached_entity_text: String,
     
     // Input state (set from JavaScript)
     pub cached_mouse_x: f64,
@@ -103,6 +104,7 @@ impl Executor {
             cached_entity_height: 0.0,
             cached_entity_reg_x: 0.0,
             cached_entity_reg_y: 0.0,
+            cached_entity_text: String::new(),
             
             cached_mouse_x: 0.0,
             cached_mouse_y: 0.0,
@@ -136,6 +138,7 @@ impl Executor {
             self.cached_entity_height = e.height;
             self.cached_entity_reg_x = e.reg_x;
             self.cached_entity_reg_y = e.reg_y;
+            self.cached_entity_text = e.text.clone().unwrap_or_default();
         }
     }
     
@@ -1721,7 +1724,103 @@ impl Executor {
 
             // === Calculation blocks (return values) ===
             "calc_basic" => {
-                // This is handled in get_param_number for nested blocks
+                ExecuteResult::Continue
+            }
+
+            "text_write" => {
+                let text = self.get_param_string(block, 0, variables);
+                if let Some(e) = entity {
+                    e.text = Some(text);
+                }
+                ExecuteResult::Continue
+            }
+            "text_append" => {
+                let text = self.get_param_string(block, 0, variables);
+                if let Some(e) = entity {
+                    let current = e.text.clone().unwrap_or_default();
+                    e.text = Some(format!("{}{}", current, text));
+                }
+                ExecuteResult::Continue
+            }
+            "text_prepend" => {
+                let text = self.get_param_string(block, 0, variables);
+                if let Some(e) = entity {
+                    let current = e.text.clone().unwrap_or_default();
+                    e.text = Some(format!("{}{}", text, current));
+                }
+                ExecuteResult::Continue
+            }
+            "text_flush" => {
+                if let Some(e) = entity {
+                    e.text = Some(String::new());
+                }
+                ExecuteResult::Continue
+            }
+            
+            "text_change_effect" => {
+                if let Some(e) = entity {
+                    let effect = self.get_param_string(block, 0, variables);
+                    let mode = self.get_param_string(block, 1, variables);
+                    let is_on = mode == "on";
+                    
+                    match effect.as_str() {
+                        "strike" => e.strike = is_on,
+                        "underLine" => e.under_line = is_on,
+                        _ => {}
+                    }
+                }
+                ExecuteResult::Continue
+            }
+            
+            "text_change_font" => {
+                if let Some(e) = entity {
+                    let font = self.get_param_string(block, 0, variables);
+                    e.font = Some(font);
+                }
+                ExecuteResult::Continue
+            }
+            
+            "text_change_font_color" => {
+                if let Some(e) = entity {
+                    let mut color = self.get_param_string(block, 0, variables);
+                    if !color.starts_with('#') {
+                        color = format!("#{}", color);
+                    }
+                    e.colour = Some(color);
+                }
+                ExecuteResult::Continue
+            }
+            
+            "text_change_bg_color" => {
+                if let Some(e) = entity {
+                    let mut color = self.get_param_string(block, 0, variables);
+                    if !color.starts_with('#') {
+                        color = format!("#{}", color);
+                    }
+                    e.bg_color = Some(color);
+                }
+                ExecuteResult::Continue
+            }
+            
+            "calc_rand" |
+            "calc_operation" |
+            "quotient_and_mod" |
+            "get_date" |
+            "distance_something" |
+            "get_project_timer_value" |
+            "coordinate_mouse" |
+            "coordinate_object" |
+            "get_sound_volume" |
+            
+            "length_of_string" |
+            "reverse_of_string" |
+            "combine_something" |
+            "char_at" |
+            "substring" |
+            "count_match_string" |
+            "index_of_string" |
+            "replace_string" |
+            "change_string_case" => {
                 ExecuteResult::Continue
             }
 
@@ -2225,6 +2324,106 @@ impl Executor {
                                             value_stack.push(Value::Number(0.0));
                                         }
                                     }
+                                    "substring" => {
+                                        if let Some(p) = params {
+                                            task_stack.push(EvalTask::ApplyOp { op: "substring".to_string(), arg_count: 3 });
+                                            // Stack order: END, START, STRING (when popped)
+                                            // So push: STRING, START, END (Evaluate pushes to value_stack)
+                                            // Wait, Evaluate pushes result to value_stack.
+                                            // If I push Evaluate(STRING), it runs, pushes result.
+                                            // If I push Evaluate(START), it runs, pushes result.
+                                            // If I push Evaluate(END), it runs, pushes result.
+                                            // So stack: [STRING_VAL, START_VAL, END_VAL]
+                                            // pop() -> END_VAL
+                                            
+                                            // EvalTask stack is LIFO.
+                                            // I need to push tasks in REVERSE order of execution desired?
+                                            // task_stack.push(Evaluate(p[5])) -> runs first? YES.
+                                            // So value_stack will get p[5] result first? YES.
+                                            // So stack: [END_VAL, START_VAL, STRING_VAL] ?
+                                            // NO.
+                                            // while let Some(task) = task_stack.pop()
+                                            
+                                            // If I push:
+                                            // 1. ApplyOp
+                                            // 2. Evaluate(END)
+                                            // 3. Evaluate(START)
+                                            // 4. Evaluate(STRING)
+                                            
+                                            // Loop 1: pop Evaluate(STRING) -> runs -> value_stack: [STRING]
+                                            // Loop 2: pop Evaluate(START) -> runs -> value_stack: [STRING, START]
+                                            // Loop 3: pop Evaluate(END) -> runs -> value_stack: [STRING, START, END]
+                                            // Loop 4: pop ApplyOp -> runs -> pops END, START, STRING.
+                                            
+                                            // Correct order to PUSH to task_stack:
+                                            // ApplyOp (bottom)
+                                            // ...
+                                            // Evaluate(Left/First) (top)
+                                            
+                                            // My existing code:
+                                            // task_stack.push(EvalTask::ApplyOp ...)
+                                            // if let Some(right) = p.get(2) { task_stack.push(Evaluate(right)) }
+                                            // if let Some(left) = p.get(0) { task_stack.push(Evaluate(left)) }
+                                            
+                                            // Execution:
+                                            // pop left -> value_stack: [LEFT]
+                                            // pop right -> value_stack: [LEFT, RIGHT]
+                                            // pop ApplyOp -> pop RIGHT, pop LEFT.
+                                            
+                                            // For substring params: [null, STRING, null, START, null, END]
+                                            if let Some(end) = p.get(5) { task_stack.push(EvalTask::Evaluate(end.clone())); }
+                                            else { value_stack.push(Value::Number(0.0)); }
+                                            if let Some(start) = p.get(3) { task_stack.push(EvalTask::Evaluate(start.clone())); }
+                                            else { value_stack.push(Value::Number(0.0)); }
+                                            if let Some(string) = p.get(1) { task_stack.push(EvalTask::Evaluate(string.clone())); }
+                                            else { value_stack.push(Value::String(String::new())); }
+                                        } else {
+                                            value_stack.push(Value::String(String::new()));
+                                        }
+                                    }
+                                    "replace_string" => {
+                                        if let Some(p) = params {
+                                            task_stack.push(EvalTask::ApplyOp { op: "replace_string".to_string(), arg_count: 3 });
+                                            if let Some(new) = p.get(5) { task_stack.push(EvalTask::Evaluate(new.clone())); }
+                                            else { value_stack.push(Value::String(String::new())); }
+                                            if let Some(old) = p.get(3) { task_stack.push(EvalTask::Evaluate(old.clone())); }
+                                            else { value_stack.push(Value::String(String::new())); }
+                                            if let Some(string) = p.get(1) { task_stack.push(EvalTask::Evaluate(string.clone())); }
+                                            else { value_stack.push(Value::String(String::new())); }
+                                        } else {
+                                            value_stack.push(Value::String(String::new()));
+                                        }
+                                    }
+                                    "index_of_string" => {
+                                        if let Some(p) = params {
+                                            task_stack.push(EvalTask::ApplyOp { op: "index_of_string".to_string(), arg_count: 2 });
+                                            if let Some(target) = p.get(3) { task_stack.push(EvalTask::Evaluate(target.clone())); }
+                                            else { value_stack.push(Value::String(String::new())); }
+                                            if let Some(string) = p.get(1) { task_stack.push(EvalTask::Evaluate(string.clone())); }
+                                            else { value_stack.push(Value::String(String::new())); }
+                                        } else {
+                                            value_stack.push(Value::Number(0.0));
+                                        }
+                                    }
+                                    "change_string_case" => {
+                                        if let Some(p) = params {
+                                            let case = p.get(3).and_then(|v| v.as_str()).unwrap_or("toUpperCase").to_string();
+                                            task_stack.push(EvalTask::ApplyOp { op: format!("change_case:{}", case), arg_count: 1 });
+                                            if let Some(string) = p.get(1) { task_stack.push(EvalTask::Evaluate(string.clone())); }
+                                            else { value_stack.push(Value::String(String::new())); }
+                                        } else {
+                                            value_stack.push(Value::String(String::new()));
+                                        }
+                                    }
+                                    "reverse_of_string" => {
+                                        if let Some(p) = params {
+                                            task_stack.push(EvalTask::ApplyOp { op: "reverse_string".to_string(), arg_count: 1 });
+                                            if let Some(string) = p.get(1) { task_stack.push(EvalTask::Evaluate(string.clone())); }
+                                            else { value_stack.push(Value::String(String::new())); }
+                                        } else {
+                                            value_stack.push(Value::String(String::new()));
+                                        }
+                                    }
                                     "combine_something" => {
                                         if let Some(p) = params {
                                             task_stack.push(EvalTask::ApplyOp { op: "combine".to_string(), arg_count: 2 });
@@ -2236,10 +2435,23 @@ impl Executor {
                                             value_stack.push(Value::String(String::new()));
                                         }
                                     }
-                                    "length_of_string" => {
+                                    "char_at" => {
                                         if let Some(p) = params {
-                                            task_stack.push(EvalTask::ApplyOp { op: "strlen".to_string(), arg_count: 1 });
-                                            if let Some(val) = p.get(1) { task_stack.push(EvalTask::Evaluate(val.clone())); }
+                                            task_stack.push(EvalTask::ApplyOp { op: "char_at".to_string(), arg_count: 2 });
+                                            if let Some(idx) = p.get(3) { task_stack.push(EvalTask::Evaluate(idx.clone())); }
+                                            else { value_stack.push(Value::Number(1.0)); }
+                                            if let Some(string) = p.get(1) { task_stack.push(EvalTask::Evaluate(string.clone())); }
+                                            else { value_stack.push(Value::String(String::new())); }
+                                        } else {
+                                            value_stack.push(Value::String(String::new()));
+                                        }
+                                    }
+                                    "count_match_string" => {
+                                        if let Some(p) = params {
+                                            task_stack.push(EvalTask::ApplyOp { op: "count_match".to_string(), arg_count: 2 });
+                                            if let Some(target) = p.get(2) { task_stack.push(EvalTask::Evaluate(target.clone())); }
+                                            else { value_stack.push(Value::String(String::new())); }
+                                            if let Some(string) = p.get(0) { task_stack.push(EvalTask::Evaluate(string.clone())); }
                                             else { value_stack.push(Value::String(String::new())); }
                                         } else {
                                             value_stack.push(Value::Number(0.0));
@@ -2420,6 +2632,78 @@ impl Executor {
                     } else if op == "strlen" {
                         let val = value_stack.pop().unwrap_or(Value::String(String::new()));
                         Value::Number(Self::value_as_string(&val).chars().count() as f64)
+                    } else if op == "substring" {
+                        let end_val = value_stack.pop().unwrap_or(Value::Number(0.0)).as_number() as isize;
+                        let start_val = value_stack.pop().unwrap_or(Value::Number(0.0)).as_number() as isize;
+                        let string_val = value_stack.pop().unwrap_or(Value::String(String::new()));
+                        let string = Self::value_as_string(&string_val);
+                        
+                        let start = (start_val - 1).max(0);
+                        let end = (end_val - 1).max(0);
+                        let len = string.chars().count() as isize;
+                        
+                        if start < 0 || end < 0 || start > len || end > len {
+                            Value::String(String::new())
+                        } else {
+                            let from = start.min(end) as usize;
+                            let to = (start.max(end) + 1) as usize;
+                            let substr: String = string.chars().skip(from).take(to - from).collect();
+                            Value::String(substr)
+                        }
+                    } else if op == "replace_string" {
+                        let new_word = Self::value_as_string(&value_stack.pop().unwrap_or(Value::String(String::new())));
+                        let old_word = Self::value_as_string(&value_stack.pop().unwrap_or(Value::String(String::new())));
+                        let string = Self::value_as_string(&value_stack.pop().unwrap_or(Value::String(String::new())));
+                        Value::String(string.replace(&old_word, &new_word))
+                    } else if op == "index_of_string" {
+                        let target = Self::value_as_string(&value_stack.pop().unwrap_or(Value::String(String::new())));
+                        let string = Self::value_as_string(&value_stack.pop().unwrap_or(Value::String(String::new())));
+                        
+                        let char_index = if let Some(byte_idx) = string.find(&target) {
+                            string[..byte_idx].chars().count() + 1
+                        } else {
+                            0
+                        };
+                        Value::Number(char_index as f64)
+                    } else if let Some(case) = op.strip_prefix("change_case:") {
+                        let string = Self::value_as_string(&value_stack.pop().unwrap_or(Value::String(String::new())));
+                        Value::String(match case {
+                            "toUpperCase" => string.to_uppercase(),
+                            "toLowerCase" => string.to_lowercase(),
+                            _ => string,
+                        })
+                    } else if op == "reverse_string" {
+                        let string = Self::value_as_string(&value_stack.pop().unwrap_or(Value::String(String::new())));
+                        let reversed: String = string.chars().rev().collect();
+                        Value::String(reversed)
+                    } else if op == "char_at" {
+                        let index_val = value_stack.pop().unwrap_or(Value::Number(1.0)).as_number();
+                        let string_val = value_stack.pop().unwrap_or(Value::String(String::new()));
+                        let string = Self::value_as_string(&string_val);
+                        let index = (index_val as isize) - 1;
+                        
+                        if index >= 0 && index < string.chars().count() as isize {
+                            if let Some(c) = string.chars().nth(index as usize) {
+                                Value::String(c.to_string())
+                            } else {
+                                Value::String(String::new())
+                            }
+                        } else {
+                            Value::String(String::new())
+                        }
+                    } else if op == "count_match" {
+                        let target = Self::value_as_string(&value_stack.pop().unwrap_or(Value::String(String::new())));
+                        let string = Self::value_as_string(&value_stack.pop().unwrap_or(Value::String(String::new())));
+                        if target.is_empty() {
+                            Value::Number(0.0)
+                        } else {
+                            let count = string.split(&target).count();
+                            if count > 0 {
+                                Value::Number((count - 1) as f64)
+                            } else {
+                                Value::Number(0.0)
+                            }
+                        }
                     } else if op == "rgb_to_hex" {
                         let r = value_stack.pop().unwrap_or(Value::Number(0.0)).as_number() as i32;
                         let g = value_stack.pop().unwrap_or(Value::Number(0.0)).as_number() as i32;
@@ -2503,6 +2787,9 @@ impl Executor {
         };
         
         match block_type {
+            "text_read" => {
+                Value::String(self.cached_entity_text.clone())
+            }
             "coordinate_object" => {
                 let coord = params.and_then(|p| p.get(3)).and_then(|v| v.as_str()).unwrap_or("x");
                 Value::Number(match coord {
@@ -2616,5 +2903,262 @@ mod tests {
         assert_eq!(executor.timed_animation_frames, 0);
         assert_eq!(executor.timed_dx, 0.0);
         assert_eq!(executor.timed_dy, 0.0);
+    }
+
+    #[test]
+    fn test_text_blocks() {
+        use crate::{ObjectData, EntityData};
+        
+        let obj_data = ObjectData {
+            id: "test_obj".to_string(),
+            name: Some("Test".to_string()),
+            script: None,
+            selected_picture_id: None,
+            object_type: Some("sprite".to_string()),
+            text: None,
+            entity: Some(EntityData {
+                x: Some(0.0),
+                y: Some(0.0),
+                reg_x: Some(0.0),
+                reg_y: Some(0.0),
+                scale_x: Some(1.0),
+                scale_y: Some(1.0),
+                rotation: Some(0.0),
+                direction: Some(0.0),
+                width: Some(100.0),
+                height: Some(100.0),
+                visible: Some(true),
+                text: None,
+                font: None,
+                colour: None,
+                bg_color: None,
+                under_line: Some(false),
+                strike: Some(false),
+                line_break: Some(false),
+                text_align: Some(0),
+            }),
+            sprite: None,
+        };
+        let mut entity = Entity::from_object(&obj_data, 0);
+        let mut variables = HashMap::default();
+        let mut js_actions = Vec::new();
+        let functions = HashMap::default();
+        
+        let write_block = Block {
+            block_type: "text_write".to_string(),
+            x: None,
+            y: None,
+            params: Some(vec![serde_json::to_value("Hello").unwrap()]),
+            statements: None,
+        };
+        
+        let mut executor = Executor::new(0, vec![write_block.clone()]);
+        executor.execute_block(&write_block, Some(&mut entity), &mut variables, &mut js_actions, &functions);
+        assert_eq!(entity.text, Some("Hello".to_string()));
+        
+        let append_block = Block {
+            block_type: "text_append".to_string(),
+            x: None,
+            y: None,
+            params: Some(vec![serde_json::to_value(" World").unwrap()]),
+            statements: None,
+        };
+        executor.execute_block(&append_block, Some(&mut entity), &mut variables, &mut js_actions, &functions);
+        assert_eq!(entity.text, Some("Hello World".to_string()));
+        
+        executor.update_cached_entity(Some(&entity));
+        let read_val = executor.evaluate_block_simple("text_read", &serde_json::Map::new(), &variables);
+        if let Value::String(s) = read_val {
+            assert_eq!(s, "Hello World");
+        } else {
+            panic!("Expected String value");
+        }
+        
+        let flush_block = Block {
+            block_type: "text_flush".to_string(),
+            x: None,
+            y: None,
+            params: None,
+            statements: None,
+        };
+        executor.execute_block(&flush_block, Some(&mut entity), &mut variables, &mut js_actions, &functions);
+        assert_eq!(entity.text, Some("".to_string()));
+    }
+
+    #[test]
+    fn test_string_ops() {
+        let mut executor = Executor::new(0, vec![]);
+        let variables = HashMap::default();
+        
+        let mut op_map = serde_json::Map::new();
+        op_map.insert("type".to_string(), serde_json::Value::String("substring".to_string()));
+        let params = vec![
+            serde_json::Value::Null,
+            serde_json::Value::String("Hello".to_string()),
+            serde_json::Value::Null,
+            serde_json::Value::Number(serde_json::Number::from(2)),
+            serde_json::Value::Null,
+            serde_json::Value::Number(serde_json::Number::from(4)),
+        ];
+        op_map.insert("params".to_string(), serde_json::Value::Array(params));
+        
+        let result = executor.evaluate_block_iterative("substring", &op_map, &variables);
+        if let Value::String(s) = result {
+            assert_eq!(s, "ell");
+        } else {
+            panic!("Expected String");
+        }
+        
+        let mut op_map = serde_json::Map::new();
+        op_map.insert("type".to_string(), serde_json::Value::String("replace_string".to_string()));
+        let params = vec![
+            serde_json::Value::Null,
+            serde_json::Value::String("Hello World".to_string()),
+            serde_json::Value::Null,
+            serde_json::Value::String("World".to_string()),
+            serde_json::Value::Null,
+            serde_json::Value::String("Entry".to_string()),
+        ];
+        op_map.insert("params".to_string(), serde_json::Value::Array(params));
+        
+        let result = executor.evaluate_block_iterative("replace_string", &op_map, &variables);
+        if let Value::String(s) = result {
+            assert_eq!(s, "Hello Entry");
+        } else {
+            panic!("Expected String");
+        }
+        
+        let mut op_map = serde_json::Map::new();
+        op_map.insert("type".to_string(), serde_json::Value::String("index_of_string".to_string()));
+        let params = vec![
+            serde_json::Value::Null,
+            serde_json::Value::String("Hello World".to_string()),
+            serde_json::Value::Null,
+            serde_json::Value::String("World".to_string()),
+        ];
+        op_map.insert("params".to_string(), serde_json::Value::Array(params));
+        
+        let result = executor.evaluate_block_iterative("index_of_string", &op_map, &variables);
+        if let Value::Number(n) = result {
+            assert_eq!(n, 7.0);
+        } else {
+            panic!("Expected Number");
+        }
+        
+        let mut op_map = serde_json::Map::new();
+        op_map.insert("type".to_string(), serde_json::Value::String("reverse_of_string".to_string()));
+        let params = vec![
+            serde_json::Value::Null,
+            serde_json::Value::String("Hello".to_string()),
+        ];
+        op_map.insert("params".to_string(), serde_json::Value::Array(params));
+        
+        let result = executor.evaluate_block_iterative("reverse_of_string", &op_map, &variables);
+        if let Value::String(s) = result {
+            assert_eq!(s, "olleH");
+        } else {
+            panic!("Expected String");
+        }
+        
+        let mut op_map = serde_json::Map::new();
+        op_map.insert("type".to_string(), serde_json::Value::String("combine_something".to_string()));
+        let params = vec![
+            serde_json::Value::Null,
+            serde_json::Value::String("Hello".to_string()),
+            serde_json::Value::Null,
+            serde_json::Value::String(" World".to_string()),
+        ];
+        op_map.insert("params".to_string(), serde_json::Value::Array(params));
+        
+        let result = executor.evaluate_block_iterative("combine_something", &op_map, &variables);
+        if let Value::String(s) = result {
+            assert_eq!(s, "Hello World");
+        } else {
+            panic!("Expected String");
+        }
+        
+        let mut op_map = serde_json::Map::new();
+        op_map.insert("type".to_string(), serde_json::Value::String("char_at".to_string()));
+        let params = vec![
+            serde_json::Value::Null,
+            serde_json::Value::String("Hello".to_string()),
+            serde_json::Value::Null,
+            serde_json::Value::Number(serde_json::Number::from(2)),
+        ];
+        op_map.insert("params".to_string(), serde_json::Value::Array(params));
+        
+        let result = executor.evaluate_block_iterative("char_at", &op_map, &variables);
+        if let Value::String(s) = result {
+            assert_eq!(s, "e");
+        } else {
+            panic!("Expected String");
+        }
+        
+        let mut op_map = serde_json::Map::new();
+        op_map.insert("type".to_string(), serde_json::Value::String("count_match_string".to_string()));
+        let params = vec![
+            serde_json::Value::String("banana".to_string()),
+            serde_json::Value::Null,
+            serde_json::Value::String("a".to_string()),
+        ];
+        op_map.insert("params".to_string(), serde_json::Value::Array(params));
+        
+        let result = executor.evaluate_block_iterative("count_match_string", &op_map, &variables);
+        if let Value::Number(n) = result {
+            assert_eq!(n, 3.0);
+        } else {
+            panic!("Expected Number");
+        }
+    }
+
+    #[test]
+    fn test_complex_calc_text() {
+        let mut executor = Executor::new(0, vec![]);
+        let mut variables = HashMap::default();
+        
+        variables.insert("score".to_string(), Value::Number(10.0));
+        
+        let mut combine_op = serde_json::Map::new();
+        combine_op.insert("type".to_string(), serde_json::Value::String("combine_something".to_string()));
+        let params = vec![
+            serde_json::Value::Null,
+            serde_json::Value::String("Score: ".to_string()),
+            serde_json::Value::Null,
+            {
+                let mut get_var = serde_json::Map::new();
+                get_var.insert("type".to_string(), serde_json::Value::String("get_variable".to_string()));
+                get_var.insert("params".to_string(), serde_json::Value::Array(vec![
+                    serde_json::Value::String("score".to_string())
+                ]));
+                serde_json::Value::Object(get_var)
+            }
+        ];
+        combine_op.insert("params".to_string(), serde_json::Value::Array(params));
+        
+        let result = executor.evaluate_block_iterative("combine_something", &combine_op, &variables);
+        
+        if let Value::String(s) = result {
+            assert_eq!(s, "Score: 10");
+        } else {
+            panic!("Expected String 'Score: 10'");
+        }
+        
+        let mut calc_op = serde_json::Map::new();
+        calc_op.insert("type".to_string(), serde_json::Value::String("calc_operation".to_string()));
+        let params = vec![
+            serde_json::Value::Null,
+            serde_json::Value::Number(serde_json::Number::from(16)),
+            serde_json::Value::Null,
+            serde_json::Value::String("sqrt".to_string()),
+        ];
+        calc_op.insert("params".to_string(), serde_json::Value::Array(params));
+        
+        let result_math = executor.evaluate_block_iterative("calc_operation", &calc_op, &variables);
+        
+        if let Value::Number(n) = result_math {
+            assert_eq!(n, 4.0);
+        } else {
+            panic!("Expected Number 4.0");
+        }
     }
 }

@@ -4,7 +4,7 @@ use phf::phf_map;
 use serde::{Serialize, Deserialize};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
-#[repr(u8)]
+#[repr(u16)]
 pub enum BlockTypeId {
     Unknown = 0,
     
@@ -153,6 +153,36 @@ pub enum BlockTypeId {
     
     // Calc (231-250)
     CalcBasic = 231,
+    CalcRand = 232,
+    CalcOperation = 233,
+    QuotientAndMod = 234,
+    GetDate = 235,
+    DistanceSomething = 236,
+    GetProjectTimerValue = 237,
+    CoordinateMouse = 238,
+    CoordinateObject = 239,
+    GetSoundVolume = 240,
+    
+    TextRead = 251,
+    TextWrite = 252,
+    TextAppend = 253,
+    TextPrepend = 254,
+    TextFlush = 255,
+    
+    TextChangeEffect = 271,
+    TextChangeFont = 272,
+    TextChangeFontColor = 273,
+    TextChangeBgColor = 274,
+    
+    LengthOfString = 256,
+    ReverseOfString = 257,
+    CombineSomething = 258,
+    CharAt = 259,
+    Substring = 260,
+    CountMatchString = 261,
+    IndexOfString = 262,
+    ReplaceString = 263,
+    ChangeStringCase = 264,
 }
 
 static BLOCK_TYPE_MAP: phf::Map<&'static str, BlockTypeId> = phf_map! {
@@ -290,6 +320,7 @@ static BLOCK_TYPE_MAP: phf::Map<&'static str, BlockTypeId> = phf_map! {
     "ask_and_wait" => BlockTypeId::AskAndWait,
     "set_visible_answer" => BlockTypeId::SetVisibleAnswer,
     "set_func_variable" => BlockTypeId::SetFuncVariable,
+    "get_variable" => BlockTypeId::GetVariable,
     
     // Function
     "function_create" => BlockTypeId::FunctionCreate,
@@ -300,6 +331,36 @@ static BLOCK_TYPE_MAP: phf::Map<&'static str, BlockTypeId> = phf_map! {
     
     // Calc
     "calc_basic" => BlockTypeId::CalcBasic,
+    "calc_rand" => BlockTypeId::CalcRand,
+    "calc_operation" => BlockTypeId::CalcOperation,
+    "quotient_and_mod" => BlockTypeId::QuotientAndMod,
+    "get_date" => BlockTypeId::GetDate,
+    "distance_something" => BlockTypeId::DistanceSomething,
+    "get_project_timer_value" => BlockTypeId::GetProjectTimerValue,
+    "coordinate_mouse" => BlockTypeId::CoordinateMouse,
+    "coordinate_object" => BlockTypeId::CoordinateObject,
+    "get_sound_volume" => BlockTypeId::GetSoundVolume,
+    
+    "text_read" => BlockTypeId::TextRead,
+    "text_write" => BlockTypeId::TextWrite,
+    "text_append" => BlockTypeId::TextAppend,
+    "text_prepend" => BlockTypeId::TextPrepend,
+    "text_flush" => BlockTypeId::TextFlush,
+    
+    "text_change_effect" => BlockTypeId::TextChangeEffect,
+    "text_change_font" => BlockTypeId::TextChangeFont,
+    "text_change_font_color" => BlockTypeId::TextChangeFontColor,
+    "text_change_bg_color" => BlockTypeId::TextChangeBgColor,
+    
+    "length_of_string" => BlockTypeId::LengthOfString,
+    "reverse_of_string" => BlockTypeId::ReverseOfString,
+    "combine_something" => BlockTypeId::CombineSomething,
+    "char_at" => BlockTypeId::CharAt,
+    "substring" => BlockTypeId::Substring,
+    "count_match_string" => BlockTypeId::CountMatchString,
+    "index_of_string" => BlockTypeId::IndexOfString,
+    "replace_string" => BlockTypeId::ReplaceString,
+    "change_string_case" => BlockTypeId::ChangeStringCase,
 };
 
 #[inline(always)]
@@ -510,6 +571,15 @@ pub fn get_block_category(block_type: &str) -> Option<BlockCategory> {
         "function_field_string" |
         "function_field_boolean" => Some(BlockCategory::Func),
 
+        "text_write" |
+        "text_append" |
+        "text_prepend" |
+        "text_flush" |
+        "text_change_effect" |
+        "text_change_font" |
+        "text_change_font_color" |
+        "text_change_bg_color" => Some(BlockCategory::Looks),
+
         _ => None,
     }
 }
@@ -577,7 +647,8 @@ pub fn is_value_block(block_type: &str) -> bool {
         "is_object_clicked" |
         "is_press_some_key" |
         "reach_something" |
-        "get_func_variable"
+        "get_func_variable" |
+        "text_read"
     )
 }
 
