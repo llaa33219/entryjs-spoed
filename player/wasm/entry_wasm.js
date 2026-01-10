@@ -374,7 +374,10 @@ export class WasmEngine {
         wasm.wasmengine_reset(this.__wbg_ptr);
     }
     /**
-     * Start the engine (fires both "start" and "when_scene_start" events)
+     * Start the engine (fires only "start" event for the initial scene)
+     * Note: "when_scene_start" should NOT fire on the initial scene start.
+     * Entry rule: First scene only triggers "when_run_button_click", not "when_scene_start".
+     * Scene transitions (via start_scene) will trigger "when_scene_start" instead.
      */
     start() {
         wasm.wasmengine_start(this.__wbg_ptr);
@@ -481,6 +484,9 @@ function __wbg_get_imports() {
     imports.wbg.__wbg_getSeconds_d94762aec8103802 = function(arg0) {
         const ret = getObject(arg0).getSeconds();
         return ret;
+    };
+    imports.wbg.__wbg_log_1d990106d99dacb7 = function(arg0) {
+        console.log(getObject(arg0));
     };
     imports.wbg.__wbg_new_0_23cedd11d9b40c9d = function() {
         const ret = new Date();

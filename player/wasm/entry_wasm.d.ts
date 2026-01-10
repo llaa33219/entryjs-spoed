@@ -66,7 +66,10 @@ export class WasmEngine {
   tick(): void;
   reset(): void;
   /**
-   * Start the engine (fires both "start" and "when_scene_start" events)
+   * Start the engine (fires only "start" event for the initial scene)
+   * Note: "when_scene_start" should NOT fire on the initial scene start.
+   * Entry rule: First scene only triggers "when_run_button_click", not "when_scene_start".
+   * Scene transitions (via start_scene) will trigger "when_scene_start" instead.
    */
   start(): void;
   /**

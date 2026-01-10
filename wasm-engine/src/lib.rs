@@ -311,7 +311,10 @@ impl WasmEngine {
         Ok(())
     }
 
-    /// Start the engine (fires both "start" and "when_scene_start" events)
+    /// Start the engine (fires only "start" event for the initial scene)
+    /// Note: "when_scene_start" should NOT fire on the initial scene start.
+    /// Entry rule: First scene only triggers "when_run_button_click", not "when_scene_start".
+    /// Scene transitions (via start_scene) will trigger "when_scene_start" instead.
     #[wasm_bindgen]
     pub fn start(&self) {
         // Use try_borrow_mut to avoid panic if already borrowed (e.g., during tick)
@@ -329,7 +332,7 @@ impl WasmEngine {
         
         Self::initialize_executors_inner(&mut inner);
         Self::fire_event_inner(&mut inner, "start");
-        Self::fire_event_inner(&mut inner, "when_scene_start");
+        // Do NOT fire "when_scene_start" here - it should only fire on scene transitions
     }
 
     /// Start the engine for scene transition (fires only "when_scene_start", not "start")
