@@ -9,6 +9,7 @@ export const wasmengine_fire_mouse_clicked: (a: number) => void;
 export const wasmengine_fire_object_click: (a: number, b: number) => void;
 export const wasmengine_fire_object_click_canceled: (a: number, b: number) => void;
 export const wasmengine_fire_scene_start: (a: number) => void;
+export const wasmengine_get_debug_info: (a: number, b: number) => void;
 export const wasmengine_get_js_actions: (a: number, b: number) => void;
 export const wasmengine_get_render_buffer_len: (a: number) => number;
 export const wasmengine_get_render_buffer_ptr: (a: number) => number;

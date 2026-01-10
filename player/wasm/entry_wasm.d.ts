@@ -34,6 +34,7 @@ export class WasmEngine {
    * Fire key press event with specific key code
    */
   fire_key_event(key_code: number): void;
+  get_debug_info(): string;
   get_js_actions(): string;
   get_render_data(): string;
   /**
@@ -95,6 +96,7 @@ export interface InitOutput {
   readonly wasmengine_fire_object_click: (a: number, b: number) => void;
   readonly wasmengine_fire_object_click_canceled: (a: number, b: number) => void;
   readonly wasmengine_fire_scene_start: (a: number) => void;
+  readonly wasmengine_get_debug_info: (a: number, b: number) => void;
   readonly wasmengine_get_js_actions: (a: number, b: number) => void;
   readonly wasmengine_get_render_buffer_len: (a: number) => number;
   readonly wasmengine_get_render_buffer_ptr: (a: number) => number;

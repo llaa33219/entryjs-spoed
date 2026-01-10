@@ -711,6 +711,38 @@
                             console.log('WASM용 프로젝트 데이터 준비 완료');
 
                             this.wasmEngine.load_project(JSON.stringify(projectForWasm));
+
+                            // Debug logging for performance verification
+                            console.group(
+                                '%c🚀 WASM Engine Status',
+                                'color: #00ff00; font-weight: bold; font-size: 14px;'
+                            );
+                            console.log('%c✅ Zero-copy Interface:', 'color: #00d4ff', 'Ready');
+                            console.log(
+                                '%c✅ Memory Buffer:',
+                                'color: #00d4ff',
+                                this.wasmMemory
+                                    ? `${this.wasmMemory.buffer.byteLength.toLocaleString()} bytes`
+                                    : 'Not linked'
+                            );
+
+                            if (typeof this.wasmEngine.get_debug_info === 'function') {
+                                console.log(
+                                    '%c📦 VM Compilation Result:',
+                                    'color: #ff00d4',
+                                    '\n' + this.wasmEngine.get_debug_info()
+                                );
+                            }
+
+                            // Check pointer explicitly
+                            const ptr = this.wasmEngine.get_render_buffer_ptr();
+                            const len = this.wasmEngine.get_render_buffer_len();
+                            console.log(
+                                `%c🎨 Render Buffer: ptr=${ptr}, len=${len} (doubles)`,
+                                'color: #eebb00'
+                            );
+                            console.groupEnd();
+
                             console.log('WASM 엔진 프로젝트 로드 완료');
                         } catch (wasmError) {
                             console.error('WASM 엔진 프로젝트 로드 실패:', wasmError);
@@ -1176,6 +1208,7 @@
                     this.brushStates.clear();
 
                     // Reset error flags for fresh start
+                    this._firstRenderLogged = false;
                     this._jsActionsErrorLogged = false;
                     this._jsActionsParseErrorLogged = false;
                     this._brushStampErrorLogged = false;
@@ -1780,6 +1813,15 @@
                             const len = this.wasmEngine.get_render_buffer_len();
 
                             if (ptr && len > 0 && this.wasmMemory) {
+                                // Log first successful render frame details once
+                                if (!this._firstRenderLogged) {
+                                    this._firstRenderLogged = true;
+                                    console.log(
+                                        `%c✨ First Frame Rendered via Zero-copy (ptr: ${ptr}, len: ${len})`,
+                                        'color: #00ff00; font-weight: bold;'
+                                    );
+                                }
+
                                 const buffer = new Float64Array(this.wasmMemory.buffer, ptr, len);
                                 this.drawRenderBuffer(buffer);
                                 this._renderErrorCount = 0;

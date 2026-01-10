@@ -591,6 +591,35 @@ impl WasmEngine {
         }
     }
 
+    #[wasm_bindgen]
+    pub fn get_debug_info(&self) -> String {
+        match self.inner.try_borrow() {
+            Ok(inner) => {
+                if let Some(program) = &inner.program {
+                    format!(
+                        "=== WASM VM Debug Info ===\n\
+                        Compiled Instructions: {}\n\
+                        Constants: {}\n\
+                        Variables: {}\n\
+                        String Pool: {}\n\
+                        Entry Scripts: {}\n\
+                        Render Buffer Cap: {}\n\
+                        ==========================",
+                        program.instructions.len(),
+                        program.constants.len(),
+                        program.variable_map.len(),
+                        program.string_pool.len(),
+                        program.scripts.len(),
+                        inner.render_buffer.capacity()
+                    )
+                } else {
+                    "No program compiled".to_string()
+                }
+            },
+            Err(_) => "Failed to borrow engine".to_string(),
+        }
+    }
+
     /// Check if engine is running
     #[wasm_bindgen]
     pub fn is_running(&self) -> bool {
