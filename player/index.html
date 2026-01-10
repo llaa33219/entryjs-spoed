@@ -1447,6 +1447,15 @@
                             this.dialogs.delete(entity_id);
                             break;
                         }
+                        case 'DeleteClone': {
+                            const { entity_id } = data;
+                            this.handleDeleteClone(entity_id);
+                            break;
+                        }
+                        case 'RemoveAllClones': {
+                            this.handleRemoveAllClones();
+                            break;
+                        }
                         default:
                             // Suppress unhandled action logs to prevent console flood
                             // Uncomment the following line for debugging:
@@ -1457,6 +1466,57 @@
                             // }
                             break;
                     }
+                }
+
+                handleDeleteClone(entityId) {
+                    // Clean up canvas resources to prevent memory leaks
+                    this.brushCanvases.delete(entityId);
+                    this.brushContexts.delete(entityId);
+                    this.brushStates.delete(entityId);
+                    this.dialogs.delete(entityId);
+                }
+
+                handleRemoveAllClones() {
+                    // We need to keep original objects (indices 0 to N-1)
+                    // Clones usually have higher indices.
+                    // However, we don't know exactly which IDs are original vs clones just from ID here easily
+                    // without tracking.
+                    // But typically RemoveAllClones is called on scene change or specific block.
+                    // For now, let's rely on WASM to manage the entities list,
+                    // and we just clean up resources for IDs that are no longer valid?
+                    // Actually, RemoveAllClones in Entry deletes *all* clones. Originals stay.
+                    // Since we don't track who is a clone here easily, we'll just implement a
+                    // "garbage collection" strategy or explicit cleanup if we knew IDs.
+
+                    // Better strategy: WASM sends 'DeleteClone' for each clone?
+                    // No, usually RemoveAllClones is a single op.
+
+                    // Safe approach: We can't easily distinguish clones here without more info.
+                    // But we can iterate current brushCanvases and check if they are in the current render list?
+                    // No, render list comes later.
+
+                    // For now, let's perform a "GC" during the next render frame
+                    // or just leave it since usually DeleteClone is called individually for logic.
+                    // But `remove_all_clones` block exists.
+
+                    // If WASM sends RemoveAllClones, it means it cleared them internally.
+                    // We should probably clear everything except the original objects?
+                    // Let's implement a sweep based on the next frame's entity list if possible.
+                    // Or, simpler: Clear ALL brush canvases if that's acceptable behavior?
+                    // No, originals should keep their drawing.
+
+                    // Let's stick to DeleteClone for individual cleanup.
+                    // If WASM implementation of RemoveAllClones iterates and deletes, it might send DeleteClone events?
+                    // Checking executor.rs: "remove_all_clones" -> push(JsAction::RemoveAllClones).
+                    // It does NOT emit individual delete events.
+
+                    // So we DO need to handle it.
+                    // Let's assume we can clear all high-ID resources?
+                    // Or better: Use the `entityOrder` from the *previous* frame to guess?
+                    // Actually, the best way is to let WASM manage the "living" entities
+                    // and we garbage collect our maps against the `render_buffer` IDs.
+
+                    this.needsGarbageCollection = true;
                 }
 
                 getBrushState(entityStringId) {
@@ -1854,6 +1914,25 @@
                 }
 
                 drawRenderBuffer(buffer) {
+                    // 0. Garbage Collection if requested (e.g. after RemoveAllClones)
+                    if (this.needsGarbageCollection) {
+                        const livingIds = new Set();
+                        for (let i = 0; i < buffer.length; i += RENDER_STRIDE) {
+                            livingIds.add(buffer[i]);
+                        }
+
+                        // Sweep brush resources
+                        for (const [id, _] of this.brushCanvases) {
+                            if (!livingIds.has(id)) {
+                                this.brushCanvases.delete(id);
+                                this.brushContexts.delete(id);
+                                this.brushStates.delete(id);
+                                this.dialogs.delete(id);
+                            }
+                        }
+                        this.needsGarbageCollection = false;
+                    }
+
                     // 1. Create a map of entity_id -> buffer_offset
                     const entityMap = new Map();
                     const len = buffer.length;

@@ -1445,6 +1445,7 @@ impl Executor {
                     color = Self::value_as_string(&color_value);
                 }
                 if let Some(e) = entity {
+                    Self::flush_drawing_paths(e, js_actions);
                     if !color.is_empty() {
                         e.brush_color = color.clone();
                     }
@@ -1460,6 +1461,7 @@ impl Executor {
             
             "set_brush_size" | "change_brush_size" => {
                 if let Some(e) = entity {
+                    Self::flush_drawing_paths(e, js_actions);
                     let value = self.get_param_number(block, 0, variables);
                     if block_type == "set_brush_size" {
                         e.brush_size = value.max(1.0);
@@ -1471,6 +1473,9 @@ impl Executor {
             }
             
             "brush_erase_all" | "brush_clear" => {
+                if let Some(e) = entity {
+                    Self::flush_drawing_paths(e, js_actions);
+                }
                 js_actions.push(JsAction::BrushEraseAll { entity_id: self.entity_idx });
                 ExecuteResult::Continue
             }
@@ -1490,6 +1495,7 @@ impl Executor {
             
             "stop_drawing" => {
                 if let Some(e) = entity {
+                    Self::flush_drawing_paths(e, js_actions);
                     e.brush_down = false;
                 }
                 js_actions.push(JsAction::StopDrawing {
@@ -1513,6 +1519,7 @@ impl Executor {
             
             "stop_fill" => {
                 if let Some(e) = entity {
+                    Self::flush_drawing_paths(e, js_actions);
                     e.fill_down = false;
                 }
                 js_actions.push(JsAction::StopFill {
@@ -1530,6 +1537,7 @@ impl Executor {
                     color = Self::value_as_string(&color_value);
                 }
                 if let Some(e) = entity {
+                    Self::flush_drawing_paths(e, js_actions);
                     if !color.is_empty() {
                         e.brush_color = color.clone();
                     }
@@ -1544,6 +1552,9 @@ impl Executor {
             }
             
             "set_random_color" => {
+                if let Some(e) = entity {
+                    Self::flush_drawing_paths(e, js_actions);
+                }
                 js_actions.push(JsAction::SetRandomColor {
                     entity_id: self.entity_idx,
                 });
@@ -1558,6 +1569,9 @@ impl Executor {
                     let color_value = self.get_param_value(block, 0, variables);
                     color = Self::value_as_string(&color_value);
                 }
+                if let Some(e) = entity {
+                    Self::flush_drawing_paths(e, js_actions);
+                }
                 if !color.is_empty() {
                     js_actions.push(JsAction::SetFillColor {
                         entity_id: self.entity_idx,
@@ -1569,6 +1583,7 @@ impl Executor {
             
             "change_thickness" => {
                 if let Some(e) = entity {
+                    Self::flush_drawing_paths(e, js_actions);
                     let value = self.get_param_number(block, 0, variables);
                     e.brush_size = (e.brush_size + value).max(1.0);
                 }
@@ -1577,6 +1592,7 @@ impl Executor {
             
             "set_thickness" => {
                 if let Some(e) = entity {
+                    Self::flush_drawing_paths(e, js_actions);
                     let value = self.get_param_number(block, 0, variables);
                     e.brush_size = value.max(1.0);
                 }
@@ -1584,7 +1600,8 @@ impl Executor {
             }
             
             "change_brush_transparency" => {
-                let transparency = if let Some(ref mut e) = entity {
+                let transparency = if let Some(e) = entity {
+                    Self::flush_drawing_paths(e, js_actions);
                     let value = self.get_param_number(block, 0, variables);
                     e.brush_transparency = (e.brush_transparency + value).clamp(0.0, 100.0);
                     e.fill_transparency = (e.fill_transparency + value).clamp(0.0, 100.0);
@@ -1600,7 +1617,8 @@ impl Executor {
             }
             
             "set_brush_tranparency" => {
-                let transparency = if let Some(ref mut e) = entity {
+                let transparency = if let Some(e) = entity {
+                    Self::flush_drawing_paths(e, js_actions);
                     let value = self.get_param_number(block, 0, variables);
                     e.brush_transparency = value.clamp(0.0, 100.0);
                     e.fill_transparency = value.clamp(0.0, 100.0);
@@ -1840,6 +1858,23 @@ impl Executor {
         }
         if entity.fill_down {
             entity.frame_fill_path.push((entity.x, entity.y));
+        }
+    }
+
+    fn flush_drawing_paths(entity: &mut Entity, js_actions: &mut Vec<JsAction>) {
+        if !entity.frame_brush_path.is_empty() {
+            let points = std::mem::take(&mut entity.frame_brush_path);
+            js_actions.push(JsAction::BrushPath {
+                entity_id: entity.id,
+                points,
+            });
+        }
+        if !entity.frame_fill_path.is_empty() {
+            let points = std::mem::take(&mut entity.frame_fill_path);
+            js_actions.push(JsAction::FillPath {
+                entity_id: entity.id,
+                points,
+            });
         }
     }
 
