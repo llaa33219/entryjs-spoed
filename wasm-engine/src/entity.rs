@@ -54,6 +54,15 @@ pub struct Entity {
     // Frame-based path buffers for brush/fill (accumulated during frame, flushed at frame end)
     pub frame_brush_path: Vec<(f64, f64)>,
     pub frame_fill_path: Vec<(f64, f64)>,
+    
+    pub text: Option<String>,
+    pub font: Option<String>,
+    pub colour: Option<String>,
+    pub bg_color: Option<String>,
+    pub under_line: bool,
+    pub strike: bool,
+    pub line_break: bool,
+    pub text_align: i32,
 }
 
 #[derive(Clone, Debug)]
@@ -73,6 +82,15 @@ struct EntitySnapshot {
     brightness: f64,
     transparency: f64,
     color_effect: f64,
+    
+    text: Option<String>,
+    font: Option<String>,
+    colour: Option<String>,
+    bg_color: Option<String>,
+    under_line: bool,
+    strike: bool,
+    line_break: bool,
+    text_align: i32,
 }
 
 impl Entity {
@@ -127,11 +145,20 @@ impl Entity {
             
             dialog_message: None,
             dialog_mode: None,
-            
             frame_brush_path: Vec::new(),
             frame_fill_path: Vec::new(),
+            
+            text: entity_data.and_then(|e| e.text.clone()).or_else(|| obj.text.clone()),
+            font: entity_data.and_then(|e| e.font.clone()),
+            colour: entity_data.and_then(|e| e.colour.clone()),
+            bg_color: entity_data.and_then(|e| e.bg_color.clone()),
+            under_line: entity_data.and_then(|e| e.under_line).unwrap_or(false),
+            strike: entity_data.and_then(|e| e.strike).unwrap_or(false),
+            line_break: entity_data.and_then(|e| e.line_break).unwrap_or(false),
+            text_align: entity_data.and_then(|e| e.text_align).unwrap_or(0),
         }
     }
+
     
     /// Take a snapshot of current state
     pub fn take_snapshot(&mut self) {
@@ -149,6 +176,14 @@ impl Entity {
             brightness: self.brightness,
             transparency: self.transparency,
             color_effect: self.color_effect,
+            text: self.text.clone(),
+            font: self.font.clone(),
+            colour: self.colour.clone(),
+            bg_color: self.bg_color.clone(),
+            under_line: self.under_line,
+            strike: self.strike,
+            line_break: self.line_break,
+            text_align: self.text_align,
         });
     }
     
@@ -166,6 +201,14 @@ impl Entity {
             self.brightness = snap.brightness;
             self.transparency = snap.transparency;
             self.color_effect = snap.color_effect;
+            self.text = snap.text.clone();
+            self.font = snap.font.clone();
+            self.colour = snap.colour.clone();
+            self.bg_color = snap.bg_color.clone();
+            self.under_line = snap.under_line;
+            self.strike = snap.strike;
+            self.line_break = snap.line_break;
+            self.text_align = snap.text_align;
         }
     }
     
@@ -381,6 +424,14 @@ mod tests {
             dialog_mode: None,
             frame_brush_path: Vec::new(),
             frame_fill_path: Vec::new(),
+            text: None,
+            font: None,
+            colour: None,
+            bg_color: None,
+            under_line: false,
+            strike: false,
+            line_break: false,
+            text_align: 0,
         }
     }
 

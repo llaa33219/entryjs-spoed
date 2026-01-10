@@ -1190,6 +1190,7 @@ pub struct ObjectData {
     pub selected_picture_id: Option<String>,
     #[serde(rename = "objectType")]
     pub object_type: Option<String>,
+    pub text: Option<String>,
     pub entity: Option<EntityData>,
     pub sprite: Option<SpriteData>,
 }
@@ -1244,6 +1245,18 @@ pub struct EntityData {
     pub width: Option<f64>,
     pub height: Option<f64>,
     pub visible: Option<bool>,
+    pub text: Option<String>,
+    pub font: Option<String>,
+    pub colour: Option<String>,
+    #[serde(rename = "bgColor")]
+    pub bg_color: Option<String>,
+    #[serde(rename = "underLine")]
+    pub under_line: Option<bool>,
+    pub strike: Option<bool>,
+    #[serde(rename = "lineBreak")]
+    pub line_break: Option<bool>,
+    #[serde(rename = "textAlign")]
+    pub text_align: Option<i32>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1346,6 +1359,18 @@ pub struct RenderEntity {
     pub fill_color: String,
     #[serde(rename = "fillTransparency")]
     pub fill_transparency: f64,
+    pub text: Option<String>,
+    pub font: Option<String>,
+    pub colour: Option<String>,
+    #[serde(rename = "bgColor")]
+    pub bg_color: Option<String>,
+    #[serde(rename = "underLine")]
+    pub under_line: bool,
+    pub strike: bool,
+    #[serde(rename = "lineBreak")]
+    pub line_break: bool,
+    #[serde(rename = "textAlign")]
+    pub text_align: i32,
 }
 
 impl From<&Entity> for RenderEntity {
@@ -1372,6 +1397,15 @@ impl From<&Entity> for RenderEntity {
             fill_down: e.fill_down,
             fill_color: e.fill_color.clone(),
             fill_transparency: e.fill_transparency,
+            // Text Box fields
+            text: e.text.clone(),
+            font: e.font.clone(),
+            colour: e.colour.clone(),
+            bg_color: e.bg_color.clone(),
+            under_line: e.under_line,
+            strike: e.strike,
+            line_break: e.line_break,
+            text_align: e.text_align,
         }
     }
 }
