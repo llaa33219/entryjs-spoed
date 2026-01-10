@@ -63,6 +63,7 @@ pub struct Executor {
     func_params: HashMap<String, Value>,
     local_vars: HashMap<String, Value>,
     func_return_value: Option<Value>,
+    cached_functions: Option<Rc<HashMap<String, FunctionData>>>,
 }
 
 #[derive(Clone, Debug)]
@@ -114,6 +115,7 @@ impl Executor {
             func_params: HashMap::new(),
             local_vars: HashMap::new(),
             func_return_value: None,
+            cached_functions: None,
         }
     }
     
@@ -166,6 +168,9 @@ impl Executor {
         js_actions: &mut Vec<JsAction>,
         functions: &HashMap<String, FunctionData>,
     ) -> ExecuteResult {
+        if self.cached_functions.is_none() {
+            self.cached_functions = Some(Rc::new(functions.clone()));
+        }
         self.update_cached_entity(entities.get(self.entity_idx));
         
         // Check if waiting
@@ -1775,6 +1780,99 @@ impl Executor {
         }
     }
 
+    fn execute_function_sync(
+        &mut self,
+        func_id: &str,
+        call_params: Option<&Vec<serde_json::Value>>,
+        variables: &HashMap<String, Value>,
+    ) -> Value {
+        let functions = match &self.cached_functions {
+            Some(f) => Rc::clone(f),
+            None => return Value::Number(0.0),
+        };
+        
+        if let Some(func_data) = functions.get(func_id) {
+            if let Some(content) = &func_data.content {
+                if let Some(first_thread) = content.first() {
+                    if let Some(func_create_block) = first_thread.first() {
+                        let mut func_body: Option<Vec<Block>> = None;
+                        
+                        if let Some(statements) = &func_create_block.statements {
+                            if let Some(body) = statements.first() {
+                                if !body.is_empty() {
+                                    func_body = Some(body.clone());
+                                }
+                            }
+                        }
+                        
+                        if func_body.is_none() && first_thread.len() > 1 {
+                            let body: Vec<Block> = first_thread.iter().skip(1).cloned().collect();
+                            if !body.is_empty() {
+                                func_body = Some(body);
+                            }
+                        }
+                        
+                        let param_types = self.extract_func_param_types(func_create_block);
+                        let saved_func_params = std::mem::take(&mut self.func_params);
+                        let saved_local_vars = std::mem::take(&mut self.local_vars);
+                        
+                        if let Some(call_params) = call_params {
+                            for (i, param_type) in param_types.iter().enumerate() {
+                                if let Some(param_value) = call_params.get(i) {
+                                    let value = self.evaluate_value(param_value, variables);
+                                    self.func_params.insert(param_type.clone(), value);
+                                }
+                            }
+                        }
+                        
+                        if func_data.use_local_variables.unwrap_or(false) {
+                            if let Some(local_vars) = &func_data.local_variables {
+                                for var in local_vars {
+                                    let value = Value::from_json(&var.value);
+                                    self.local_vars.insert(var.id.clone(), value);
+                                }
+                            }
+                        }
+                        
+                        if let Some(body) = func_body {
+                            for block in body.iter() {
+                                self.execute_simple_block_sync(block, variables);
+                            }
+                        }
+                        
+                        let return_value = if func_create_block.block_type == "function_create_value" {
+                            if let Some(return_json) = func_create_block.params.as_ref().and_then(|p| p.get(3)) {
+                                self.evaluate_value(return_json, variables)
+                            } else {
+                                Value::Number(0.0)
+                            }
+                        } else {
+                            Value::Number(0.0)
+                        };
+                        
+                        self.func_params = saved_func_params;
+                        self.local_vars = saved_local_vars;
+                        
+                        return return_value;
+                    }
+                }
+            }
+        }
+        
+        Value::Number(0.0)
+    }
+    
+    fn execute_simple_block_sync(&mut self, block: &Block, variables: &HashMap<String, Value>) {
+        match block.block_type.as_str() {
+            "set_func_variable" => {
+                let var_id = self.get_param_string(block, 0, variables);
+                let value = self.get_param_value(block, 1, variables);
+                self.local_vars.insert(var_id, value);
+            }
+            _ => {}
+        }
+    }
+
     fn accumulate_brush_and_fill_path(&self, entity: &mut Entity) {
         if entity.brush_down {
             entity.frame_brush_path.push((entity.x, entity.y));
@@ -1784,7 +1882,7 @@ impl Executor {
         }
     }
 
-    fn get_param_number(&self, block: &Block, index: usize, variables: &HashMap<String, Value>) -> f64 {
+    fn get_param_number(&mut self, block: &Block, index: usize, variables: &HashMap<String, Value>) -> f64 {
         if let Some(params) = &block.params {
             if let Some(param) = params.get(index) {
                 return self.evaluate_value(param, variables).as_number();
@@ -1793,7 +1891,7 @@ impl Executor {
         0.0
     }
 
-    fn get_param_string(&self, block: &Block, index: usize, variables: &HashMap<String, Value>) -> String {
+    fn get_param_string(&mut self, block: &Block, index: usize, variables: &HashMap<String, Value>) -> String {
         if let Some(params) = &block.params {
             if let Some(param) = params.get(index) {
                 return Self::value_as_string(&self.evaluate_value(param, variables));
@@ -1802,7 +1900,7 @@ impl Executor {
         String::new()
     }
 
-    fn get_param_bool(&self, block: &Block, index: usize, variables: &HashMap<String, Value>) -> bool {
+    fn get_param_bool(&mut self, block: &Block, index: usize, variables: &HashMap<String, Value>) -> bool {
         if let Some(params) = &block.params {
             if let Some(param) = params.get(index) {
                 return self.evaluate_value(param, variables).as_bool();
@@ -1811,7 +1909,7 @@ impl Executor {
         false
     }
 
-    fn get_param_value(&self, block: &Block, index: usize, variables: &HashMap<String, Value>) -> Value {
+    fn get_param_value(&mut self, block: &Block, index: usize, variables: &HashMap<String, Value>) -> Value {
         if let Some(params) = &block.params {
             if let Some(param) = params.get(index) {
                 return self.evaluate_value(param, variables);
@@ -1820,7 +1918,7 @@ impl Executor {
         Value::Null
     }
 
-    fn evaluate_value(&self, json: &serde_json::Value, variables: &HashMap<String, Value>) -> Value {
+    fn evaluate_value(&mut self, json: &serde_json::Value, variables: &HashMap<String, Value>) -> Value {
         match json {
             serde_json::Value::Number(n) => Value::Number(n.as_f64().unwrap_or(0.0)),
             serde_json::Value::String(s) => Value::String(s.clone()),
@@ -1880,7 +1978,7 @@ impl Executor {
         }
     }
     
-    fn evaluate_block_iterative(&self, _block_type: &str, obj: &serde_json::Map<String, serde_json::Value>, variables: &HashMap<String, Value>) -> Value {
+    fn evaluate_block_iterative(&mut self, _block_type: &str, obj: &serde_json::Map<String, serde_json::Value>, variables: &HashMap<String, Value>) -> Value {
         #[derive(Clone)]
         enum EvalTask {
             Evaluate(serde_json::Value),
@@ -2156,7 +2254,9 @@ impl Executor {
                                         }
                                     }
                                     _ if bt.starts_with("func_") => {
-                                        let val = self.func_return_value.clone().unwrap_or(Value::Number(0.0));
+                                        let func_id = &bt[5..];
+                                        let call_params = params.map(|p| p.to_vec());
+                                        let val = self.execute_function_sync(func_id, call_params.as_ref(), variables);
                                         value_stack.push(val);
                                     }
                                     _ => {
@@ -2421,7 +2521,7 @@ impl Executor {
         }
     }
     
-    fn evaluate_json_iterative(&self, json: &serde_json::Value, variables: &HashMap<String, Value>) -> Value {
+    fn evaluate_json_iterative(&mut self, json: &serde_json::Value, variables: &HashMap<String, Value>) -> Value {
         match json {
             serde_json::Value::Number(n) => Value::Number(n.as_f64().unwrap_or(0.0)),
             serde_json::Value::String(s) => Value::String(s.clone()),
