@@ -206,7 +206,9 @@ pub fn get_block_category(block_type: &str) -> Option<BlockCategory> {
 
         // Function blocks
         "function_create" |
+        "function_create_value" |
         "function_call" |
+        "function_value" |
         "function_field_label" |
         "function_field_string" |
         "function_field_boolean" => Some(BlockCategory::Func),
@@ -280,6 +282,11 @@ pub fn is_value_block(block_type: &str) -> bool {
         "is_clicked" |
         "is_object_clicked" |
         "is_press_some_key" |
-        "reach_something"
+        "reach_something" |
+        "get_func_variable"
     )
+}
+
+pub fn is_func_value_block(block_type: &str) -> bool {
+    block_type.starts_with("func_")
 }

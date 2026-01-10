@@ -62,6 +62,7 @@ pub struct Executor {
     timed_target_y: f64,
     func_params: HashMap<String, Value>,
     local_vars: HashMap<String, Value>,
+    func_return_value: Option<Value>,
 }
 
 #[derive(Clone, Debug)]
@@ -72,6 +73,8 @@ struct StackFrame {
     is_loop: bool,
     func_params: Option<HashMap<String, Value>>,
     local_vars: Option<HashMap<String, Value>>,
+    is_value_func: bool,
+    return_value_json: Option<serde_json::Value>,
 }
 
 impl Executor {
@@ -110,6 +113,7 @@ impl Executor {
             timed_target_y: 0.0,
             func_params: HashMap::new(),
             local_vars: HashMap::new(),
+            func_return_value: None,
         }
     }
     
@@ -178,6 +182,12 @@ impl Executor {
                     self.blocks = Rc::clone(&frame.blocks);
                     self.block_index = frame.block_index;
                     
+                    if frame.is_value_func {
+                        if let Some(return_json) = &frame.return_value_json {
+                            self.func_return_value = Some(self.evaluate_value(return_json, variables));
+                        }
+                    }
+                    
                     if let Some(prev_params) = frame.func_params {
                         self.func_params = prev_params;
                     }
@@ -236,7 +246,7 @@ impl Executor {
     fn execute_block(
         &mut self,
         block: &Block,
-        entity: Option<&mut Entity>,
+        mut entity: Option<&mut Entity>,
         variables: &mut HashMap<String, Value>,
         js_actions: &mut Vec<JsAction>,
         functions: &HashMap<String, FunctionData>,
@@ -888,10 +898,11 @@ impl Executor {
                                     is_loop: true,
                                     func_params: None,
                                     local_vars: None,
+                                    is_value_func: false,
+                                    return_value_json: None,
                                 };
                                 self.call_stack.push(frame);
                                 
-                                // Enter loop body
                                 self.blocks = Rc::new(inner_blocks.clone());
                                 self.block_index = 0;
                                 self.iteration_count = 0; // Reset for inner blocks
@@ -916,6 +927,8 @@ impl Executor {
                                 is_loop: true,
                                 func_params: None,
                                 local_vars: None,
+                                is_value_func: false,
+                                return_value_json: None,
                             };
                             self.call_stack.push(frame);
                             
@@ -942,6 +955,8 @@ impl Executor {
                                     is_loop: false,
                                     func_params: None,
                                     local_vars: None,
+                                    is_value_func: false,
+                                    return_value_json: None,
                                 };
                                 self.call_stack.push(frame);
                                 
@@ -968,6 +983,8 @@ impl Executor {
                                 is_loop: false,
                                 func_params: None,
                                 local_vars: None,
+                                is_value_func: false,
+                                return_value_json: None,
                             };
                             self.call_stack.push(frame);
                             
@@ -1020,6 +1037,8 @@ impl Executor {
                                     is_loop: true,
                                     func_params: None,
                                     local_vars: None,
+                                    is_value_func: false,
+                                    return_value_json: None,
                                 };
                                 self.call_stack.push(frame);
                                 
@@ -1031,7 +1050,6 @@ impl Executor {
                         }
                     }
                 }
-                // Condition not met (or no longer met), exit loop
                 self.iteration_count = 0;
                 ExecuteResult::Continue
             }
@@ -1540,18 +1558,34 @@ impl Executor {
             }
             
             "change_brush_transparency" => {
-                if let Some(e) = entity {
+                let transparency = if let Some(ref mut e) = entity {
                     let value = self.get_param_number(block, 0, variables);
-                    e.transparency = (e.transparency + value).clamp(0.0, 100.0);
-                }
+                    e.brush_transparency = (e.brush_transparency + value).clamp(0.0, 100.0);
+                    e.fill_transparency = (e.fill_transparency + value).clamp(0.0, 100.0);
+                    e.brush_transparency
+                } else {
+                    0.0
+                };
+                js_actions.push(JsAction::SetBrushTransparency {
+                    entity_id: self.entity_idx,
+                    transparency,
+                });
                 ExecuteResult::Continue
             }
             
             "set_brush_tranparency" => {
-                if let Some(e) = entity {
+                let transparency = if let Some(ref mut e) = entity {
                     let value = self.get_param_number(block, 0, variables);
-                    e.transparency = value.clamp(0.0, 100.0);
-                }
+                    e.brush_transparency = value.clamp(0.0, 100.0);
+                    e.fill_transparency = value.clamp(0.0, 100.0);
+                    e.brush_transparency
+                } else {
+                    0.0
+                };
+                js_actions.push(JsAction::SetBrushTransparency {
+                    entity_id: self.entity_idx,
+                    transparency,
+                });
                 ExecuteResult::Continue
             }
             
@@ -1680,6 +1714,13 @@ impl Executor {
                                 }
                             }
                             
+                            let is_value_func = func_create_block.block_type == "function_create_value";
+                            let return_value_json = if is_value_func {
+                                func_create_block.params.as_ref().and_then(|p| p.get(3)).cloned()
+                            } else {
+                                None
+                            };
+                            
                             let frame = StackFrame {
                                 blocks: Rc::clone(&self.blocks),
                                 block_index: self.block_index,
@@ -1687,6 +1728,8 @@ impl Executor {
                                 is_loop: false,
                                 func_params: Some(std::mem::replace(&mut self.func_params, new_params)),
                                 local_vars: Some(std::mem::replace(&mut self.local_vars, new_locals)),
+                                is_value_func,
+                                return_value_json,
                             };
                             self.call_stack.push(frame);
                             
@@ -2018,6 +2061,29 @@ impl Executor {
                                             value_stack.push(Value::Number(0.0));
                                         }
                                     }
+                                    "change_rgb_to_hex" => {
+                                        if let Some(p) = params {
+                                            task_stack.push(EvalTask::ApplyOp { op: "rgb_to_hex".to_string(), arg_count: 3 });
+                                            if let Some(b) = p.get(2) { task_stack.push(EvalTask::Evaluate(b.clone())); }
+                                            else { value_stack.push(Value::Number(0.0)); }
+                                            if let Some(g) = p.get(1) { task_stack.push(EvalTask::Evaluate(g.clone())); }
+                                            else { value_stack.push(Value::Number(0.0)); }
+                                            if let Some(r) = p.get(0) { task_stack.push(EvalTask::Evaluate(r.clone())); }
+                                            else { value_stack.push(Value::Number(0.0)); }
+                                        } else {
+                                            value_stack.push(Value::String("#000000".to_string()));
+                                        }
+                                    }
+                                    "change_hex_to_rgb" => {
+                                        if let Some(p) = params {
+                                            let color_component = p.get(1).and_then(|v| v.as_str()).unwrap_or("r").to_string();
+                                            task_stack.push(EvalTask::ApplyOp { op: format!("hex_to_rgb:{}", color_component), arg_count: 1 });
+                                            if let Some(hex) = p.get(0) { task_stack.push(EvalTask::Evaluate(hex.clone())); }
+                                            else { value_stack.push(Value::String("#000000".to_string())); }
+                                        } else {
+                                            value_stack.push(Value::Number(0.0));
+                                        }
+                                    }
                                     "get_x" => value_stack.push(Value::Number(self.cached_entity_x)),
                                     "get_y" => value_stack.push(Value::Number(self.cached_entity_y)),
                                     "get_rotation" => value_stack.push(Value::Number(self.cached_entity_rotation)),
@@ -2088,6 +2154,10 @@ impl Executor {
                                         } else {
                                             value_stack.push(Value::Null);
                                         }
+                                    }
+                                    _ if bt.starts_with("func_") => {
+                                        let val = self.func_return_value.clone().unwrap_or(Value::Number(0.0));
+                                        value_stack.push(val);
                                     }
                                     _ => {
                                         let result = self.evaluate_block_simple(bt, &obj_map, variables);
@@ -2170,6 +2240,32 @@ impl Executor {
                     } else if op == "strlen" {
                         let val = value_stack.pop().unwrap_or(Value::String(String::new()));
                         Value::Number(Self::value_as_string(&val).chars().count() as f64)
+                    } else if op == "rgb_to_hex" {
+                        let r = value_stack.pop().unwrap_or(Value::Number(0.0)).as_number() as i32;
+                        let g = value_stack.pop().unwrap_or(Value::Number(0.0)).as_number() as i32;
+                        let b = value_stack.pop().unwrap_or(Value::Number(0.0)).as_number() as i32;
+                        let r = r.clamp(0, 255) as u32;
+                        let g = g.clamp(0, 255) as u32;
+                        let b = b.clamp(0, 255) as u32;
+                        Value::String(format!("#{:02x}{:02x}{:02x}", r, g, b))
+                    } else if let Some(component) = op.strip_prefix("hex_to_rgb:") {
+                        let hex_str = Self::value_as_string(&value_stack.pop().unwrap_or(Value::String("#000000".to_string())));
+                        let hex = if hex_str.starts_with('#') { &hex_str[1..] } else { &hex_str };
+                        let hex = if hex.len() == 3 {
+                            format!("{}{}{}{}{}{}", &hex[0..1], &hex[0..1], &hex[1..2], &hex[1..2], &hex[2..3], &hex[2..3])
+                        } else {
+                            hex.to_string()
+                        };
+                        let parsed = u32::from_str_radix(&hex, 16).unwrap_or(0);
+                        let r = ((parsed >> 16) & 0xFF) as f64;
+                        let g = ((parsed >> 8) & 0xFF) as f64;
+                        let b = (parsed & 0xFF) as f64;
+                        Value::Number(match component {
+                            "r" | "R" => r,
+                            "g" | "G" => g,
+                            "b" | "B" => b,
+                            _ => r,
+                        })
                     } else if let Some(list_id) = op.strip_prefix("is_included:") {
                         let val = value_stack.pop().unwrap_or(Value::Null);
                         let result = if let Some(Value::List(list)) = variables.get(list_id) {

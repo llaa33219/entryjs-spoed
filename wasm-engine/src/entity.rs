@@ -40,10 +40,12 @@ pub struct Entity {
     pub brush_down: bool,
     pub brush_color: String,
     pub brush_size: f64,
+    pub brush_transparency: f64,
     
     // Fill state
     pub fill_down: bool,
     pub fill_color: String,
+    pub fill_transparency: f64,
     
     // Dialog state
     pub dialog_message: Option<String>,
@@ -115,9 +117,11 @@ impl Entity {
             brush_down: false,
             brush_color: "#ff0000".to_string(),
             brush_size: 1.0,
+            brush_transparency: 0.0,
             
             fill_down: false,
             fill_color: "#ff0000".to_string(),
+            fill_transparency: 0.0,
             
             dialog_message: None,
             dialog_mode: None,
@@ -367,8 +371,10 @@ mod tests {
             brush_down: false,
             brush_color: "#ff0000".to_string(),
             brush_size: 1.0,
+            brush_transparency: 0.0,
             fill_down: false,
             fill_color: "#ff0000".to_string(),
+            fill_transparency: 0.0,
             dialog_message: None,
             dialog_mode: None,
             frame_brush_path: Vec::new(),

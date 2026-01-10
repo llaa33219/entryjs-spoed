@@ -72,6 +72,7 @@ pub enum JsAction {
     SetBrushColor { entity_id: usize, color: String },
     SetRandomColor { entity_id: usize },
     SetFillColor { entity_id: usize, color: String },
+    SetBrushTransparency { entity_id: usize, transparency: f64 },
     
     // Timer actions  
     TimerAction { action: String },  // start, stop, reset
@@ -1227,11 +1228,15 @@ pub struct RenderEntity {
     pub brush_color: String,
     #[serde(rename = "brushSize")]
     pub brush_size: f64,
+    #[serde(rename = "brushTransparency")]
+    pub brush_transparency: f64,
     // Fill state
     #[serde(rename = "fillDown")]
     pub fill_down: bool,
     #[serde(rename = "fillColor")]
     pub fill_color: String,
+    #[serde(rename = "fillTransparency")]
+    pub fill_transparency: f64,
 }
 
 impl From<&Entity> for RenderEntity {
@@ -1254,8 +1259,10 @@ impl From<&Entity> for RenderEntity {
             brush_down: e.brush_down,
             brush_color: e.brush_color.clone(),
             brush_size: e.brush_size,
+            brush_transparency: e.brush_transparency,
             fill_down: e.fill_down,
             fill_color: e.fill_color.clone(),
+            fill_transparency: e.fill_transparency,
         }
     }
 }
