@@ -18,6 +18,10 @@ web-sys = { version = "0.3", features = ["console", "Performance", "Window"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 console_error_panic_hook = { version = "0.1", optional = true }
+rustc-hash = "2.0"
+smallvec = { version = "1.13", features = ["union", "const_generics"] }
+compact_str = "0.8"
+phf = { version = "0.11", features = ["macros"] }
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
@@ -29,9 +33,12 @@ codegen-units = 1
 panic = "abort"
 strip = "symbols"
 overflow-checks = false
+debug = false
+incremental = false
+rpath = false
 
 [profile.release.package."*"]
 opt-level = 3
 
 [package.metadata.wasm-pack.profile.release]
-wasm-opt = ["-O3", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
+wasm-opt = ["-O4", "--enable-bulk-memory", "--enable-nontrapping-float-to-int", "--enable-simd", "--enable-mutable-globals", "--fast-math", "--converge"]

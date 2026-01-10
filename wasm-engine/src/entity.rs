@@ -64,7 +64,9 @@ struct EntitySnapshot {
     direction: f64,
     scale_x: f64,
     scale_y: f64,
+    #[allow(dead_code)]
     reg_x: f64,
+    #[allow(dead_code)]
     reg_y: f64,
     visible: bool,
     current_picture_id: Option<String>,

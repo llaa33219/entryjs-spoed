@@ -3,8 +3,15 @@
 
 use wasm_bindgen::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::cell::{Cell, RefCell};
+
+pub type HashMap<K, V> = FxHashMap<K, V>;
+
+#[inline(always)]
+pub fn new_hashmap<K, V>() -> HashMap<K, V> {
+    HashMap::default()
+}
 
 mod blocks;
 mod executor;
@@ -133,13 +140,13 @@ impl EngineInner {
         EngineInner {
             state: EngineState::Stopped,
             entities: Vec::new(),
-            variables: HashMap::new(),
-            variables_snapshot: HashMap::new(),
+            variables: HashMap::default(),
+            variables_snapshot: HashMap::default(),
             executors: Vec::new(),
             tick_count: 0,
             fps: 60,
             project_data: None,
-            functions: HashMap::new(),
+            functions: HashMap::default(),
             pending_js_actions: Vec::new(),
             mouse_x: 0.0,
             mouse_y: 0.0,
@@ -440,7 +447,7 @@ impl WasmEngine {
         }
         
         for idx in completed.into_iter().rev() {
-            executors.remove(idx);
+            executors.swap_remove(idx);
         }
         
         if pending_js_actions.len() > initial_action_count {

@@ -6,7 +6,7 @@
 //! - evaluate_value uses an iterative algorithm with heap-based eval stack
 //! - This allows unlimited recursion depth without WASM stack overflow
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap as HashMap;
 use std::rc::Rc;
 use crate::{Block, Entity, Value, JsAction, FunctionData};
 
@@ -89,7 +89,7 @@ impl Executor {
             blocks: Rc::new(blocks),
             block_index: 0,
             call_stack: Vec::new(),
-            register: HashMap::new(),
+            register: HashMap::default(),
             wait_frames: 0,
             iteration_count: 0,
             cached_entity_x: 0.0,
@@ -116,8 +116,8 @@ impl Executor {
             timed_d_direction: 0.0,
             timed_target_x: 0.0,
             timed_target_y: 0.0,
-            func_params: HashMap::new(),
-            local_vars: HashMap::new(),
+            func_params: HashMap::default(),
+            local_vars: HashMap::default(),
             func_return_value: None,
         }
     }
@@ -266,6 +266,7 @@ impl Executor {
         self.blocks.get(self.block_index)
     }
 
+    #[inline]
     fn execute_block(
         &mut self,
         block: &Block,
@@ -1716,7 +1717,7 @@ impl Executor {
                         
                         if let Some(body) = func_body {
                             let param_types = self.extract_func_param_types(func_create_block);
-                            let mut new_params = HashMap::new();
+                            let mut new_params = HashMap::default();
                             
                             if let Some(call_params) = &block.params {
                                 for (i, param_type) in param_types.iter().enumerate() {
@@ -1727,7 +1728,7 @@ impl Executor {
                                 }
                             }
                             
-                            let mut new_locals = HashMap::new();
+                            let mut new_locals = HashMap::default();
                             if func_data.use_local_variables.unwrap_or(false) {
                                 if let Some(local_vars) = &func_data.local_variables {
                                     for var in local_vars {
@@ -1954,6 +1955,7 @@ impl Executor {
         }
     }
     
+    #[inline(always)]
     fn evaluate_leaf_value(&self, json: &serde_json::Value, variables: &HashMap<String, Value>) -> Value {
         match json {
             serde_json::Value::Number(n) => Value::Number(n.as_f64().unwrap_or(0.0)),
@@ -1992,6 +1994,7 @@ impl Executor {
         }
     }
     
+    #[inline]
     fn evaluate_block_iterative(&mut self, _block_type: &str, obj: &serde_json::Map<String, serde_json::Value>, variables: &HashMap<String, Value>) -> Value {
         #[derive(Clone)]
         enum EvalTask {
@@ -2528,26 +2531,6 @@ impl Executor {
             _ => Value::Null,
         }
     }
-    
-    fn evaluate_json_iterative(&mut self, json: &serde_json::Value, variables: &HashMap<String, Value>) -> Value {
-        match json {
-            serde_json::Value::Number(n) => Value::Number(n.as_f64().unwrap_or(0.0)),
-            serde_json::Value::String(s) => Value::String(s.clone()),
-            serde_json::Value::Bool(b) => Value::Bool(*b),
-            serde_json::Value::Null => Value::Null,
-            serde_json::Value::Array(arr) => {
-                let list: Vec<Value> = arr.iter().map(|v| self.evaluate_leaf_value(v, variables)).collect();
-                Value::List(list)
-            }
-            serde_json::Value::Object(obj) => {
-                if let Some(block_type) = obj.get("type").and_then(|v| v.as_str()) {
-                    return self.evaluate_block_iterative(block_type, obj, variables);
-                }
-                Value::Null
-            }
-        }
-    }
-
 }
 
 #[cfg(test)]
