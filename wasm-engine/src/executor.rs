@@ -23,6 +23,11 @@ pub enum ExecuteResult {
 const MAX_CALL_STACK_DEPTH: usize = 1_000_000;
 const MAX_EVAL_ITERATIONS: usize = 100_000;
 
+struct PendingFunc {
+    func_id: String,
+    call_params: Option<Vec<serde_json::Value>>,
+}
+
 /// Executor manages the execution of a thread of blocks
 #[derive(Clone, Debug)]
 pub struct Executor {
@@ -63,7 +68,6 @@ pub struct Executor {
     func_params: HashMap<String, Value>,
     local_vars: HashMap<String, Value>,
     func_return_value: Option<Value>,
-    cached_functions: Option<Rc<HashMap<String, FunctionData>>>,
 }
 
 #[derive(Clone, Debug)]
@@ -115,7 +119,6 @@ impl Executor {
             func_params: HashMap::new(),
             local_vars: HashMap::new(),
             func_return_value: None,
-            cached_functions: None,
         }
     }
     
@@ -168,9 +171,6 @@ impl Executor {
         js_actions: &mut Vec<JsAction>,
         functions: &HashMap<String, FunctionData>,
     ) -> ExecuteResult {
-        if self.cached_functions.is_none() {
-            self.cached_functions = Some(Rc::new(functions.clone()));
-        }
         self.update_cached_entity(entities.get(self.entity_idx));
         
         // Check if waiting
@@ -217,9 +217,26 @@ impl Executor {
             }
         };
 
-        // Execute block
+        if let Some(pending_func) = self.find_pending_func_in_block(&block) {
+            if self.func_return_value.is_none() {
+                let func_block = Block {
+                    block_type: format!("func_{}", pending_func.func_id),
+                    x: None,
+                    y: None,
+                    params: pending_func.call_params,
+                    statements: None,
+                };
+                let result = self.execute_function_call(&func_block, functions, variables);
+                if matches!(result, ExecuteResult::JumpedToBlock) {
+                    return ExecuteResult::Continue;
+                }
+            }
+        }
+
         let entity = entities.get_mut(self.entity_idx);
         let result = self.execute_block(&block, entity, variables, js_actions, functions);
+        
+        self.func_return_value = None;
 
         match result {
             ExecuteResult::Continue => {
@@ -1780,97 +1797,37 @@ impl Executor {
         }
     }
 
-    fn execute_function_sync(
-        &mut self,
-        func_id: &str,
-        call_params: Option<&Vec<serde_json::Value>>,
-        variables: &HashMap<String, Value>,
-    ) -> Value {
-        let functions = match &self.cached_functions {
-            Some(f) => Rc::clone(f),
-            None => return Value::Number(0.0),
-        };
-        
-        if let Some(func_data) = functions.get(func_id) {
-            if let Some(content) = &func_data.content {
-                if let Some(first_thread) = content.first() {
-                    if let Some(func_create_block) = first_thread.first() {
-                        let mut func_body: Option<Vec<Block>> = None;
-                        
-                        if let Some(statements) = &func_create_block.statements {
-                            if let Some(body) = statements.first() {
-                                if !body.is_empty() {
-                                    func_body = Some(body.clone());
-                                }
-                            }
-                        }
-                        
-                        if func_body.is_none() && first_thread.len() > 1 {
-                            let body: Vec<Block> = first_thread.iter().skip(1).cloned().collect();
-                            if !body.is_empty() {
-                                func_body = Some(body);
-                            }
-                        }
-                        
-                        let param_types = self.extract_func_param_types(func_create_block);
-                        let saved_func_params = std::mem::take(&mut self.func_params);
-                        let saved_local_vars = std::mem::take(&mut self.local_vars);
-                        
-                        if let Some(call_params) = call_params {
-                            for (i, param_type) in param_types.iter().enumerate() {
-                                if let Some(param_value) = call_params.get(i) {
-                                    let value = self.evaluate_value(param_value, variables);
-                                    self.func_params.insert(param_type.clone(), value);
-                                }
-                            }
-                        }
-                        
-                        if func_data.use_local_variables.unwrap_or(false) {
-                            if let Some(local_vars) = &func_data.local_variables {
-                                for var in local_vars {
-                                    let value = Value::from_json(&var.value);
-                                    self.local_vars.insert(var.id.clone(), value);
-                                }
-                            }
-                        }
-                        
-                        if let Some(body) = func_body {
-                            for block in body.iter() {
-                                self.execute_simple_block_sync(block, variables);
-                            }
-                        }
-                        
-                        let return_value = if func_create_block.block_type == "function_create_value" {
-                            if let Some(return_json) = func_create_block.params.as_ref().and_then(|p| p.get(3)) {
-                                self.evaluate_value(return_json, variables)
-                            } else {
-                                Value::Number(0.0)
-                            }
-                        } else {
-                            Value::Number(0.0)
-                        };
-                        
-                        self.func_params = saved_func_params;
-                        self.local_vars = saved_local_vars;
-                        
-                        return return_value;
+    fn find_pending_func_in_block(&self, block: &Block) -> Option<PendingFunc> {
+        if let Some(params) = &block.params {
+            for param in params {
+                if let Some(result) = self.find_func_in_json(param) {
+                    return Some(result);
+                }
+            }
+        }
+        None
+    }
+    
+    fn find_func_in_json(&self, json: &serde_json::Value) -> Option<PendingFunc> {
+        if let Some(obj) = json.as_object() {
+            if let Some(block_type) = obj.get("type").and_then(|v| v.as_str()) {
+                if block_type.starts_with("func_") {
+                    let func_id = block_type[5..].to_string();
+                    let call_params = obj.get("params")
+                        .and_then(|v| v.as_array())
+                        .map(|arr| arr.clone());
+                    return Some(PendingFunc { func_id, call_params });
+                }
+            }
+            if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
+                for param in params {
+                    if let Some(result) = self.find_func_in_json(param) {
+                        return Some(result);
                     }
                 }
             }
         }
-        
-        Value::Number(0.0)
-    }
-    
-    fn execute_simple_block_sync(&mut self, block: &Block, variables: &HashMap<String, Value>) {
-        match block.block_type.as_str() {
-            "set_func_variable" => {
-                let var_id = self.get_param_string(block, 0, variables);
-                let value = self.get_param_value(block, 1, variables);
-                self.local_vars.insert(var_id, value);
-            }
-            _ => {}
-        }
+        None
     }
 
     fn accumulate_brush_and_fill_path(&self, entity: &mut Entity) {
@@ -2254,9 +2211,7 @@ impl Executor {
                                         }
                                     }
                                     _ if bt.starts_with("func_") => {
-                                        let func_id = &bt[5..];
-                                        let call_params = params.map(|p| p.to_vec());
-                                        let val = self.execute_function_sync(func_id, call_params.as_ref(), variables);
+                                        let val = self.func_return_value.clone().unwrap_or(Value::Number(0.0));
                                         value_stack.push(val);
                                     }
                                     _ => {
