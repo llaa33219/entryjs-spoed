@@ -601,7 +601,11 @@ impl WasmEngine {
                 buffer.push(entity.brush_transparency);
                 buffer.push(if entity.fill_down { 1.0 } else { 0.0 });
                 buffer.push(entity.fill_transparency);
-                buffer.push(0.0); 
+                let picture_index = entity.current_picture_id.as_ref()
+                    .and_then(|id| entity.pictures.iter().position(|p| p == id))
+                    .map(|idx| idx as f64)
+                    .unwrap_or(-1.0);
+                buffer.push(picture_index);
             }
         }
         inner.render_buffer = buffer;

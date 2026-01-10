@@ -1995,35 +1995,39 @@
                 }
 
                 drawEntityFromBuffer(buffer, offset) {
-                    // Extract data from buffer
                     const x = buffer[offset + 1];
                     const y = buffer[offset + 2];
                     const rotation = buffer[offset + 3];
-                    // direction at +4
                     const scaleX = buffer[offset + 5];
                     const scaleY = buffer[offset + 6];
                     const width = buffer[offset + 7];
                     const height = buffer[offset + 8];
                     const visible = buffer[offset + 9] > 0.5;
-                    // brush/fill props...
+                    const pictureIndex = buffer[offset + 15];
 
                     if (!visible) return;
 
                     this.ctx.save();
-
-                    // Transform to Entry coordinate system (center is 0,0)
                     this.ctx.translate(240 + x, 180 - y);
                     this.ctx.rotate((-rotation * Math.PI) / 180);
                     this.ctx.scale(scaleX, scaleY);
 
-                    // We need pictureId to draw the image.
-                    // Buffer doesn't contain pictureId (string).
-                    // We need to look it up from the entity object in JS memory.
                     const entityId = buffer[offset];
                     const entityObj = this.findObjectById(entityId);
 
-                    if (entityObj && entityObj.selectedPictureId) {
-                        const img = imageCache.get(entityObj.selectedPictureId);
+                    let pictureId = null;
+                    if (entityObj && entityObj.sprite?.pictures && pictureIndex >= 0) {
+                        const pic = entityObj.sprite.pictures[Math.floor(pictureIndex)];
+                        if (pic) {
+                            pictureId = pic.id;
+                        }
+                    }
+                    if (!pictureId && entityObj) {
+                        pictureId = entityObj.selectedPictureId;
+                    }
+
+                    if (pictureId) {
+                        const img = imageCache.get(pictureId);
                         if (img && img.complete && img.naturalWidth > 0) {
                             try {
                                 this.ctx.drawImage(img, -width / 2, -height / 2, width, height);
@@ -2031,22 +2035,18 @@
                                 // Ignore
                             }
                         } else {
-                            // Fallback rect
                             this.ctx.fillStyle = '#4a90d9';
                             this.ctx.fillRect(-width / 2, -height / 2, width, height);
                         }
                     } else {
-                        // Fallback rect
                         this.ctx.fillStyle = '#4a90d9';
                         this.ctx.fillRect(-width / 2, -height / 2, width, height);
                     }
 
                     this.ctx.restore();
 
-                    // Draw dialog balloon (after restore to use screen coordinates)
                     const dialog = this.dialogs.get(entityId);
                     if (dialog) {
-                        // Pass a mock entity object with dialog props
                         const mockEntity = {
                             x: x,
                             y: y,

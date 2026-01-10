@@ -2,6 +2,13 @@
 
 use crate::ObjectData;
 
+/// Picture dimension info for proper sizing on shape change
+#[derive(Clone, Debug)]
+pub struct PictureDimension {
+    pub width: f64,
+    pub height: f64,
+}
+
 /// Entity represents a single object/sprite with its state
 #[derive(Clone, Debug)]
 pub struct Entity {
@@ -27,6 +34,8 @@ pub struct Entity {
     // Graphics
     pub current_picture_id: Option<String>,
     pub pictures: Vec<String>,
+    /// Dimension info for each picture (indexed same as pictures Vec)
+    pub picture_dimensions: Vec<PictureDimension>,
     
     // Snapshot for reset
     snapshot: Option<EntitySnapshot>,
@@ -94,18 +103,30 @@ struct EntitySnapshot {
 }
 
 impl Entity {
-    /// Create a new entity from object data
     pub fn from_object(obj: &ObjectData, idx: usize) -> Self {
         let entity_data = obj.entity.as_ref();
         
         let mut pictures = Vec::new();
+        let mut picture_dimensions = Vec::new();
+        
         if let Some(sprite) = &obj.sprite {
             if let Some(pics) = &sprite.pictures {
                 for pic in pics {
                     pictures.push(pic.id.clone());
+                    
+                    let dim = pic.dimension.as_ref()
+                        .map(|d| PictureDimension {
+                            width: d.width.unwrap_or(100.0),
+                            height: d.height.unwrap_or(100.0),
+                        })
+                        .unwrap_or(PictureDimension { width: 100.0, height: 100.0 });
+                    picture_dimensions.push(dim);
                 }
             }
         }
+        
+        let initial_width = entity_data.and_then(|e| e.width).unwrap_or(100.0);
+        let initial_height = entity_data.and_then(|e| e.height).unwrap_or(100.0);
         
         Entity {
             id: idx,
@@ -118,15 +139,16 @@ impl Entity {
             direction: entity_data.and_then(|e| e.direction).unwrap_or(90.0),
             scale_x: entity_data.and_then(|e| e.scale_x).unwrap_or(1.0),
             scale_y: entity_data.and_then(|e| e.scale_y).unwrap_or(1.0),
-            width: entity_data.and_then(|e| e.width).unwrap_or(100.0),
-            height: entity_data.and_then(|e| e.height).unwrap_or(100.0),
-            reg_x: entity_data.and_then(|e| e.reg_x).or_else(|| entity_data.and_then(|e| e.width).map(|w| w / 2.0)).unwrap_or(50.0),
-            reg_y: entity_data.and_then(|e| e.reg_y).or_else(|| entity_data.and_then(|e| e.height).map(|h| h / 2.0)).unwrap_or(50.0),
+            width: initial_width,
+            height: initial_height,
+            reg_x: entity_data.and_then(|e| e.reg_x).unwrap_or(initial_width / 2.0),
+            reg_y: entity_data.and_then(|e| e.reg_y).unwrap_or(initial_height / 2.0),
             
             visible: entity_data.and_then(|e| e.visible).unwrap_or(true),
             
             current_picture_id: obj.selected_picture_id.clone(),
             pictures,
+            picture_dimensions,
             
             snapshot: None,
             
@@ -320,10 +342,19 @@ impl Entity {
         self.color_effect = 0.0;
     }
     
-    // Shape/costume
+    fn update_dimension_for_picture_index(&mut self, idx: usize) {
+        if let Some(dim) = self.picture_dimensions.get(idx) {
+            self.width = dim.width;
+            self.height = dim.height;
+            self.reg_x = dim.width / 2.0;
+            self.reg_y = dim.height / 2.0;
+        }
+    }
+    
     pub fn set_picture(&mut self, picture_id: &str) {
-        if self.pictures.contains(&picture_id.to_string()) {
+        if let Some(idx) = self.pictures.iter().position(|p| p == picture_id) {
             self.current_picture_id = Some(picture_id.to_string());
+            self.update_dimension_for_picture_index(idx);
         }
     }
     
@@ -338,9 +369,9 @@ impl Entity {
             .unwrap_or(0);
         
         let next_idx = (current_idx + 1) % self.pictures.len();
-        // Use safe access with get() instead of direct indexing
         if let Some(picture) = self.pictures.get(next_idx) {
             self.current_picture_id = Some(picture.clone());
+            self.update_dimension_for_picture_index(next_idx);
         }
     }
     
@@ -359,9 +390,9 @@ impl Entity {
         } else {
             current_idx - 1
         };
-        // Use safe access with get() instead of direct indexing
         if let Some(picture) = self.pictures.get(prev_idx) {
             self.current_picture_id = Some(picture.clone());
+            self.update_dimension_for_picture_index(prev_idx);
         }
     }
     
@@ -409,6 +440,10 @@ mod tests {
             visible: true,
             current_picture_id: None,
             pictures: vec!["pic1".to_string(), "pic2".to_string()],
+            picture_dimensions: vec![
+                PictureDimension { width: 100.0, height: 100.0 },
+                PictureDimension { width: 80.0, height: 120.0 },
+            ],
             snapshot: None,
             brightness: 0.0,
             transparency: 0.0,
