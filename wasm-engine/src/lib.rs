@@ -191,12 +191,30 @@ impl WasmEngine {
             }
         }
         
-        // Initialize variables
+        // Initialize variables and lists
         inner.variables.clear();
         if let Some(vars) = &project.variables {
             for var in vars {
-                let value = Value::from_json(&var.value);
-                inner.variables.insert(var.id.clone(), value);
+                let is_list = var.variable_type.as_deref() == Some("list");
+                
+                if is_list {
+                    if let Some(arr) = &var.array {
+                        let list_values: Vec<Value> = arr.iter().map(|item| {
+                            if let Some(obj) = item.as_object() {
+                                if let Some(data) = obj.get("data") {
+                                    return Value::from_json(data);
+                                }
+                            }
+                            Value::from_json(item)
+                        }).collect();
+                        inner.variables.insert(var.id.clone(), Value::List(list_values));
+                    } else {
+                        inner.variables.insert(var.id.clone(), Value::List(Vec::new()));
+                    }
+                } else {
+                    let value = Value::from_json(&var.value);
+                    inner.variables.insert(var.id.clone(), value);
+                }
             }
         }
         
@@ -1154,6 +1172,7 @@ pub struct VariableData {
     pub value: serde_json::Value,
     #[serde(rename = "variableType")]
     pub variable_type: Option<String>,
+    pub array: Option<Vec<serde_json::Value>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
