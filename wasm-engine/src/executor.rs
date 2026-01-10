@@ -2080,12 +2080,14 @@ impl Executor {
                                         }
                                     }
                                     "value_of_index_from_list" | "value_of_list_index" => {
-                                        // params[1] = list_id (dropdown), params[2] = index (block)
                                         if let Some(p) = params {
                                             let list_id = p.get(1).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                            web_sys::console::log_1(&format!(
+                                                "value_of_index_from_list: list_id={}, params={:?}, variables keys={:?}",
+                                                list_id, p, variables.keys().collect::<Vec<_>>()
+                                            ).into());
                                             task_stack.push(EvalTask::ApplyOp { op: format!("value_of_list:{}", list_id), arg_count: 1 });
-                                            // Index is at params[2], not params[3]
-                                            if let Some(idx) = p.get(2) { task_stack.push(EvalTask::Evaluate(idx.clone())); }
+                                            if let Some(idx) = p.get(3) { task_stack.push(EvalTask::Evaluate(idx.clone())); }
                                             else { value_stack.push(Value::Number(1.0)); }
                                         } else {
                                             value_stack.push(Value::Null);
