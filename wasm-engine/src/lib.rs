@@ -5,7 +5,6 @@ use wasm_bindgen::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::cell::{Cell, RefCell};
-use std::panic::{catch_unwind, AssertUnwindSafe};
 
 mod blocks;
 mod executor;
@@ -376,28 +375,6 @@ impl WasmEngine {
 
     #[wasm_bindgen]
     pub fn tick(&self) {
-        let tick_result = catch_unwind(AssertUnwindSafe(|| {
-            self.tick_inner()
-        }));
-        
-        if let Err(panic_info) = tick_result {
-            if !self.error_logged.get() {
-                self.error_logged.set(true);
-                let panic_msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
-                    s.to_string()
-                } else if let Some(s) = panic_info.downcast_ref::<String>() {
-                    s.clone()
-                } else {
-                    format!("{:?}", panic_info)
-                };
-                web_sys::console::error_1(
-                    &format!("WASM tick panic: {}", panic_msg).into()
-                );
-            }
-        }
-    }
-    
-    fn tick_inner(&self) {
         // Use try_borrow_mut to prevent recursive tick calls
         let mut inner = match self.inner.try_borrow_mut() {
             Ok(inner) => inner,
@@ -437,49 +414,26 @@ impl WasmEngine {
                 
 
                 
-                let execute_result = catch_unwind(AssertUnwindSafe(|| {
-                    executor.execute(
-                        &mut entities, 
-                        &mut variables, 
-                        &mut pending_js_actions, 
-                        functions_ref
-                    )
-                }));
+                let result = executor.execute(
+                    &mut entities, 
+                    &mut variables, 
+                    &mut pending_js_actions, 
+                    functions_ref
+                );
                 
-                match execute_result {
-                    Ok(result) => {
-                        match result {
-                            ExecuteResult::End => {
-                                completed.push(idx);
-                                break;
-                            }
-                            ExecuteResult::Wait => {
-                                break;
-                            }
-                            ExecuteResult::Continue | ExecuteResult::JumpedToBlock | ExecuteResult::Break => {
-                                execution_count += 1;
-                                if execution_count >= MAX_EXECUTIONS_PER_TICK {
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    Err(panic_info) => {
-                        if !self.error_logged.get() {
-                            self.error_logged.set(true);
-                            let panic_msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
-                                s.to_string()
-                            } else if let Some(s) = panic_info.downcast_ref::<String>() {
-                                s.clone()
-                            } else {
-                                format!("{:?}", panic_info)
-                            };
-                            web_sys::console::error_1(
-                                &format!("WASM panic in executor (entity {}): {}", executor.entity_idx, panic_msg).into()
-                            );
-                        }
+                match result {
+                    ExecuteResult::End => {
                         completed.push(idx);
                         break;
+                    }
+                    ExecuteResult::Wait => {
+                        break;
+                    }
+                    ExecuteResult::Continue | ExecuteResult::JumpedToBlock | ExecuteResult::Break => {
+                        execution_count += 1;
+                        if execution_count >= MAX_EXECUTIONS_PER_TICK {
+                            break;
+                        }
                     }
                 }
             }
@@ -533,50 +487,42 @@ impl WasmEngine {
     
     #[wasm_bindgen]
     pub fn get_js_actions(&self) -> String {
-        catch_unwind(AssertUnwindSafe(|| {
-            let mut inner = match self.inner.try_borrow_mut() {
-                Ok(inner) => inner,
-                Err(_) => return "[]".to_string(),
-            };
-            
-            if inner.pending_js_actions.is_empty() {
-                return "[]".to_string();
-            }
-            
-            let actions = std::mem::take(&mut inner.pending_js_actions);
-            serde_json::to_string(&actions).unwrap_or_else(|_| "[]".to_string())
-        })).unwrap_or_else(|_| "[]".to_string())
+        let mut inner = match self.inner.try_borrow_mut() {
+            Ok(inner) => inner,
+            Err(_) => return "[]".to_string(),
+        };
+        
+        if inner.pending_js_actions.is_empty() {
+            return "[]".to_string();
+        }
+        
+        let actions = std::mem::take(&mut inner.pending_js_actions);
+        serde_json::to_string(&actions).unwrap_or_else(|_| "[]".to_string())
     }
     
     #[wasm_bindgen]
     pub fn has_pending_js_actions(&self) -> bool {
-        catch_unwind(AssertUnwindSafe(|| {
-            match self.inner.try_borrow() {
-                Ok(inner) => !inner.pending_js_actions.is_empty(),
-                Err(_) => false,
-            }
-        })).unwrap_or(false)
+        match self.inner.try_borrow() {
+            Ok(inner) => !inner.pending_js_actions.is_empty(),
+            Err(_) => false,
+        }
     }
 
     #[wasm_bindgen]
     pub fn get_render_data(&self) -> String {
-        catch_unwind(AssertUnwindSafe(|| {
-            let inner = match self.inner.try_borrow() {
-                Ok(inner) => inner,
-                Err(_) => return "[]".to_string(),
-            };
-            
-            // Reverse order: first object in data should be rendered last (on top/front)
-            // Include hidden objects if they have active brush or fill (for pen/fill indicators)
-            let render_entities: Vec<RenderEntity> = inner.entities
-                .iter()
-                .rev()
-                .filter(|e| e.visible || e.brush_down || e.fill_down)
-                .map(|e| RenderEntity::from(e))
-                .collect();
-            
-            serde_json::to_string(&render_entities).unwrap_or_else(|_| "[]".to_string())
-        })).unwrap_or_else(|_| "[]".to_string())
+        let inner = match self.inner.try_borrow() {
+            Ok(inner) => inner,
+            Err(_) => return "[]".to_string(),
+        };
+        
+        let render_entities: Vec<RenderEntity> = inner.entities
+            .iter()
+            .rev()
+            .filter(|e| e.visible || e.brush_down || e.fill_down)
+            .map(|e| RenderEntity::from(e))
+            .collect();
+        
+        serde_json::to_string(&render_entities).unwrap_or_else(|_| "[]".to_string())
     }
 
     /// Check if engine is running
@@ -597,18 +543,14 @@ impl WasmEngine {
         }
     }
     
-    /// Get current variables state as JSON string
-    /// Used for preserving variable state across scene transitions
     #[wasm_bindgen]
     pub fn get_variables(&self) -> String {
-        catch_unwind(AssertUnwindSafe(|| {
-            let inner = match self.inner.try_borrow() {
-                Ok(inner) => inner,
-                Err(_) => return "{}".to_string(),
-            };
-            
-            serde_json::to_string(&inner.variables).unwrap_or_else(|_| "{}".to_string())
-        })).unwrap_or_else(|_| "{}".to_string())
+        let inner = match self.inner.try_borrow() {
+            Ok(inner) => inner,
+            Err(_) => return "{}".to_string(),
+        };
+        
+        serde_json::to_string(&inner.variables).unwrap_or_else(|_| "{}".to_string())
     }
     
     /// Set variables state from JSON string

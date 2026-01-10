@@ -1,0 +1,14 @@
+/home/luke/entryjs-spoed/wasm-engine/target/wasm32-unknown-unknown/release/deps/serde-8e2ce16d47e15e0f.d: /home/luke/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /home/luke/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /home/luke/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /home/luke/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /home/luke/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /home/luke/entryjs-spoed/wasm-engine/target/wasm32-unknown-unknown/release/build/serde-9119251f421432fc/out/private.rs
+
+/home/luke/entryjs-spoed/wasm-engine/target/wasm32-unknown-unknown/release/deps/libserde-8e2ce16d47e15e0f.rlib: /home/luke/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /home/luke/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /home/luke/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /home/luke/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /home/luke/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /home/luke/entryjs-spoed/wasm-engine/target/wasm32-unknown-unknown/release/build/serde-9119251f421432fc/out/private.rs
+
+/home/luke/entryjs-spoed/wasm-engine/target/wasm32-unknown-unknown/release/deps/libserde-8e2ce16d47e15e0f.rmeta: /home/luke/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /home/luke/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /home/luke/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /home/luke/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /home/luke/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /home/luke/entryjs-spoed/wasm-engine/target/wasm32-unknown-unknown/release/build/serde-9119251f421432fc/out/private.rs
+
+/home/luke/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs:
+/home/luke/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs:
+/home/luke/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs:
+/home/luke/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs:
+/home/luke/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs:
+/home/luke/entryjs-spoed/wasm-engine/target/wasm32-unknown-unknown/release/build/serde-9119251f421432fc/out/private.rs:
+
+# env-dep:OUT_DIR=/home/luke/entryjs-spoed/wasm-engine/target/wasm32-unknown-unknown/release/build/serde-9119251f421432fc/out

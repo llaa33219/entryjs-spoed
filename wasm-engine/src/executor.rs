@@ -164,6 +164,7 @@ impl Executor {
         self.block_index
     }
 
+    #[inline]
     pub fn execute(
         &mut self, 
         entities: &mut Vec<Entity>, 
@@ -1839,6 +1840,7 @@ impl Executor {
         }
     }
 
+    #[inline(always)]
     fn get_param_number(&mut self, block: &Block, index: usize, variables: &HashMap<String, Value>) -> f64 {
         if let Some(params) = &block.params {
             if let Some(param) = params.get(index) {
@@ -1848,6 +1850,7 @@ impl Executor {
         0.0
     }
 
+    #[inline(always)]
     fn get_param_string(&mut self, block: &Block, index: usize, variables: &HashMap<String, Value>) -> String {
         if let Some(params) = &block.params {
             if let Some(param) = params.get(index) {
@@ -1857,6 +1860,7 @@ impl Executor {
         String::new()
     }
 
+    #[inline(always)]
     fn get_param_bool(&mut self, block: &Block, index: usize, variables: &HashMap<String, Value>) -> bool {
         if let Some(params) = &block.params {
             if let Some(param) = params.get(index) {
@@ -1866,6 +1870,7 @@ impl Executor {
         false
     }
 
+    #[inline(always)]
     fn get_param_value(&mut self, block: &Block, index: usize, variables: &HashMap<String, Value>) -> Value {
         if let Some(params) = &block.params {
             if let Some(param) = params.get(index) {
@@ -1875,6 +1880,7 @@ impl Executor {
         Value::Null
     }
 
+    #[inline(always)]
     fn evaluate_value(&mut self, json: &serde_json::Value, variables: &HashMap<String, Value>) -> Value {
         match json {
             serde_json::Value::Number(n) => Value::Number(n.as_f64().unwrap_or(0.0)),
@@ -1887,10 +1893,61 @@ impl Executor {
             }
             serde_json::Value::Object(obj) => {
                 if let Some(block_type) = obj.get("type").and_then(|v| v.as_str()) {
-                    if block_type.starts_with("stringParam_") || block_type.starts_with("booleanParam_") {
-                        return self.func_params.get(block_type).cloned().unwrap_or(Value::Number(0.0));
+                    let params = obj.get("params").and_then(|v| v.as_array());
+                    
+                    match block_type {
+                        "number" | "angle" => {
+                            if let Some(p) = params.and_then(|p| p.first()) {
+                                return Value::Number(p.as_str().and_then(|s| s.parse().ok())
+                                    .or_else(|| p.as_f64())
+                                    .unwrap_or(0.0));
+                            }
+                            return Value::Number(0.0);
+                        }
+                        "text" => {
+                            return Value::String(params.and_then(|p| p.first())
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("").to_string());
+                        }
+                        "color" | "Color" => {
+                            return Value::String(params.and_then(|p| p.first())
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("").to_string());
+                        }
+                        "True" => return Value::Bool(true),
+                        "False" => return Value::Bool(false),
+                        "get_variable" => {
+                            if let Some(var_id) = params.and_then(|p| p.first()).and_then(|v| v.as_str()) {
+                                return variables.get(var_id).cloned().unwrap_or(Value::Number(0.0));
+                            }
+                            return Value::Number(0.0);
+                        }
+                        "get_func_variable" => {
+                            if let Some(var_id) = params.and_then(|p| p.first()).and_then(|v| v.as_str()) {
+                                return self.local_vars.get(var_id).cloned().unwrap_or(Value::Number(0.0));
+                            }
+                            return Value::Number(0.0);
+                        }
+                        "get_x" => return Value::Number(self.cached_entity_x),
+                        "get_y" => return Value::Number(self.cached_entity_y),
+                        "get_rotation" => return Value::Number(self.cached_entity_rotation),
+                        "get_direction" => return Value::Number(self.cached_entity_direction),
+                        "get_scale" => return Value::Number(self.cached_entity_scale),
+                        "mouse_x" => return Value::Number(self.cached_mouse_x),
+                        "mouse_y" => return Value::Number(self.cached_mouse_y),
+                        "is_clicked" => return Value::Bool(self.mouse_clicked),
+                        "coordinate_mouse" => {
+                            let coord = params.and_then(|p| p.get(1)).and_then(|v| v.as_str()).unwrap_or("x");
+                            return Value::Number(if coord == "y" { self.cached_mouse_y } else { self.cached_mouse_x });
+                        }
+                        _ if block_type.starts_with("stringParam_") || block_type.starts_with("booleanParam_") => {
+                            return self.func_params.get(block_type).cloned().unwrap_or(Value::Number(0.0));
+                        }
+                        _ if block_type.starts_with("func_") => {
+                            return self.func_return_value.clone().unwrap_or(Value::Number(0.0));
+                        }
+                        _ => return self.evaluate_block_iterative(block_type, obj, variables),
                     }
-                    return self.evaluate_block_iterative(block_type, obj, variables);
                 }
                 Value::Null
             }
@@ -2154,31 +2211,27 @@ impl Executor {
                                     "is_clicked" => value_stack.push(Value::Bool(self.mouse_clicked)),
                                     "is_object_clicked" => {
                                         let clicked = self.mouse_clicked;
-                                        let mx = self.cached_mouse_x;
-                                        let my = self.cached_mouse_y;
-                                        let x = self.cached_entity_x;
-                                        let y = self.cached_entity_y;
-                                        
-                                        let x1 = x - (self.cached_entity_reg_x * self.cached_entity_scale_x);
-                                        let x2 = x + ((self.cached_entity_width - self.cached_entity_reg_x) * self.cached_entity_scale_x);
-                                        let min_x = x1.min(x2);
-                                        let max_x = x1.max(x2);
-                                        
-                                        let y1 = y + (self.cached_entity_reg_y * self.cached_entity_scale_y);
-                                        let y2 = y - ((self.cached_entity_height - self.cached_entity_reg_y) * self.cached_entity_scale_y);
-                                        let min_y = y1.min(y2);
-                                        let max_y = y1.max(y2);
-                                        
-                                        let touching = mx >= min_x && mx <= max_x && my >= min_y && my <= max_y;
-                                        
-                                        if clicked {
-                                             web_sys::console::log_1(&format!(
-                                                "is_object_clicked Check: Mouse({},{}) vs Entity[X:{:.1}~{:.1}, Y:{:.1}~{:.1}] => Touching: {}", 
-                                                mx, my, min_x, max_x, min_y, max_y, touching
-                                            ).into());
+                                        if !clicked {
+                                            value_stack.push(Value::Bool(false));
+                                        } else {
+                                            let mx = self.cached_mouse_x;
+                                            let my = self.cached_mouse_y;
+                                            let x = self.cached_entity_x;
+                                            let y = self.cached_entity_y;
+                                            
+                                            let x1 = x - (self.cached_entity_reg_x * self.cached_entity_scale_x);
+                                            let x2 = x + ((self.cached_entity_width - self.cached_entity_reg_x) * self.cached_entity_scale_x);
+                                            let min_x = x1.min(x2);
+                                            let max_x = x1.max(x2);
+                                            
+                                            let y1 = y + (self.cached_entity_reg_y * self.cached_entity_scale_y);
+                                            let y2 = y - ((self.cached_entity_height - self.cached_entity_reg_y) * self.cached_entity_scale_y);
+                                            let min_y = y1.min(y2);
+                                            let max_y = y1.max(y2);
+                                            
+                                            let touching = mx >= min_x && mx <= max_x && my >= min_y && my <= max_y;
+                                            value_stack.push(Value::Bool(touching));
                                         }
-                                        
-                                        value_stack.push(Value::Bool(clicked && touching));
                                     }
                                     "is_included_in_list" => {
                                         if let Some(p) = params {

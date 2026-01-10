@@ -24,10 +24,6 @@ export class WasmEngine {
    * Update mouse state from JavaScript
    */
   update_mouse(x: number, y: number, clicked: boolean): void;
-  /**
-   * Get current variables state as JSON string
-   * Used for preserving variable state across scene transitions
-   */
   get_variables(): string;
   /**
    * Set variables state from JSON string
@@ -97,14 +93,14 @@ export interface InitOutput {
   readonly wasmengine_fire_object_click: (a: number, b: number) => void;
   readonly wasmengine_fire_object_click_canceled: (a: number, b: number) => void;
   readonly wasmengine_fire_scene_start: (a: number) => void;
-  readonly wasmengine_get_js_actions: (a: number) => [number, number];
-  readonly wasmengine_get_render_data: (a: number) => [number, number];
+  readonly wasmengine_get_js_actions: (a: number, b: number) => void;
+  readonly wasmengine_get_render_data: (a: number, b: number) => void;
   readonly wasmengine_get_tick: (a: number) => bigint;
-  readonly wasmengine_get_variables: (a: number) => [number, number];
+  readonly wasmengine_get_variables: (a: number, b: number) => void;
   readonly wasmengine_has_pending_js_actions: (a: number) => number;
   readonly wasmengine_is_busy: (a: number) => number;
   readonly wasmengine_is_running: (a: number) => number;
-  readonly wasmengine_load_project: (a: number, b: number, c: number) => [number, number];
+  readonly wasmengine_load_project: (a: number, b: number, c: number, d: number) => void;
   readonly wasmengine_new: () => number;
   readonly wasmengine_reset: (a: number) => void;
   readonly wasmengine_set_variables: (a: number, b: number, c: number) => void;
@@ -115,11 +111,10 @@ export interface InitOutput {
   readonly wasmengine_update_keys: (a: number, b: number, c: number) => void;
   readonly wasmengine_update_mouse: (a: number, b: number, c: number, d: number) => void;
   readonly init: () => void;
-  readonly __wbindgen_free: (a: number, b: number, c: number) => void;
-  readonly __wbindgen_malloc: (a: number, b: number) => number;
-  readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
-  readonly __wbindgen_externrefs: WebAssembly.Table;
-  readonly __externref_table_dealloc: (a: number) => void;
+  readonly __wbindgen_export: (a: number, b: number, c: number) => void;
+  readonly __wbindgen_export2: (a: number, b: number) => number;
+  readonly __wbindgen_export3: (a: number, b: number, c: number, d: number) => number;
+  readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
   readonly __wbindgen_start: () => void;
 }
 
