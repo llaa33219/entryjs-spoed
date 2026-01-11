@@ -954,8 +954,11 @@
 
                     if (this.wasmEngine && this.isWasmEngineValid()) {
                         try {
-                            this.handleJsActions();
                             this.wasmEngine.tick();
+                            // Process JS actions AFTER tick but BEFORE render
+                            // This ensures activeObjects is updated before rendering
+                            // when scene transitions happen inside tick()
+                            this.handleJsActions();
                         } catch (e) {
                             if (!this._renderErrorCount) this._renderErrorCount = 0;
                             this._renderErrorCount++;
