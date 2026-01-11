@@ -1171,14 +1171,12 @@ impl Executor {
             
             "start_scene" => {
                 let scene_id = self.get_param_string(block, 0, variables);
-                web_sys::console::log_1(&format!("[WASM] start_scene block executed, scene_id: {}", scene_id).into());
                 js_actions.push(JsAction::StartScene { scene_id });
                 ExecuteResult::End
             }
             
             "start_neighbor_scene" => {
                 let direction = self.get_param_string(block, 0, variables);
-                web_sys::console::log_1(&format!("[WASM] start_neighbor_scene block executed, direction: {}", direction).into());
                 if direction == "next" {
                     js_actions.push(JsAction::StartNextScene);
                 } else {

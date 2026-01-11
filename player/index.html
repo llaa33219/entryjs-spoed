@@ -909,8 +909,10 @@
                     const sceneObjects = this.sceneObjectsMap.get(sceneId) || [];
 
                     // Parse and prepare objects (same as prepareProjectForWasm but for specific scene)
+                    // Use deep copy to prevent reference sharing
                     const preparedObjects = sceneObjects.map((obj) => {
-                        const newObj = { ...obj };
+                        // Deep copy using JSON parse/stringify to ensure fresh state
+                        const newObj = JSON.parse(JSON.stringify(obj));
                         if (typeof newObj.script === 'string') {
                             try {
                                 newObj.script = JSON.parse(newObj.script);
