@@ -679,7 +679,7 @@ impl WasmEngine {
             Self::fire_event_inner(&mut inner, "when_scene_start");
         }
         
-        for entity in &inner.entities {
+        for entity in inner.entities.iter().rev() {
             if entity.visible || entity.brush_down || entity.fill_down {
                 buffer.push(entity.id as f64);
                 buffer.push(entity.x);

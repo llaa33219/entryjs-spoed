@@ -159,12 +159,9 @@ export class WasmEngine {
     }
     /**
      * Start the engine for scene transition (fires only "when_scene_start", not "start")
-     * @param {string} scene_id
      */
-    start_scene(scene_id) {
-        const ptr0 = passStringToWasm0(scene_id, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
-        const len0 = WASM_VECTOR_LEN;
-        wasm.wasmengine_start_scene(this.__wbg_ptr, ptr0, len0);
+    start_scene() {
+        wasm.wasmengine_start_scene(this.__wbg_ptr);
     }
     /**
      * Update pressed keys from JavaScript
@@ -377,10 +374,7 @@ export class WasmEngine {
         wasm.wasmengine_reset(this.__wbg_ptr);
     }
     /**
-     * Start the engine (fires only "start" event for the initial scene)
-     * Note: "when_scene_start" should NOT fire on the initial scene start.
-     * Entry rule: First scene only triggers "when_run_button_click", not "when_scene_start".
-     * Scene transitions (via start_scene) will trigger "when_scene_start" instead.
+     * Start the engine (fires both "start" and "when_scene_start" events)
      */
     start() {
         wasm.wasmengine_start(this.__wbg_ptr);
