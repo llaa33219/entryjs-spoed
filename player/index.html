@@ -800,7 +800,7 @@
 
                 // Update activeObjects list to match WASM engine's filtering logic exactly
                 updateActiveObjects(sceneId) {
-                    const firstSceneId = this.scenes[0]?.id;
+                    const firstSceneId = (this.scenes.length > 0 && this.scenes[0].id) || null;
 
                     this.activeObjects = this.allObjects.filter((obj) => {
                         if (obj.scene) {
