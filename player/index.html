@@ -942,7 +942,7 @@
                 // Preload images for a set of objects
                 preloadSceneImages(objects) {
                     if (!objects || objects.length === 0) return;
-                    const imageCache = this.imageCache;
+                    // Use global imageCache
                     for (const obj of objects) {
                         if (obj.sprite && obj.sprite.pictures) {
                             for (const pic of obj.sprite.pictures) {
@@ -2070,7 +2070,7 @@
                 }
 
                 loadPictureImage(pic) {
-                    if ((!pic.fileurl && !pic.filename) || this.imageCache.has(pic.id)) return;
+                    if ((!pic.fileurl && !pic.filename) || imageCache.has(pic.id)) return;
 
                     let originalUrl = pic.fileurl;
                     if (!originalUrl && pic.filename) {
@@ -2088,7 +2088,7 @@
 
                     const img = new Image();
                     img.src = proxyUrl;
-                    this.imageCache.set(pic.id, img);
+                    imageCache.set(pic.id, img);
                 }
 
                 drawJSEngine() {
