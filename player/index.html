@@ -784,52 +784,43 @@
                         }
                     }
                     this.allObjects = objects || [];
-
-                    // Build scene -> objects mapping
-                    this.sceneObjectsMap.clear();
-                    for (const scene of this.scenes) {
-                        this.sceneObjectsMap.set(scene.id, []);
-                    }
-
-                    for (const obj of this.allObjects) {
-                        const sceneId = obj.scene;
-                        if (sceneId && this.sceneObjectsMap.has(sceneId)) {
-                            this.sceneObjectsMap.get(sceneId).push(obj);
-                        } else if (this.scenes.length > 0) {
-                            // Default to first scene if no scene specified
-                            const firstSceneId = this.scenes[0].id;
-                            if (!this.sceneObjectsMap.has(firstSceneId)) {
-                                this.sceneObjectsMap.set(firstSceneId, []);
-                            }
-                            this.sceneObjectsMap.get(firstSceneId).push(obj);
-                        }
-                    }
+                    this.activeObjects = [];
 
                     // Set initial scene (first scene)
                     if (this.scenes.length > 0) {
                         this.currentSceneId = this.scenes[0].id;
-                        // Initialize entity order for the first scene
-                        const sceneObjects = this.getCurrentSceneObjects();
-                        this.entityOrder = [];
-                        for (let i = 0; i < sceneObjects.length; i++) {
-                            this.entityOrder.push(i);
-                        }
+                        this.updateActiveObjects(this.currentSceneId);
+                    } else {
+                        // Legacy project support (no scenes)
+                        this.updateActiveObjects(null);
                     }
 
                     console.log(`장면 초기화 완료: ${this.scenes.length}개 장면`);
-                    for (const scene of this.scenes) {
-                        const sceneObjs = this.sceneObjectsMap.get(scene.id);
-                        const objCount = (sceneObjs && sceneObjs.length) || 0;
-                        console.log(`  - ${scene.name} (${scene.id}): ${objCount}개 오브젝트`);
-                    }
                 }
 
-                // Get objects for current scene
+                // Update activeObjects list to match WASM engine's filtering logic exactly
+                updateActiveObjects(sceneId) {
+                    const firstSceneId = this.scenes[0]?.id;
+
+                    this.activeObjects = this.allObjects.filter((obj) => {
+                        if (obj.scene) {
+                            return obj.scene === sceneId;
+                        } else {
+                            // If no scene ID, load only if we are loading the first scene
+                            // or if there are no scenes defined (legacy project)
+                            if (firstSceneId) {
+                                return firstSceneId === sceneId;
+                            }
+                            return true;
+                        }
+                    });
+
+                    console.log(`활성 오브젝트 업데이트: ${this.activeObjects.length}개`);
+                }
+
+                // Get objects for current scene (legacy support alias)
                 getCurrentSceneObjects() {
-                    if (!this.currentSceneId) {
-                        return this.allObjects;
-                    }
-                    return this.sceneObjectsMap.get(this.currentSceneId) || [];
+                    return this.activeObjects;
                 }
 
                 prepareProjectForWasm(projectData) {
@@ -909,6 +900,17 @@
                         console.warn(`장면을 찾을 수 없음: ${sceneId}`);
                         return false;
                     }
+                    console.log(`장면 전환: ${scene.name} (${sceneId})`);
+                    this.currentSceneId = sceneId;
+
+                    this.updateActiveObjects(sceneId);
+
+                    if (!fromWasm && this.isWasmEngineValid()) {
+                        try { this.wasmEngine.start_scene(sceneId); } catch (e) { console.error('WASM start_scene 호출 실패:', e); }
+                    }
+                    this.preloadSceneImages(this.activeObjects);
+                    return true;
+                }
                     console.log(`장면 전환: ${scene.name} (${sceneId})`);
                     this.currentSceneId = sceneId;
                     const sceneObjects = this.getCurrentSceneObjects();
@@ -1624,12 +1626,140 @@
                 }
 
                 drawRenderBuffer(buffer) {
-                    // 0. Garbage Collection if requested (e.g. after RemoveAllClones)
+                    // 0. Garbage Collection if requested
                     if (this.needsGarbageCollection) {
                         const livingIds = new Set();
                         for (let i = 0; i < buffer.length; i += RENDER_STRIDE) {
                             livingIds.add(buffer[i]);
                         }
+                        for (const [id, _] of this.brushCanvases) {
+                            if (!livingIds.has(id)) {
+                                this.brushCanvases.delete(id);
+                                this.brushContexts.delete(id);
+                                this.brushStates.delete(id);
+                                this.dialogs.delete(id);
+                            }
+                        }
+                        this.needsGarbageCollection = false;
+                    }
+
+                    const len = buffer.length;
+
+                    // 1. Update brush states & Draw brush layers
+                    // Note: We draw brush layers in order.
+                    for (let i = 0; i < len; i += RENDER_STRIDE) {
+                        const id = buffer[i];
+
+                        // Update state
+                        const brushDown = buffer[i + 10] > 0.5;
+                        const brushSize = buffer[i + 11];
+                        const brushTransparency = buffer[i + 12];
+                        // fillDown is i+13, fillTransparency is i+14
+
+                        let brushState = this.brushStates.get(id);
+                        if (!brushState) {
+                            brushState = new BrushState();
+                            this.brushStates.set(id, brushState);
+                        }
+
+                        brushState.down = brushDown;
+                        brushState.size = brushSize;
+                        brushState.opacity = brushTransparency; // 0-100
+
+                        // Draw layer
+                        const brushCanvas = this.brushCanvases.get(id);
+                        if (brushCanvas) {
+                            this.ctx.drawImage(brushCanvas, 0, 0);
+                        }
+                    }
+
+                    // 2. Draw entities (in buffer order = correct Z-order)
+                    for (let i = 0; i < len; i += RENDER_STRIDE) {
+                        const entityId = buffer[i]; // Index in activeObjects
+                        const visible = buffer[i + 9] > 0.5;
+
+                        if (visible) {
+                            this.drawEntityFromBuffer(buffer, i);
+                        }
+                    }
+
+                    // 3. Draw dialogs
+                    for (let i = 0; i < len; i += RENDER_STRIDE) {
+                        const entityId = buffer[i];
+                        if (this.dialogs.has(entityId)) {
+                            const dialog = this.dialogs.get(entityId);
+                            const mockEntity = {
+                                x: buffer[i + 1],
+                                y: buffer[i + 2],
+                                height: buffer[i + 8],
+                                dialogMessage: dialog.message,
+                                dialogMode: dialog.mode,
+                            };
+                            this.drawDialog(mockEntity);
+                        }
+                    }
+                }
+
+                drawEntityFromBuffer(buffer, offset) {
+                    const x = buffer[offset + 1];
+                    const y = buffer[offset + 2];
+                    const rotation = buffer[offset + 3];
+                    // direction at +4
+                    const scaleX = buffer[offset + 5];
+                    const scaleY = buffer[offset + 6];
+                    const width = buffer[offset + 7];
+                    const height = buffer[offset + 8];
+                    const pictureIndex = buffer[offset + 15];
+
+                    const entityId = buffer[offset];
+                    const entityObj = this.findObjectById(entityId);
+
+                    this.ctx.save();
+                    this.ctx.translate(240 + x, 180 - y);
+                    this.ctx.rotate((-rotation * Math.PI) / 180);
+                    this.ctx.scale(scaleX, scaleY);
+
+                    let pictureId = null;
+                    if (entityObj && entityObj.sprite && entityObj.sprite.pictures && pictureIndex >= 0) {
+                        const pic = entityObj.sprite.pictures[Math.floor(pictureIndex)];
+                        if (pic) {
+                            pictureId = pic.id;
+                        }
+                    }
+                    if (!pictureId && entityObj) {
+                        pictureId = entityObj.selectedPictureId;
+                    }
+
+                    const img = pictureId ? imageCache.get(pictureId) : null;
+
+                    if (img && img.complete && img.naturalWidth > 0) {
+                        this.ctx.drawImage(
+                            img,
+                            -width / 2,
+                            -height / 2,
+                            width,
+                            height
+                        );
+                    } else {
+                        // Placeholder
+                        this.ctx.fillStyle = '#4a90d9';
+                        this.ctx.fillRect(
+                            -width / 2,
+                            -height / 2,
+                            width || 50,
+                            height || 50
+                        );
+                    }
+                    this.ctx.restore();
+                }
+
+                findObjectById(entityId) {
+                    // entityId from WASM is the index in activeObjects
+                    if (this.activeObjects && this.activeObjects[entityId]) {
+                        return this.activeObjects[entityId];
+                    }
+                    return null;
+                }
 
                         // Sweep brush resources
                         for (const [id, _] of this.brushCanvases) {
