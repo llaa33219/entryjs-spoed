@@ -150,9 +150,6 @@ struct EngineInner {
     mouse_y: f64,
     mouse_clicked: bool,
     
-    current_scene_id: Option<String>,
-    next_scene_id: Option<String>,
-
     program: Option<Program>,
     render_buffer: Vec<f64>,
 }
@@ -173,8 +170,6 @@ impl EngineInner {
             mouse_x: 0.0,
             mouse_y: 0.0,
             mouse_clicked: false,
-            current_scene_id: None,
-            next_scene_id: None,
             program: None,
             render_buffer: Vec::with_capacity(1024),
         }
@@ -219,18 +214,13 @@ impl WasmEngine {
         
         inner.project_data = Some(project.clone());
         
-        // Initialize entities from objects for the first scene
-        // If scenes exist, load the first scene. Otherwise load all objects.
-        if let Some(scenes) = &project.scenes {
-            if let Some(first_scene) = scenes.first() {
-                let scene_id = first_scene.id.clone();
-                Self::load_scene_inner(&mut inner, &scene_id);
-            } else {
-                 // No scenes, load all objects (legacy/single scene)
-                 Self::load_all_objects(&mut inner, &project);
+        // Initialize entities from objects
+        inner.entities.clear();
+        if let Some(objects) = &project.objects {
+            for (idx, obj) in objects.iter().enumerate() {
+                let entity = Entity::from_object(obj, idx);
+                inner.entities.push(entity);
             }
-        } else {
-            Self::load_all_objects(&mut inner, &project);
         }
         
         // Initialize variables and lists
@@ -321,56 +311,7 @@ impl WasmEngine {
         Ok(())
     }
 
-    fn load_all_objects(inner: &mut EngineInner, project: &ProjectData) {
-        inner.entities.clear();
-        if let Some(objects) = &project.objects {
-            for (idx, obj) in objects.iter().enumerate() {
-                let entity = Entity::from_object(obj, idx);
-                inner.entities.push(entity);
-            }
-        }
-    }
-
-    fn load_scene_inner(inner: &mut EngineInner, scene_id: &str) {
-        inner.current_scene_id = Some(scene_id.to_string());
-        inner.entities.clear();
-        
-        let project = if let Some(p) = &inner.project_data { p.clone() } else { return; };
-        
-        // Find first scene ID for legacy object handling
-        let first_scene_id = project.scenes.as_ref()
-            .and_then(|s| s.first())
-            .map(|s| s.id.as_str());
-        
-        if let Some(objects) = &project.objects {
-            let mut entity_idx = 0;
-            for obj in objects {
-                // Filter objects by scene_id
-                let should_load = match &obj.scene {
-                    Some(id) => id == scene_id,
-                    None => {
-                        // If no scene ID, load only if we are loading the first scene
-                        // or if there are no scenes defined (legacy project)
-                        match first_scene_id {
-                            Some(first_id) => first_id == scene_id,
-                            None => true,
-                        }
-                    },
-                };
-                
-                if should_load {
-                    let entity = Entity::from_object(obj, entity_idx);
-                    inner.entities.push(entity);
-                    entity_idx += 1;
-                }
-            }
-        }
-    }
-
-    /// Start the engine (fires only "start" event for the initial scene)
-    /// Note: "when_scene_start" should NOT fire on the initial scene start.
-    /// Entry rule: First scene only triggers "when_run_button_click", not "when_scene_start".
-    /// Scene transitions (via start_scene) will trigger "when_scene_start" instead.
+    /// Start the engine (fires both "start" and "when_scene_start" events)
     #[wasm_bindgen]
     pub fn start(&self) {
         // Use try_borrow_mut to avoid panic if already borrowed (e.g., during tick)
@@ -388,21 +329,18 @@ impl WasmEngine {
         
         Self::initialize_executors_inner(&mut inner);
         Self::fire_event_inner(&mut inner, "start");
-        // Do NOT fire "when_scene_start" here - it should only fire on scene transitions
+        Self::fire_event_inner(&mut inner, "when_scene_start");
     }
 
     /// Start the engine for scene transition (fires only "when_scene_start", not "start")
     #[wasm_bindgen]
-    pub fn start_scene(&self, scene_id: &str) {
+    pub fn start_scene(&self) {
         let mut inner = match self.inner.try_borrow_mut() {
             Ok(inner) => inner,
             Err(_) => {
                 return;
             }
         };
-
-        // Load the requested scene first
-        Self::load_scene_inner(&mut inner, scene_id);
         
         inner.state = EngineState::Running;
         self.stop_requested.set(false);
@@ -605,31 +543,6 @@ impl WasmEngine {
                 JsAction::StopOtherEntities { entity_id } => {
                     executors.retain(|e| e.entity_idx == *entity_id);
                 }
-                JsAction::StartScene { scene_id } => {
-                    inner.next_scene_id = Some(scene_id.clone());
-                }
-                JsAction::StartNextScene => {
-                    if let Some(scenes) = inner.project_data.as_ref().and_then(|p| p.scenes.as_ref()) {
-                        if let Some(current) = &inner.current_scene_id {
-                            if let Some(idx) = scenes.iter().position(|s| s.id == *current) {
-                                if idx + 1 < scenes.len() {
-                                    inner.next_scene_id = Some(scenes[idx + 1].id.clone());
-                                }
-                            }
-                        }
-                    }
-                }
-                JsAction::StartPreviousScene => {
-                    if let Some(scenes) = inner.project_data.as_ref().and_then(|p| p.scenes.as_ref()) {
-                        if let Some(current) = &inner.current_scene_id {
-                            if let Some(idx) = scenes.iter().position(|s| s.id == *current) {
-                                if idx > 0 {
-                                    inner.next_scene_id = Some(scenes[idx - 1].id.clone());
-                                }
-                            }
-                        }
-                    }
-                }
                 _ => {}
             }
         }
@@ -671,15 +584,7 @@ impl WasmEngine {
         
         let mut buffer = std::mem::take(&mut inner.render_buffer);
         buffer.clear();
-        
-        // Handle pending scene transition
-        if let Some(scene_id) = inner.next_scene_id.take() {
-            Self::load_scene_inner(&mut inner, &scene_id);
-            Self::initialize_executors_inner(&mut inner);
-            Self::fire_event_inner(&mut inner, "when_scene_start");
-        }
-        
-        for entity in inner.entities.iter().rev() {
+        for entity in &inner.entities {
             if entity.visible || entity.brush_down || entity.fill_down {
                 buffer.push(entity.id as f64);
                 buffer.push(entity.x);
@@ -1292,7 +1197,6 @@ pub struct ObjectData {
     pub text: Option<String>,
     pub entity: Option<EntityData>,
     pub sprite: Option<SpriteData>,
-    pub scene: Option<String>,
 }
 
 // script 필드가 문자열로 올 경우를 처리하는 커스텀 디시리얼라이저

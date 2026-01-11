@@ -653,10 +653,7 @@
 
                     if (project && project.errors && Array.isArray(project.errors)) {
                         throw new Error(
-                            `GraphQL 에러: ${
-                                (project.errors[0] && project.errors[0].message) ||
-                                JSON.stringify(project.errors)
-                            }`
+                            `GraphQL 에러: ${project.errors[0]?.message || JSON.stringify(project.errors)}`
                         );
                     }
 
@@ -759,6 +756,16 @@
                     }
                 }
 
+                initJSEngine(objects) {
+                    // Simple JS fallback engine
+                    this.jsEngine = {
+                        objects: objects || [],
+                        variables: {},
+                        running: false,
+                        tick: 0,
+                    };
+                }
+
                 // Initialize scene management from project data
                 initializeScenes(projectData) {
                     // Parse scenes
@@ -784,162 +791,180 @@
                         }
                     }
                     this.allObjects = objects || [];
-                    this.activeObjects = [];
+
+                    // Build scene -> objects mapping
+                    this.sceneObjectsMap.clear();
+                    for (const scene of this.scenes) {
+                        this.sceneObjectsMap.set(scene.id, []);
+                    }
+
+                    for (const obj of this.allObjects) {
+                        const sceneId = obj.scene;
+                        if (sceneId && this.sceneObjectsMap.has(sceneId)) {
+                            this.sceneObjectsMap.get(sceneId).push(obj);
+                        } else if (this.scenes.length > 0) {
+                            // Default to first scene if no scene specified
+                            const firstSceneId = this.scenes[0].id;
+                            if (!this.sceneObjectsMap.has(firstSceneId)) {
+                                this.sceneObjectsMap.set(firstSceneId, []);
+                            }
+                            this.sceneObjectsMap.get(firstSceneId).push(obj);
+                        }
+                    }
 
                     // Set initial scene (first scene)
                     if (this.scenes.length > 0) {
                         this.currentSceneId = this.scenes[0].id;
-                        this.updateActiveObjects(this.currentSceneId);
-                    } else {
-                        // Legacy project support (no scenes)
-                        this.updateActiveObjects(null);
                     }
 
                     console.log(`장면 초기화 완료: ${this.scenes.length}개 장면`);
+                    for (const scene of this.scenes) {
+                        const objCount = this.sceneObjectsMap.get(scene.id)?.length || 0;
+                        console.log(`  - ${scene.name} (${scene.id}): ${objCount}개 오브젝트`);
+                    }
                 }
 
-                // Update activeObjects list to match WASM engine's filtering logic exactly
-                updateActiveObjects(sceneId) {
-                    const firstSceneId = (this.scenes.length > 0 && this.scenes[0].id) || null;
-
-                    this.activeObjects = this.allObjects.filter((obj) => {
-                        if (obj.scene) {
-                            return obj.scene === sceneId;
-                        } else {
-                            // If no scene ID, load only if we are loading the first scene
-                            // or if there are no scenes defined (legacy project)
-                            if (firstSceneId) {
-                                return firstSceneId === sceneId;
-                            }
-                            return true;
-                        }
-                    });
-
-                    console.log(`활성 오브젝트 업데이트: ${this.activeObjects.length}개`);
-                }
-
-                // Get objects for current scene (legacy support alias)
+                // Get objects for current scene
                 getCurrentSceneObjects() {
-                    return this.activeObjects;
+                    if (!this.currentSceneId) {
+                        return this.allObjects;
+                    }
+                    return this.sceneObjectsMap.get(this.currentSceneId) || [];
                 }
 
-                prepareProjectForWasm(projectData) {
-                    const prepared = { ...projectData };
-                    if (typeof prepared.variables === 'string') {
-                        try {
-                            prepared.variables = JSON.parse(prepared.variables);
-                        } catch (e) {
-                            prepared.variables = [];
-                        }
-                    }
-                    if (typeof prepared.functions === 'string') {
-                        try {
-                            prepared.functions = JSON.parse(prepared.functions);
-                        } catch (e) {
-                            prepared.functions = [];
-                        }
-                    }
-                    if (typeof prepared.messages === 'string') {
-                        try {
-                            prepared.messages = JSON.parse(prepared.messages);
-                        } catch (e) {
-                            prepared.messages = [];
-                        }
-                    }
-                    if (typeof prepared.scenes === 'string') {
-                        try {
-                            prepared.scenes = JSON.parse(prepared.scenes);
-                        } catch (e) {
-                            prepared.scenes = [];
-                        }
-                    }
-                    if (typeof prepared.tables === 'string') {
-                        try {
-                            prepared.tables = JSON.parse(prepared.tables);
-                        } catch (e) {
-                            prepared.tables = [];
-                        }
-                    }
-
-                    if (typeof prepared.objects === 'string') {
-                        try {
-                            prepared.objects = JSON.parse(prepared.objects);
-                        } catch (e) {
-                            prepared.objects = [];
-                        }
-                    }
-
-                    if (Array.isArray(prepared.objects)) {
-                        prepared.objects = prepared.objects.map((obj) => {
-                            const newObj = { ...obj };
-                            if (typeof newObj.script === 'string') {
-                                try {
-                                    newObj.script = JSON.parse(newObj.script);
-                                } catch (e) {
-                                    newObj.script = [];
-                                }
-                            }
-                            return newObj;
-                        });
-                    }
-                    return prepared;
-                }
-
-                initJSEngine(objects) {
-                    this.jsEngine = {
-                        objects: objects || [],
-                        variables: {},
-                        running: false,
-                        tick: 0,
-                    };
-                }
-
-                switchToScene(sceneId, fromWasm = false) {
+                // Switch to a specific scene by ID
+                switchToScene(sceneId) {
                     const scene = this.scenes.find((s) => s.id === sceneId);
                     if (!scene) {
                         console.warn(`장면을 찾을 수 없음: ${sceneId}`);
                         return false;
                     }
+
                     console.log(`장면 전환: ${scene.name} (${sceneId})`);
                     this.currentSceneId = sceneId;
 
-                    this.updateActiveObjects(sceneId);
+                    // Get objects for the new scene
+                    const sceneObjects = this.getCurrentSceneObjects();
 
-                    if (!fromWasm && this.isWasmEngineValid()) {
+                    // Update entity order for the new scene
+                    this.entityOrder = [];
+                    for (let i = sceneObjects.length - 1; i >= 0; i--) {
+                        this.entityOrder.push(i);
+                    }
+
+                    // Reload WASM engine with new scene's objects
+                    if (this.isWasmEngineValid()) {
                         try {
-                            this.wasmEngine.start_scene(sceneId);
+                            // Save current variable state before switching
+                            let savedVariables = null;
+                            if (typeof this.wasmEngine.get_variables === 'function') {
+                                try {
+                                    savedVariables = this.wasmEngine.get_variables();
+                                } catch (e) {
+                                    console.warn('변수 상태 저장 실패:', e);
+                                }
+                            }
+
+                            // Create project data for just this scene
+                            const sceneProjectData = this.createSceneProjectData(sceneId);
+
+                            // Stop current execution
+                            this.wasmEngine.stop();
+
+                            // Load new scene data
+                            this.wasmEngine.load_project(JSON.stringify(sceneProjectData));
+
+                            // Restore variable state after loading new scene
+                            if (
+                                savedVariables &&
+                                typeof this.wasmEngine.set_variables === 'function'
+                            ) {
+                                try {
+                                    this.wasmEngine.set_variables(savedVariables);
+                                } catch (e) {
+                                    console.warn('변수 상태 복원 실패:', e);
+                                }
+                            }
+
+                            // Start scene (fires only when_scene_start, not when_run_button_click)
+                            this.wasmEngine.start_scene();
+
+                            console.log(
+                                `WASM 엔진에 장면 로드 완료: ${sceneObjects.length}개 오브젝트`
+                            );
                         } catch (e) {
-                            console.error('WASM start_scene 호출 실패:', e);
+                            console.error('장면 전환 중 WASM 오류:', e);
+                            return false;
                         }
                     }
-                    this.preloadSceneImages(this.activeObjects);
+
+                    // Preload images for new scene
+                    this.preloadSceneImages(sceneObjects);
+
                     return true;
                 }
 
-                switchToNextScene(fromWasm = false) {
-                    const currentIndex = this.scenes.findIndex((s) => s.id === this.currentSceneId);
-                    if (currentIndex >= 0 && currentIndex < this.scenes.length - 1) {
-                        return this.switchToScene(this.scenes[currentIndex + 1].id, fromWasm);
-                    }
-                    console.log('다음 장면이 없습니다');
-                    return false;
-                }
+                // Create project data for a specific scene
+                createSceneProjectData(sceneId) {
+                    const sceneObjects = this.sceneObjectsMap.get(sceneId) || [];
 
-                switchToPreviousScene(fromWasm = false) {
-                    const currentIndex = this.scenes.findIndex((s) => s.id === this.currentSceneId);
-                    if (currentIndex > 0) {
-                        return this.switchToScene(this.scenes[currentIndex - 1].id, fromWasm);
+                    // Parse and prepare objects (same as prepareProjectForWasm but for specific scene)
+                    const preparedObjects = sceneObjects.map((obj) => {
+                        const newObj = { ...obj };
+                        if (typeof newObj.script === 'string') {
+                            try {
+                                newObj.script = JSON.parse(newObj.script);
+                            } catch (e) {
+                                newObj.script = [];
+                            }
+                        }
+                        return newObj;
+                    });
+
+                    // Get variables and functions from original project
+                    let variables = this.projectData.variables;
+                    if (typeof variables === 'string') {
+                        try {
+                            variables = JSON.parse(variables);
+                        } catch (e) {
+                            variables = [];
+                        }
                     }
-                    console.log('이전 장면이 없습니다');
-                    return false;
+
+                    let functions = this.projectData.functions;
+                    if (typeof functions === 'string') {
+                        try {
+                            functions = JSON.parse(functions);
+                        } catch (e) {
+                            functions = [];
+                        }
+                    }
+
+                    let messages = this.projectData.messages;
+                    if (typeof messages === 'string') {
+                        try {
+                            messages = JSON.parse(messages);
+                        } catch (e) {
+                            messages = [];
+                        }
+                    }
+
+                    return {
+                        id: this.projectData.id,
+                        name: this.projectData.name,
+                        speed: this.projectData.speed || 60,
+                        objects: preparedObjects,
+                        variables: variables || [],
+                        functions: functions || [],
+                        messages: messages || [],
+                        scenes: this.scenes,
+                    };
                 }
 
                 // Preload images for a set of objects
-                preloadSceneImages(objects) {
-                    if (!objects || objects.length === 0) return;
-                    // Use global imageCache
+                async preloadSceneImages(objects) {
                     for (const obj of objects) {
-                        if (obj.sprite && obj.sprite.pictures) {
+                        if (obj.sprite?.pictures) {
                             for (const pic of obj.sprite.pictures) {
                                 if (pic.id && !imageCache.has(pic.id)) {
                                     this.loadPictureImage(pic);
@@ -949,50 +974,339 @@
                     }
                 }
 
+                // Load a single picture image
+                loadPictureImage(pic) {
+                    if (!pic.fileurl && !pic.filename) return;
+
+                    let originalUrl = pic.fileurl;
+                    if (!originalUrl && pic.filename) {
+                        originalUrl = `uploads/${pic.filename.substring(0, 2)}/${pic.filename.substring(2, 4)}/image/${pic.filename}.png`;
+                    }
+
+                    let proxyUrl;
+                    if (originalUrl.startsWith('http://') || originalUrl.startsWith('https://')) {
+                        proxyUrl = originalUrl
+                            .replace('https://playentry.org/', '/api/playentry/image/')
+                            .replace('http://playentry.org/', '/api/playentry/image/');
+                    } else {
+                        proxyUrl = `/api/playentry/image/${originalUrl}`;
+                    }
+
+                    const img = new Image();
+                    img.onload = () => console.log(`이미지 로드 완료: ${pic.id}`);
+                    img.onerror = () => console.warn(`이미지 로드 실패: ${pic.id}`);
+                    img.src = proxyUrl;
+                    imageCache.set(pic.id, img);
+                }
+
+                // Switch to next scene
+                switchToNextScene() {
+                    const currentIndex = this.scenes.findIndex((s) => s.id === this.currentSceneId);
+                    if (currentIndex >= 0 && currentIndex < this.scenes.length - 1) {
+                        return this.switchToScene(this.scenes[currentIndex + 1].id);
+                    }
+                    console.log('다음 장면이 없습니다');
+                    return false;
+                }
+
+                // Switch to previous scene
+                switchToPreviousScene() {
+                    const currentIndex = this.scenes.findIndex((s) => s.id === this.currentSceneId);
+                    if (currentIndex > 0) {
+                        return this.switchToScene(this.scenes[currentIndex - 1].id);
+                    }
+                    console.log('이전 장면이 없습니다');
+                    return false;
+                }
+
+                // playentry.org API에서 받은 데이터를 WASM 엔진용으로 변환
+                // objects, variables, functions 등이 문자열로 되어 있으면 파싱
+                // 현재 장면의 오브젝트만 포함
+                prepareProjectForWasm(projectData) {
+                    const prepared = { ...projectData };
+
+                    // variables 필드 파싱
+                    if (typeof prepared.variables === 'string') {
+                        try {
+                            prepared.variables = JSON.parse(prepared.variables);
+                            console.log('variables 문자열 파싱 완료');
+                        } catch (e) {
+                            console.error('variables 파싱 실패:', e);
+                            prepared.variables = [];
+                        }
+                    }
+
+                    // functions 필드 파싱
+                    if (typeof prepared.functions === 'string') {
+                        try {
+                            prepared.functions = JSON.parse(prepared.functions);
+                            console.log('functions 문자열 파싱 완료');
+                        } catch (e) {
+                            console.error('functions 파싱 실패:', e);
+                            prepared.functions = [];
+                        }
+                    }
+
+                    // messages 필드 파싱
+                    if (typeof prepared.messages === 'string') {
+                        try {
+                            prepared.messages = JSON.parse(prepared.messages);
+                        } catch (e) {
+                            prepared.messages = [];
+                        }
+                    }
+
+                    // scenes 필드 파싱
+                    if (typeof prepared.scenes === 'string') {
+                        try {
+                            prepared.scenes = JSON.parse(prepared.scenes);
+                        } catch (e) {
+                            prepared.scenes = [];
+                        }
+                    }
+
+                    // tables 필드 파싱
+                    if (typeof prepared.tables === 'string') {
+                        try {
+                            prepared.tables = JSON.parse(prepared.tables);
+                        } catch (e) {
+                            prepared.tables = [];
+                        }
+                    }
+
+                    // 현재 장면의 오브젝트만 사용 (장면이 초기화된 경우)
+                    if (this.currentSceneId && this.sceneObjectsMap.size > 0) {
+                        const sceneObjects = this.getCurrentSceneObjects();
+                        prepared.objects = sceneObjects.map((obj) => {
+                            const newObj = { ...obj };
+                            if (typeof newObj.script === 'string') {
+                                try {
+                                    newObj.script = JSON.parse(newObj.script);
+                                } catch (e) {
+                                    console.warn('object script 파싱 실패:', obj.id, e);
+                                    newObj.script = [];
+                                }
+                            }
+                            return newObj;
+                        });
+                        console.log(
+                            'objects 현재 장면 필터링 완료:',
+                            prepared.objects.length,
+                            '개 오브젝트'
+                        );
+                    } else {
+                        // 장면 초기화 전이면 전체 오브젝트 사용
+                        if (typeof prepared.objects === 'string') {
+                            try {
+                                prepared.objects = JSON.parse(prepared.objects);
+                            } catch (e) {
+                                console.error('objects 파싱 실패:', e);
+                                prepared.objects = [];
+                            }
+                        }
+
+                        if (Array.isArray(prepared.objects)) {
+                            prepared.objects = prepared.objects.map((obj) => {
+                                const newObj = { ...obj };
+                                if (typeof newObj.script === 'string') {
+                                    try {
+                                        newObj.script = JSON.parse(newObj.script);
+                                    } catch (e) {
+                                        console.warn('object script 파싱 실패:', obj.id, e);
+                                        newObj.script = [];
+                                    }
+                                }
+                                return newObj;
+                            });
+                        }
+                        console.log(
+                            'objects 문자열 파싱 완료:',
+                            prepared.objects?.length || 0,
+                            '개 오브젝트'
+                        );
+                    }
+
+                    return prepared;
+                }
+
+                resizeCanvas() {
+                    const container = document.getElementById('canvas-container');
+                    const aspectRatio = 480 / 360;
+
+                    let width = container.clientWidth;
+                    let height = container.clientHeight;
+
+                    if (width / height > aspectRatio) {
+                        width = height * aspectRatio;
+                    } else {
+                        height = width / aspectRatio;
+                    }
+
+                    this.canvas.style.width = width + 'px';
+                    this.canvas.style.height = height + 'px';
+                }
+
+                start() {
+                    this.isRunning = true;
+                    document.getElementById('btn-play').textContent = '⏸';
+                    document.getElementById('btn-play').classList.add('active');
+
+                    if (this.wasmEngine) {
+                        this.wasmEngine.start();
+                    }
+
+                    this.gameLoop();
+                }
+
+                stop() {
+                    this.isRunning = false;
+                    document.getElementById('btn-play').textContent = '▶';
+                    document.getElementById('btn-play').classList.remove('active');
+
+                    if (this.animationId) {
+                        cancelAnimationFrame(this.animationId);
+                    }
+
+                    if (this.wasmEngine) {
+                        this.wasmEngine.stop();
+                    }
+                }
+
+                toggle() {
+                    if (this.isRunning) {
+                        this.stop();
+                    } else {
+                        this.start();
+                    }
+                }
+
+                restart() {
+                    this.stop();
+
+                    // Reset to first scene
+                    if (this.scenes.length > 0) {
+                        this.currentSceneId = this.scenes[0].id;
+                        // Update entity order for first scene
+                        const sceneObjects = this.getCurrentSceneObjects();
+                        this.entityOrder = [];
+                        for (let i = sceneObjects.length - 1; i >= 0; i--) {
+                            this.entityOrder.push(i);
+                        }
+                    }
+
+                    // Clear all brush canvases on restart
+                    for (const [entityId, canvas] of this.brushCanvases) {
+                        const ctx = this.brushContexts.get(entityId);
+                        if (ctx) {
+                            ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        }
+                    }
+                    // Clear fill canvas on restart
+                    if (this.fillCtx) {
+                        this.fillCtx.clearRect(0, 0, this.fillCanvas.width, this.fillCanvas.height);
+                    }
+                    this.brushStates.clear();
+
+                    // Reset error flags for fresh start
+                    this._firstRenderLogged = false;
+                    this._jsActionsErrorLogged = false;
+                    this._jsActionsParseErrorLogged = false;
+                    this._brushStampErrorLogged = false;
+                    this._renderErrorLogged = false;
+                    this._renderDataErrorLogged = false;
+                    this._tickErrorLogged = false;
+                    this._renderErrorCount = 0;
+
+                    // WASM 엔진 reset (재생성보다 안전)
+                    if (this.wasmEngine && this.wasmInitialized) {
+                        try {
+                            // 먼저 reset 시도
+                            this.wasmEngine.reset();
+                            console.log('WASM 엔진 reset 완료');
+                        } catch (e) {
+                            console.error('WASM reset 실패:', e);
+                            // reset 실패 시 엔진 재생성 시도
+                            if (this.projectData && WasmEngine) {
+                                try {
+                                    // 기존 엔진 명시적 해제
+                                    try {
+                                        this.wasmEngine.free();
+                                    } catch (freeError) {
+                                        // free 실패는 무시 (이미 해제되었을 수 있음)
+                                    }
+
+                                    // 새 엔진 생성
+                                    this.wasmEngine = new WasmEngine();
+                                    const projectForWasm = this.prepareProjectForWasm(
+                                        this.projectData
+                                    );
+                                    this.wasmEngine.load_project(JSON.stringify(projectForWasm));
+                                    console.log('WASM 엔진 재생성 완료');
+                                } catch (recreateError) {
+                                    console.error('WASM 엔진 재생성 실패:', recreateError);
+                                    this.wasmEngine = null;
+                                    this.wasmInitialized = false;
+                                }
+                            } else {
+                                this.wasmEngine = null;
+                                this.wasmInitialized = false;
+                            }
+                        }
+                    }
+
+                    setTimeout(() => this.start(), 100);
+                }
+
+                isWasmEngineValid() {
+                    return (
+                        this.wasmEngine &&
+                        this.wasmInitialized &&
+                        this.wasmEngine.__wbg_ptr !== 0 &&
+                        this.wasmEngine.__wbg_ptr !== undefined
+                    );
+                }
+
                 gameLoop() {
                     if (!this.isRunning) return;
 
-                    if (this.wasmEngine && this.isWasmEngineValid()) {
+                    // Update mouse state in WASM engine
+                    if (this.isWasmEngineValid()) {
                         try {
+                            this.wasmEngine.update_mouse(
+                                this.mouseX,
+                                this.mouseY,
+                                this.mouseClicked
+                            );
                             this.wasmEngine.tick();
-                            // Process JS actions AFTER tick but BEFORE render
-                            // This ensures activeObjects is updated before rendering
-                            // when scene transitions happen inside tick()
+
+                            // Process JS actions from WASM (brush, sound, etc.)
                             this.handleJsActions();
                         } catch (e) {
-                            if (!this._renderErrorCount) this._renderErrorCount = 0;
-                            this._renderErrorCount++;
-                            if (this._renderErrorCount >= 5) {
-                                console.error('WASM render 연속 실패, JS 폴백으로 전환');
-                                this.wasmEngine = null;
-                                this.wasmInitialized = false;
-                                if (
-                                    !this.jsEngine &&
-                                    this.projectData &&
-                                    this.projectData.objects
-                                ) {
-                                    const objects =
-                                        typeof this.projectData.objects === 'string'
-                                            ? JSON.parse(this.projectData.objects)
-                                            : this.projectData.objects;
-                                    this.initJSEngine(objects);
-                                }
+                            // WASM tick failed - likely engine is in bad state
+                            if (!this._tickErrorLogged) {
+                                this._tickErrorLogged = true;
+                                console.error('WASM tick() 실패, JS 폴백으로 전환:', e);
+                            }
+                            // Disable WASM engine and fall back to JS
+                            this.wasmEngine = null;
+                            this.wasmInitialized = false;
+                            // Initialize JS fallback if not already done
+                            if (!this.jsEngine && this.projectData?.objects) {
+                                const objects =
+                                    typeof this.projectData.objects === 'string'
+                                        ? JSON.parse(this.projectData.objects)
+                                        : this.projectData.objects;
+                                this.initJSEngine(objects);
                             }
                         }
                     } else if (this.jsEngine) {
                         this.jsEngine.tick++;
                     }
 
+                    // Render
                     this.render();
-                    this.animationId = requestAnimationFrame(() => this.gameLoop());
-                }
 
-                isWasmEngineValid() {
-                    return (
-                        this.wasmEngine &&
-                        this.wasmEngine.__wbg_ptr !== 0 &&
-                        this.wasmEngine.__wbg_ptr !== undefined
-                    );
+                    this.animationId = requestAnimationFrame(() => this.gameLoop());
                 }
 
                 // Handle JS actions from WASM engine
@@ -1110,18 +1424,17 @@
                         case 'StartScene': {
                             const sceneId = data.scene_id;
                             console.log('StartScene 액션 수신:', sceneId);
-                            // Pass true for fromWasm since this originated from WASM engine
-                            this.switchToScene(sceneId, true);
+                            this.switchToScene(sceneId);
                             break;
                         }
                         case 'StartNextScene': {
                             console.log('StartNextScene 액션 수신');
-                            this.switchToNextScene(true);
+                            this.switchToNextScene();
                             break;
                         }
                         case 'StartPreviousScene': {
                             console.log('StartPreviousScene 액션 수신');
-                            this.switchToPreviousScene(true);
+                            this.switchToPreviousScene();
                             break;
                         }
                         case 'ShowDialog': {
@@ -1597,11 +1910,7 @@
                                 console.error('WASM render 연속 실패, JS 폴백으로 전환');
                                 this.wasmEngine = null;
                                 this.wasmInitialized = false;
-                                if (
-                                    !this.jsEngine &&
-                                    this.projectData &&
-                                    this.projectData.objects
-                                ) {
+                                if (!this.jsEngine && this.projectData?.objects) {
                                     const objects =
                                         typeof this.projectData.objects === 'string'
                                             ? JSON.parse(this.projectData.objects)
@@ -1616,12 +1925,14 @@
                 }
 
                 drawRenderBuffer(buffer) {
-                    // 0. Garbage Collection if requested
+                    // 0. Garbage Collection if requested (e.g. after RemoveAllClones)
                     if (this.needsGarbageCollection) {
                         const livingIds = new Set();
                         for (let i = 0; i < buffer.length; i += RENDER_STRIDE) {
                             livingIds.add(buffer[i]);
                         }
+
+                        // Sweep brush resources
                         for (const [id, _] of this.brushCanvases) {
                             if (!livingIds.has(id)) {
                                 this.brushCanvases.delete(id);
@@ -1633,60 +1944,53 @@
                         this.needsGarbageCollection = false;
                     }
 
+                    // 1. Create a map of entity_id -> buffer_offset
+                    const entityMap = new Map();
                     const len = buffer.length;
-
-                    // 1. Update brush states & Draw brush layers
-                    // Note: We draw brush layers in order.
                     for (let i = 0; i < len; i += RENDER_STRIDE) {
                         const id = buffer[i];
+                        entityMap.set(id, i);
+                    }
 
-                        // Update state
+                    // 2. Update brush states first
+                    for (let i = 0; i < len; i += RENDER_STRIDE) {
+                        const id = buffer[i];
                         const brushDown = buffer[i + 10] > 0.5;
+                        // Color is handled by JsAction, stored in state
                         const brushSize = buffer[i + 11];
                         const brushTransparency = buffer[i + 12];
-                        // fillDown is i+13, fillTransparency is i+14
+                        const fillDown = buffer[i + 13] > 0.5;
+                        // FillColor is handled by JsAction
+                        // FillTransparency is buffer[i + 14]
 
-                        let brushState = this.brushStates.get(id);
-                        if (!brushState) {
-                            brushState = new BrushState();
-                            this.brushStates.set(id, brushState);
-                        }
-
+                        const brushState = this.getBrushState(id);
                         brushState.down = brushDown;
                         brushState.size = brushSize;
-                        brushState.opacity = brushTransparency; // 0-100
+                        brushState.opacity = brushTransparency;
+                        brushState.fillDown = fillDown;
+                        // brushState.lastX/Y updated in handleBrushPath
+                    }
 
-                        // Draw layer
-                        const brushCanvas = this.brushCanvases.get(id);
+                    // 3. Draw in reverse entity order (z-index)
+                    for (let i = this.entityOrder.length - 1; i >= 0; i--) {
+                        const entityId = this.entityOrder[i];
+                        const offset = entityMap.get(entityId);
+
+                        // Draw brush layer
+                        const brushCanvas = this.brushCanvases.get(entityId);
                         if (brushCanvas) {
                             this.ctx.drawImage(brushCanvas, 0, 0);
                         }
-                    }
 
-                    // 2. Draw entities (in buffer order = correct Z-order)
-                    for (let i = 0; i < len; i += RENDER_STRIDE) {
-                        const entityId = buffer[i]; // Index in activeObjects
-                        const visible = buffer[i + 9] > 0.5;
-
-                        if (visible) {
-                            this.drawEntityFromBuffer(buffer, i);
+                        // Draw entity if present in render buffer (visible)
+                        if (offset !== undefined) {
+                            this.drawEntityFromBuffer(buffer, offset);
                         }
                     }
 
-                    // 3. Draw dialogs
-                    for (let i = 0; i < len; i += RENDER_STRIDE) {
-                        const entityId = buffer[i];
-                        if (this.dialogs.has(entityId)) {
-                            const dialog = this.dialogs.get(entityId);
-                            const mockEntity = {
-                                x: buffer[i + 1],
-                                y: buffer[i + 2],
-                                height: buffer[i + 8],
-                                dialogMessage: dialog.message,
-                                dialogMode: dialog.mode,
-                            };
-                            this.drawDialog(mockEntity);
-                        }
+                    // 4. Draw fill preview
+                    if (this.fillCanvas) {
+                        this.ctx.drawImage(this.fillCanvas, 0, 0);
                     }
                 }
 
@@ -1694,28 +1998,25 @@
                     const x = buffer[offset + 1];
                     const y = buffer[offset + 2];
                     const rotation = buffer[offset + 3];
-                    // direction at +4
                     const scaleX = buffer[offset + 5];
                     const scaleY = buffer[offset + 6];
                     const width = buffer[offset + 7];
                     const height = buffer[offset + 8];
+                    const visible = buffer[offset + 9] > 0.5;
                     const pictureIndex = buffer[offset + 15];
 
-                    const entityId = buffer[offset];
-                    const entityObj = this.findObjectById(entityId);
+                    if (!visible) return;
 
                     this.ctx.save();
                     this.ctx.translate(240 + x, 180 - y);
                     this.ctx.rotate((-rotation * Math.PI) / 180);
                     this.ctx.scale(scaleX, scaleY);
 
+                    const entityId = buffer[offset];
+                    const entityObj = this.findObjectById(entityId);
+
                     let pictureId = null;
-                    if (
-                        entityObj &&
-                        entityObj.sprite &&
-                        entityObj.sprite.pictures &&
-                        pictureIndex >= 0
-                    ) {
+                    if (entityObj && entityObj.sprite?.pictures && pictureIndex >= 0) {
                         const pic = entityObj.sprite.pictures[Math.floor(pictureIndex)];
                         if (pic) {
                             pictureId = pic.id;
@@ -1725,24 +2026,44 @@
                         pictureId = entityObj.selectedPictureId;
                     }
 
-                    const img = pictureId ? imageCache.get(pictureId) : null;
-
-                    if (img && img.complete && img.naturalWidth > 0) {
-                        this.ctx.drawImage(img, -width / 2, -height / 2, width, height);
+                    if (pictureId) {
+                        const img = imageCache.get(pictureId);
+                        if (img && img.complete && img.naturalWidth > 0) {
+                            try {
+                                this.ctx.drawImage(img, -width / 2, -height / 2, width, height);
+                            } catch (drawError) {
+                                // Ignore
+                            }
+                        } else {
+                            this.ctx.fillStyle = '#4a90d9';
+                            this.ctx.fillRect(-width / 2, -height / 2, width, height);
+                        }
                     } else {
-                        // Placeholder
                         this.ctx.fillStyle = '#4a90d9';
-                        this.ctx.fillRect(-width / 2, -height / 2, width || 50, height || 50);
+                        this.ctx.fillRect(-width / 2, -height / 2, width, height);
                     }
+
                     this.ctx.restore();
+
+                    const dialog = this.dialogs.get(entityId);
+                    if (dialog) {
+                        const mockEntity = {
+                            x: x,
+                            y: y,
+                            width: width,
+                            height: height,
+                            dialogMessage: dialog.message,
+                            dialogMode: dialog.mode,
+                        };
+                        this.drawDialog(mockEntity);
+                    }
                 }
 
                 findObjectById(entityId) {
-                    // entityId from WASM is the index in activeObjects
-                    if (this.activeObjects && this.activeObjects[entityId]) {
-                        return this.activeObjects[entityId];
-                    }
-                    return null;
+                    // Fast lookup if possible, or search allObjects
+                    // objects are indexed by entityId in WASM (0 to N)
+                    // If allObjects matches WASM indices:
+                    return this.allObjects[entityId];
                 }
 
                 // drawRenderData(data) is deprecated/removed in favor of drawRenderBuffer
@@ -1982,7 +2303,7 @@
                     const loadPromises = [];
 
                     for (const obj of objects) {
-                        if (obj.sprite && obj.sprite.pictures) {
+                        if (obj.sprite?.pictures) {
                             for (const pic of obj.sprite.pictures) {
                                 if (pic.fileurl || pic.filename) {
                                     // 원본 URL 생성
@@ -2050,38 +2371,12 @@
                     }
                 }
 
-                loadPictureImage(pic) {
-                    if ((!pic.fileurl && !pic.filename) || imageCache.has(pic.id)) return;
-
-                    let originalUrl = pic.fileurl;
-                    if (!originalUrl && pic.filename) {
-                        originalUrl = `uploads/${pic.filename.substring(0, 2)}/${pic.filename.substring(2, 4)}/image/${pic.filename}.png`;
-                    }
-
-                    let proxyUrl;
-                    if (originalUrl.startsWith('http://') || originalUrl.startsWith('https://')) {
-                        proxyUrl = originalUrl
-                            .replace('https://playentry.org/', '/api/playentry/image/')
-                            .replace('http://playentry.org/', '/api/playentry/image/');
-                    } else {
-                        proxyUrl = `/api/playentry/image/${originalUrl}`;
-                    }
-
-                    const img = new Image();
-                    img.src = proxyUrl;
-                    imageCache.set(pic.id, img);
-                }
-
                 drawJSEngine() {
                     // Simple placeholder drawing
                     this.ctx.fillStyle = '#4a90d9';
                     this.ctx.font = '20px sans-serif';
                     this.ctx.textAlign = 'center';
-                    this.ctx.fillText(
-                        (this.projectData && this.projectData.name) || 'Entry Project',
-                        240,
-                        180
-                    );
+                    this.ctx.fillText(this.projectData?.name || 'Entry Project', 240, 180);
                     this.ctx.font = '14px sans-serif';
                     this.ctx.fillStyle = '#666';
                     this.ctx.fillText('WASM 엔진 로딩 중...', 240, 210);
@@ -2259,78 +2554,6 @@
                     } catch (e) {
                         return '에러 객체를 문자열로 변환할 수 없음';
                     }
-                }
-
-                resizeCanvas() {
-                    const container = document.getElementById('canvas-container');
-                    if (!container) return;
-                    const aspectRatio = 480 / 360;
-                    let width = container.clientWidth;
-                    let height = container.clientHeight;
-                    if (width / height > aspectRatio) {
-                        width = height * aspectRatio;
-                    } else {
-                        height = width / aspectRatio;
-                    }
-                    this.canvas.style.width = width + 'px';
-                    this.canvas.style.height = height + 'px';
-                }
-
-                start() {
-                    this.isRunning = true;
-                    const btn = document.getElementById('btn-play');
-                    if (btn) {
-                        btn.textContent = '⏸';
-                        btn.classList.add('active');
-                    }
-                    if (this.wasmEngine && this.isWasmEngineValid()) {
-                        try {
-                            this.wasmEngine.start();
-                        } catch (e) {
-                            console.error(e);
-                        }
-                    }
-                    this.gameLoop();
-                }
-
-                toggle() {
-                    if (this.isRunning) {
-                        this.isRunning = false;
-                        const btn = document.getElementById('btn-play');
-                        if (btn) {
-                            btn.textContent = '▶';
-                            btn.classList.remove('active');
-                        }
-                        cancelAnimationFrame(this.animationId);
-                        if (this.wasmEngine && this.isWasmEngineValid()) {
-                            try {
-                                this.wasmEngine.stop();
-                            } catch (e) {}
-                        }
-                    } else {
-                        this.start();
-                    }
-                }
-
-                restart() {
-                    this.isRunning = false;
-                    cancelAnimationFrame(this.animationId);
-                    this.sceneObjectsMap.clear();
-                    this.initializeScenes(this.projectData);
-                    if (this.wasmEngine && this.isWasmEngineValid()) {
-                        try {
-                            this.wasmEngine.reset();
-                            this.wasmEngine.start(); // reset only stops, need to start again? or reset prepares for start?
-                            // In Entry, restart means reloading the project state.
-                            // wasmEngine.reset() restores snapshot and stops.
-                            // So we need to call start() after reset.
-                        } catch (e) {
-                            console.error('WASM reset failed:', e);
-                        }
-                    } else if (this.jsEngine) {
-                        this.initJSEngine(this.getCurrentSceneObjects());
-                    }
-                    this.start();
                 }
             }
 
