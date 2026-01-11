@@ -759,6 +759,73 @@
                     }
                 }
 
+                // Initialize scene management from project data
+                initializeScenes(projectData) {
+                    // Parse scenes
+                    let scenes = projectData.scenes;
+                    if (typeof scenes === 'string') {
+                        try {
+                            scenes = JSON.parse(scenes);
+                        } catch (e) {
+                            console.warn('scenes 파싱 실패:', e);
+                            scenes = [];
+                        }
+                    }
+                    this.scenes = scenes || [];
+
+                    // Parse all objects
+                    let objects = projectData.objects;
+                    if (typeof objects === 'string') {
+                        try {
+                            objects = JSON.parse(objects);
+                        } catch (e) {
+                            console.warn('objects 파싱 실패:', e);
+                            objects = [];
+                        }
+                    }
+                    this.allObjects = objects || [];
+
+                    // Build scene -> objects mapping
+                    this.sceneObjectsMap.clear();
+                    for (const scene of this.scenes) {
+                        this.sceneObjectsMap.set(scene.id, []);
+                    }
+
+                    for (const obj of this.allObjects) {
+                        const sceneId = obj.scene;
+                        if (sceneId && this.sceneObjectsMap.has(sceneId)) {
+                            this.sceneObjectsMap.get(sceneId).push(obj);
+                        } else if (this.scenes.length > 0) {
+                            // Default to first scene if no scene specified
+                            const firstSceneId = this.scenes[0].id;
+                            if (!this.sceneObjectsMap.has(firstSceneId)) {
+                                this.sceneObjectsMap.set(firstSceneId, []);
+                            }
+                            this.sceneObjectsMap.get(firstSceneId).push(obj);
+                        }
+                    }
+
+                    // Set initial scene (first scene)
+                    if (this.scenes.length > 0) {
+                        this.currentSceneId = this.scenes[0].id;
+                    }
+
+                    console.log(`장면 초기화 완료: ${this.scenes.length}개 장면`);
+                    for (const scene of this.scenes) {
+                        const sceneObjs = this.sceneObjectsMap.get(scene.id);
+                        const objCount = (sceneObjs && sceneObjs.length) || 0;
+                        console.log(`  - ${scene.name} (${scene.id}): ${objCount}개 오브젝트`);
+                    }
+                }
+
+                // Get objects for current scene
+                getCurrentSceneObjects() {
+                    if (!this.currentSceneId) {
+                        return this.allObjects;
+                    }
+                    return this.sceneObjectsMap.get(this.currentSceneId) || [];
+                }
+
                 prepareProjectForWasm(projectData) {
                     const prepared = { ...projectData };
                     if (typeof prepared.variables === 'string') {
