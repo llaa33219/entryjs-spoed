@@ -2046,6 +2046,28 @@
                     }
                 }
 
+                loadPictureImage(pic) {
+                    if ((!pic.fileurl && !pic.filename) || this.imageCache.has(pic.id)) return;
+
+                    let originalUrl = pic.fileurl;
+                    if (!originalUrl && pic.filename) {
+                        originalUrl = `uploads/${pic.filename.substring(0, 2)}/${pic.filename.substring(2, 4)}/image/${pic.filename}.png`;
+                    }
+
+                    let proxyUrl;
+                    if (originalUrl.startsWith('http://') || originalUrl.startsWith('https://')) {
+                        proxyUrl = originalUrl
+                            .replace('https://playentry.org/', '/api/playentry/image/')
+                            .replace('http://playentry.org/', '/api/playentry/image/');
+                    } else {
+                        proxyUrl = `/api/playentry/image/${originalUrl}`;
+                    }
+
+                    const img = new Image();
+                    img.src = proxyUrl;
+                    this.imageCache.set(pic.id, img);
+                }
+
                 drawJSEngine() {
                     // Simple placeholder drawing
                     this.ctx.fillStyle = '#4a90d9';
@@ -2233,6 +2255,78 @@
                     } catch (e) {
                         return '에러 객체를 문자열로 변환할 수 없음';
                     }
+                }
+
+                resizeCanvas() {
+                    const container = document.getElementById('canvas-container');
+                    if (!container) return;
+                    const aspectRatio = 480 / 360;
+                    let width = container.clientWidth;
+                    let height = container.clientHeight;
+                    if (width / height > aspectRatio) {
+                        width = height * aspectRatio;
+                    } else {
+                        height = width / aspectRatio;
+                    }
+                    this.canvas.style.width = width + 'px';
+                    this.canvas.style.height = height + 'px';
+                }
+
+                start() {
+                    this.isRunning = true;
+                    const btn = document.getElementById('btn-play');
+                    if (btn) {
+                        btn.textContent = '⏸';
+                        btn.classList.add('active');
+                    }
+                    if (this.wasmEngine && this.isWasmEngineValid()) {
+                        try {
+                            this.wasmEngine.start();
+                        } catch (e) {
+                            console.error(e);
+                        }
+                    }
+                    this.gameLoop();
+                }
+
+                toggle() {
+                    if (this.isRunning) {
+                        this.isRunning = false;
+                        const btn = document.getElementById('btn-play');
+                        if (btn) {
+                            btn.textContent = '▶';
+                            btn.classList.remove('active');
+                        }
+                        cancelAnimationFrame(this.animationId);
+                        if (this.wasmEngine && this.isWasmEngineValid()) {
+                            try {
+                                this.wasmEngine.stop();
+                            } catch (e) {}
+                        }
+                    } else {
+                        this.start();
+                    }
+                }
+
+                restart() {
+                    this.isRunning = false;
+                    cancelAnimationFrame(this.animationId);
+                    this.sceneObjectsMap.clear();
+                    this.initializeScenes(this.projectData);
+                    if (this.wasmEngine && this.isWasmEngineValid()) {
+                        try {
+                            this.wasmEngine.reset();
+                            this.wasmEngine.start(); // reset only stops, need to start again? or reset prepares for start?
+                            // In Entry, restart means reloading the project state.
+                            // wasmEngine.reset() restores snapshot and stops.
+                            // So we need to call start() after reset.
+                        } catch (e) {
+                            console.error('WASM reset failed:', e);
+                        }
+                    } else if (this.jsEngine) {
+                        this.initJSEngine(this.getCurrentSceneObjects());
+                    }
+                    this.start();
                 }
             }
 
