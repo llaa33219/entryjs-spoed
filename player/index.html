@@ -974,6 +974,14 @@
                     this.animationId = requestAnimationFrame(() => this.gameLoop());
                 }
 
+                isWasmEngineValid() {
+                    return (
+                        this.wasmEngine &&
+                        this.wasmEngine.__wbg_ptr !== 0 &&
+                        this.wasmEngine.__wbg_ptr !== undefined
+                    );
+                }
+
                 // Handle JS actions from WASM engine
                 handleJsActions() {
                     // Guard: check WASM engine exists and pointer is valid
