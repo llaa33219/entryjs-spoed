@@ -337,13 +337,25 @@ impl WasmEngine {
         
         let project = if let Some(p) = &inner.project_data { p.clone() } else { return; };
         
+        // Find first scene ID for legacy object handling
+        let first_scene_id = project.scenes.as_ref()
+            .and_then(|s| s.first())
+            .map(|s| s.id.as_str());
+        
         if let Some(objects) = &project.objects {
             let mut entity_idx = 0;
             for obj in objects {
                 // Filter objects by scene_id
                 let should_load = match &obj.scene {
                     Some(id) => id == scene_id,
-                    None => true, // Load objects without scene ID (global?) or legacy
+                    None => {
+                        // If no scene ID, load only if we are loading the first scene
+                        // or if there are no scenes defined (legacy project)
+                        match first_scene_id {
+                            Some(first_id) => first_id == scene_id,
+                            None => true,
+                        }
+                    },
                 };
                 
                 if should_load {

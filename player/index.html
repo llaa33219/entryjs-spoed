@@ -808,6 +808,12 @@
                     // Set initial scene (first scene)
                     if (this.scenes.length > 0) {
                         this.currentSceneId = this.scenes[0].id;
+                        // Initialize entity order for the first scene
+                        const sceneObjects = this.getCurrentSceneObjects();
+                        this.entityOrder = [];
+                        for (let i = 0; i < sceneObjects.length; i++) {
+                            this.entityOrder.push(i);
+                        }
                     }
 
                     console.log(`장면 초기화 완료: ${this.scenes.length}개 장면`);
@@ -907,7 +913,7 @@
                     this.currentSceneId = sceneId;
                     const sceneObjects = this.getCurrentSceneObjects();
                     this.entityOrder = [];
-                    for (let i = sceneObjects.length - 1; i >= 0; i--) {
+                    for (let i = 0; i < sceneObjects.length; i++) {
                         this.entityOrder.push(i);
                     }
                     if (!fromWasm && this.isWasmEngineValid()) {
