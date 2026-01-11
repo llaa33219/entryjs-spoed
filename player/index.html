@@ -911,23 +911,6 @@
                     this.preloadSceneImages(this.activeObjects);
                     return true;
                 }
-                    console.log(`장면 전환: ${scene.name} (${sceneId})`);
-                    this.currentSceneId = sceneId;
-                    const sceneObjects = this.getCurrentSceneObjects();
-                    this.entityOrder = [];
-                    for (let i = 0; i < sceneObjects.length; i++) {
-                        this.entityOrder.push(i);
-                    }
-                    if (!fromWasm && this.isWasmEngineValid()) {
-                        try {
-                            this.wasmEngine.start_scene(sceneId);
-                        } catch (e) {
-                            console.error('WASM start_scene 호출 실패:', e);
-                        }
-                    }
-                    this.preloadSceneImages(sceneObjects);
-                    return true;
-                }
 
                 switchToNextScene(fromWasm = false) {
                     const currentIndex = this.scenes.findIndex((s) => s.id === this.currentSceneId);
