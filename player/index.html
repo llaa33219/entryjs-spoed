@@ -833,12 +833,40 @@
                 }
 
                 // Switch to a specific scene by ID
-                switchToScene(sceneId) {
+                switchToScene(sceneId, fromWasm = false) {
                     const scene = this.scenes.find((s) => s.id === sceneId);
                     if (!scene) {
                         console.warn(`장면을 찾을 수 없음: ${sceneId}`);
                         return false;
                     }
+
+                    console.log(`장면 전환: ${scene.name} (${sceneId})`);
+                    this.currentSceneId = sceneId;
+
+                    // Get objects for the new scene
+                    const sceneObjects = this.getCurrentSceneObjects();
+
+                    // Update entity order for the new scene
+                    this.entityOrder = [];
+                    for (let i = sceneObjects.length - 1; i >= 0; i--) {
+                        this.entityOrder.push(i);
+                    }
+
+                    // WASM engine handles scene switching internally
+                    // Only invoke start_scene if this call didn't originate from WASM
+                    if (!fromWasm && this.isWasmEngineValid()) {
+                        try {
+                            this.wasmEngine.start_scene(sceneId);
+                        } catch (e) {
+                            console.error('WASM start_scene 호출 실패:', e);
+                        }
+                    }
+
+                    // Preload images for new scene
+                    this.preloadSceneImages(sceneObjects);
+
+                    return true;
+                }
 
                     console.log(`장면 전환: ${scene.name} (${sceneId})`);
                     this.currentSceneId = sceneId;
@@ -1002,20 +1030,20 @@
                 }
 
                 // Switch to next scene
-                switchToNextScene() {
+                switchToNextScene(fromWasm = false) {
                     const currentIndex = this.scenes.findIndex((s) => s.id === this.currentSceneId);
                     if (currentIndex >= 0 && currentIndex < this.scenes.length - 1) {
-                        return this.switchToScene(this.scenes[currentIndex + 1].id);
+                        return this.switchToScene(this.scenes[currentIndex + 1].id, fromWasm);
                     }
                     console.log('다음 장면이 없습니다');
                     return false;
                 }
 
                 // Switch to previous scene
-                switchToPreviousScene() {
+                switchToPreviousScene(fromWasm = false) {
                     const currentIndex = this.scenes.findIndex((s) => s.id === this.currentSceneId);
                     if (currentIndex > 0) {
-                        return this.switchToScene(this.scenes[currentIndex - 1].id);
+                        return this.switchToScene(this.scenes[currentIndex - 1].id, fromWasm);
                     }
                     console.log('이전 장면이 없습니다');
                     return false;
@@ -1076,10 +1104,18 @@
                         }
                     }
 
-                    // 현재 장면의 오브젝트만 사용 (장면이 초기화된 경우)
-                    if (this.currentSceneId && this.sceneObjectsMap.size > 0) {
-                        const sceneObjects = this.getCurrentSceneObjects();
-                        prepared.objects = sceneObjects.map((obj) => {
+                    // 모든 오브젝트를 WASM으로 전달 (장면 필터링 제거)
+                    if (typeof prepared.objects === 'string') {
+                        try {
+                            prepared.objects = JSON.parse(prepared.objects);
+                        } catch (e) {
+                            console.error('objects 파싱 실패:', e);
+                            prepared.objects = [];
+                        }
+                    }
+
+                    if (Array.isArray(prepared.objects)) {
+                        prepared.objects = prepared.objects.map((obj) => {
                             const newObj = { ...obj };
                             if (typeof newObj.script === 'string') {
                                 try {
@@ -1091,42 +1127,12 @@
                             }
                             return newObj;
                         });
-                        console.log(
-                            'objects 현재 장면 필터링 완료:',
-                            prepared.objects.length,
-                            '개 오브젝트'
-                        );
-                    } else {
-                        // 장면 초기화 전이면 전체 오브젝트 사용
-                        if (typeof prepared.objects === 'string') {
-                            try {
-                                prepared.objects = JSON.parse(prepared.objects);
-                            } catch (e) {
-                                console.error('objects 파싱 실패:', e);
-                                prepared.objects = [];
-                            }
-                        }
-
-                        if (Array.isArray(prepared.objects)) {
-                            prepared.objects = prepared.objects.map((obj) => {
-                                const newObj = { ...obj };
-                                if (typeof newObj.script === 'string') {
-                                    try {
-                                        newObj.script = JSON.parse(newObj.script);
-                                    } catch (e) {
-                                        console.warn('object script 파싱 실패:', obj.id, e);
-                                        newObj.script = [];
-                                    }
-                                }
-                                return newObj;
-                            });
-                        }
-                        console.log(
-                            'objects 문자열 파싱 완료:',
-                            prepared.objects?.length || 0,
-                            '개 오브젝트'
-                        );
                     }
+                    console.log(
+                        'objects 문자열 파싱 완료:',
+                        prepared.objects?.length || 0,
+                        '개 오브젝트'
+                    );
 
                     return prepared;
                 }
@@ -1426,17 +1432,18 @@
                         case 'StartScene': {
                             const sceneId = data.scene_id;
                             console.log('StartScene 액션 수신:', sceneId);
-                            this.switchToScene(sceneId);
+                            // Pass true for fromWasm since this originated from WASM engine
+                            this.switchToScene(sceneId, true);
                             break;
                         }
                         case 'StartNextScene': {
                             console.log('StartNextScene 액션 수신');
-                            this.switchToNextScene();
+                            this.switchToNextScene(true);
                             break;
                         }
                         case 'StartPreviousScene': {
                             console.log('StartPreviousScene 액션 수신');
-                            this.switchToPreviousScene();
+                            this.switchToPreviousScene(true);
                             break;
                         }
                         case 'ShowDialog': {

@@ -159,9 +159,12 @@ export class WasmEngine {
     }
     /**
      * Start the engine for scene transition (fires only "when_scene_start", not "start")
+     * @param {string} scene_id
      */
-    start_scene() {
-        wasm.wasmengine_start_scene(this.__wbg_ptr);
+    start_scene(scene_id) {
+        const ptr0 = passStringToWasm0(scene_id, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.wasmengine_start_scene(this.__wbg_ptr, ptr0, len0);
     }
     /**
      * Update pressed keys from JavaScript

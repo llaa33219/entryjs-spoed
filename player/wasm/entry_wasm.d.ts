@@ -11,7 +11,7 @@ export class WasmEngine {
   /**
    * Start the engine for scene transition (fires only "when_scene_start", not "start")
    */
-  start_scene(): void;
+  start_scene(scene_id: string): void;
   /**
    * Update pressed keys from JavaScript
    */
@@ -114,7 +114,7 @@ export interface InitOutput {
   readonly wasmengine_reset: (a: number) => void;
   readonly wasmengine_set_variables: (a: number, b: number, c: number) => void;
   readonly wasmengine_start: (a: number) => void;
-  readonly wasmengine_start_scene: (a: number) => void;
+  readonly wasmengine_start_scene: (a: number, b: number, c: number) => void;
   readonly wasmengine_stop: (a: number) => void;
   readonly wasmengine_tick: (a: number) => void;
   readonly wasmengine_update_keys: (a: number, b: number, c: number) => void;
