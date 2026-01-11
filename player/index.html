@@ -906,7 +906,11 @@
                     this.updateActiveObjects(sceneId);
 
                     if (!fromWasm && this.isWasmEngineValid()) {
-                        try { this.wasmEngine.start_scene(sceneId); } catch (e) { console.error('WASM start_scene 호출 실패:', e); }
+                        try {
+                            this.wasmEngine.start_scene(sceneId);
+                        } catch (e) {
+                            console.error('WASM start_scene 호출 실패:', e);
+                        }
                     }
                     this.preloadSceneImages(this.activeObjects);
                     return true;
@@ -1703,131 +1707,6 @@
                     this.ctx.scale(scaleX, scaleY);
 
                     let pictureId = null;
-                    if (entityObj && entityObj.sprite && entityObj.sprite.pictures && pictureIndex >= 0) {
-                        const pic = entityObj.sprite.pictures[Math.floor(pictureIndex)];
-                        if (pic) {
-                            pictureId = pic.id;
-                        }
-                    }
-                    if (!pictureId && entityObj) {
-                        pictureId = entityObj.selectedPictureId;
-                    }
-
-                    const img = pictureId ? imageCache.get(pictureId) : null;
-
-                    if (img && img.complete && img.naturalWidth > 0) {
-                        this.ctx.drawImage(
-                            img,
-                            -width / 2,
-                            -height / 2,
-                            width,
-                            height
-                        );
-                    } else {
-                        // Placeholder
-                        this.ctx.fillStyle = '#4a90d9';
-                        this.ctx.fillRect(
-                            -width / 2,
-                            -height / 2,
-                            width || 50,
-                            height || 50
-                        );
-                    }
-                    this.ctx.restore();
-                }
-
-                findObjectById(entityId) {
-                    // entityId from WASM is the index in activeObjects
-                    if (this.activeObjects && this.activeObjects[entityId]) {
-                        return this.activeObjects[entityId];
-                    }
-                    return null;
-                }
-
-                        // Sweep brush resources
-                        for (const [id, _] of this.brushCanvases) {
-                            if (!livingIds.has(id)) {
-                                this.brushCanvases.delete(id);
-                                this.brushContexts.delete(id);
-                                this.brushStates.delete(id);
-                                this.dialogs.delete(id);
-                            }
-                        }
-                        this.needsGarbageCollection = false;
-                    }
-
-                    // 1. Create a map of entity_id -> buffer_offset
-                    const entityMap = new Map();
-                    const len = buffer.length;
-                    for (let i = 0; i < len; i += RENDER_STRIDE) {
-                        const id = buffer[i];
-                        entityMap.set(id, i);
-                    }
-
-                    // 2. Update brush states first
-                    for (let i = 0; i < len; i += RENDER_STRIDE) {
-                        const id = buffer[i];
-                        const brushDown = buffer[i + 10] > 0.5;
-                        // Color is handled by JsAction, stored in state
-                        const brushSize = buffer[i + 11];
-                        const brushTransparency = buffer[i + 12];
-                        const fillDown = buffer[i + 13] > 0.5;
-                        // FillColor is handled by JsAction
-                        // FillTransparency is buffer[i + 14]
-
-                        const brushState = this.getBrushState(id);
-                        brushState.down = brushDown;
-                        brushState.size = brushSize;
-                        brushState.opacity = brushTransparency;
-                        brushState.fillDown = fillDown;
-                        // brushState.lastX/Y updated in handleBrushPath
-                    }
-
-                    // 3. Draw in reverse entity order (z-index)
-                    for (let i = this.entityOrder.length - 1; i >= 0; i--) {
-                        const entityId = this.entityOrder[i];
-                        const offset = entityMap.get(entityId);
-
-                        // Draw brush layer
-                        const brushCanvas = this.brushCanvases.get(entityId);
-                        if (brushCanvas) {
-                            this.ctx.drawImage(brushCanvas, 0, 0);
-                        }
-
-                        // Draw entity if present in render buffer (visible)
-                        if (offset !== undefined) {
-                            this.drawEntityFromBuffer(buffer, offset);
-                        }
-                    }
-
-                    // 4. Draw fill preview
-                    if (this.fillCanvas) {
-                        this.ctx.drawImage(this.fillCanvas, 0, 0);
-                    }
-                }
-
-                drawEntityFromBuffer(buffer, offset) {
-                    const x = buffer[offset + 1];
-                    const y = buffer[offset + 2];
-                    const rotation = buffer[offset + 3];
-                    const scaleX = buffer[offset + 5];
-                    const scaleY = buffer[offset + 6];
-                    const width = buffer[offset + 7];
-                    const height = buffer[offset + 8];
-                    const visible = buffer[offset + 9] > 0.5;
-                    const pictureIndex = buffer[offset + 15];
-
-                    if (!visible) return;
-
-                    this.ctx.save();
-                    this.ctx.translate(240 + x, 180 - y);
-                    this.ctx.rotate((-rotation * Math.PI) / 180);
-                    this.ctx.scale(scaleX, scaleY);
-
-                    const entityId = buffer[offset];
-                    const entityObj = this.findObjectById(entityId);
-
-                    let pictureId = null;
                     if (
                         entityObj &&
                         entityObj.sprite &&
@@ -1843,44 +1722,24 @@
                         pictureId = entityObj.selectedPictureId;
                     }
 
-                    if (pictureId) {
-                        const img = imageCache.get(pictureId);
-                        if (img && img.complete && img.naturalWidth > 0) {
-                            try {
-                                this.ctx.drawImage(img, -width / 2, -height / 2, width, height);
-                            } catch (drawError) {
-                                // Ignore
-                            }
-                        } else {
-                            this.ctx.fillStyle = '#4a90d9';
-                            this.ctx.fillRect(-width / 2, -height / 2, width, height);
-                        }
+                    const img = pictureId ? imageCache.get(pictureId) : null;
+
+                    if (img && img.complete && img.naturalWidth > 0) {
+                        this.ctx.drawImage(img, -width / 2, -height / 2, width, height);
                     } else {
+                        // Placeholder
                         this.ctx.fillStyle = '#4a90d9';
-                        this.ctx.fillRect(-width / 2, -height / 2, width, height);
+                        this.ctx.fillRect(-width / 2, -height / 2, width || 50, height || 50);
                     }
-
                     this.ctx.restore();
-
-                    const dialog = this.dialogs.get(entityId);
-                    if (dialog) {
-                        const mockEntity = {
-                            x: x,
-                            y: y,
-                            width: width,
-                            height: height,
-                            dialogMessage: dialog.message,
-                            dialogMode: dialog.mode,
-                        };
-                        this.drawDialog(mockEntity);
-                    }
                 }
 
                 findObjectById(entityId) {
-                    // Fast lookup if possible, or search allObjects
-                    // objects are indexed by entityId in WASM (0 to N)
-                    // If allObjects matches WASM indices:
-                    return this.allObjects[entityId];
+                    // entityId from WASM is the index in activeObjects
+                    if (this.activeObjects && this.activeObjects[entityId]) {
+                        return this.activeObjects[entityId];
+                    }
+                    return null;
                 }
 
                 // drawRenderData(data) is deprecated/removed in favor of drawRenderBuffer
