@@ -939,6 +939,21 @@
                     return false;
                 }
 
+                // Preload images for a set of objects
+                preloadSceneImages(objects) {
+                    if (!objects || objects.length === 0) return;
+                    const imageCache = this.imageCache;
+                    for (const obj of objects) {
+                        if (obj.sprite && obj.sprite.pictures) {
+                            for (const pic of obj.sprite.pictures) {
+                                if (pic.id && !imageCache.has(pic.id)) {
+                                    this.loadPictureImage(pic);
+                                }
+                            }
+                        }
+                    }
+                }
+
                 gameLoop() {
                     if (!this.isRunning) return;
 
