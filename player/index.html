@@ -759,23 +759,151 @@
                     }
                 }
 
-                initJSEngine(objects) {
-                    if (!this.projectData || !this.projectData.objects) return;
+                prepareProjectForWasm(projectData) {
+                    const prepared = { ...projectData };
+                    if (typeof prepared.variables === 'string') {
+                        try {
+                            prepared.variables = JSON.parse(prepared.variables);
+                        } catch (e) {
+                            prepared.variables = [];
+                        }
+                    }
+                    if (typeof prepared.functions === 'string') {
+                        try {
+                            prepared.functions = JSON.parse(prepared.functions);
+                        } catch (e) {
+                            prepared.functions = [];
+                        }
+                    }
+                    if (typeof prepared.messages === 'string') {
+                        try {
+                            prepared.messages = JSON.parse(prepared.messages);
+                        } catch (e) {
+                            prepared.messages = [];
+                        }
+                    }
+                    if (typeof prepared.scenes === 'string') {
+                        try {
+                            prepared.scenes = JSON.parse(prepared.scenes);
+                        } catch (e) {
+                            prepared.scenes = [];
+                        }
+                    }
+                    if (typeof prepared.tables === 'string') {
+                        try {
+                            prepared.tables = JSON.parse(prepared.tables);
+                        } catch (e) {
+                            prepared.tables = [];
+                        }
+                    }
 
-                    const allObjects =
-                        typeof this.projectData.objects === 'string'
-                                        ? JSON.parse(this.projectData.objects)
-                                        : this.projectData.objects;
-                                this.initJSEngine(objects);
+                    if (typeof prepared.objects === 'string') {
+                        try {
+                            prepared.objects = JSON.parse(prepared.objects);
+                        } catch (e) {
+                            prepared.objects = [];
+                        }
+                    }
+
+                    if (Array.isArray(prepared.objects)) {
+                        prepared.objects = prepared.objects.map((obj) => {
+                            const newObj = { ...obj };
+                            if (typeof newObj.script === 'string') {
+                                try {
+                                    newObj.script = JSON.parse(newObj.script);
+                                } catch (e) {
+                                    newObj.script = [];
+                                }
+                            }
+                            return newObj;
+                        });
+                    }
+                    return prepared;
+                }
+
+                initJSEngine(objects) {
+                    this.jsEngine = {
+                        objects: objects || [],
+                        variables: {},
+                        running: false,
+                        tick: 0,
+                    };
+                }
+
+                switchToScene(sceneId, fromWasm = false) {
+                    const scene = this.scenes.find((s) => s.id === sceneId);
+                    if (!scene) {
+                        console.warn(`장면을 찾을 수 없음: ${sceneId}`);
+                        return false;
+                    }
+                    console.log(`장면 전환: ${scene.name} (${sceneId})`);
+                    this.currentSceneId = sceneId;
+                    const sceneObjects = this.getCurrentSceneObjects();
+                    this.entityOrder = [];
+                    for (let i = sceneObjects.length - 1; i >= 0; i--) {
+                        this.entityOrder.push(i);
+                    }
+                    if (!fromWasm && this.isWasmEngineValid()) {
+                        try {
+                            this.wasmEngine.start_scene(sceneId);
+                        } catch (e) {
+                            console.error('WASM start_scene 호출 실패:', e);
+                        }
+                    }
+                    this.preloadSceneImages(sceneObjects);
+                    return true;
+                }
+
+                switchToNextScene(fromWasm = false) {
+                    const currentIndex = this.scenes.findIndex((s) => s.id === this.currentSceneId);
+                    if (currentIndex >= 0 && currentIndex < this.scenes.length - 1) {
+                        return this.switchToScene(this.scenes[currentIndex + 1].id, fromWasm);
+                    }
+                    console.log('다음 장면이 없습니다');
+                    return false;
+                }
+
+                switchToPreviousScene(fromWasm = false) {
+                    const currentIndex = this.scenes.findIndex((s) => s.id === this.currentSceneId);
+                    if (currentIndex > 0) {
+                        return this.switchToScene(this.scenes[currentIndex - 1].id, fromWasm);
+                    }
+                    console.log('이전 장면이 없습니다');
+                    return false;
+                }
+
+                gameLoop() {
+                    if (!this.isRunning) return;
+
+                    if (this.wasmEngine && this.isWasmEngineValid()) {
+                        try {
+                            this.handleJsActions();
+                            this.wasmEngine.tick();
+                        } catch (e) {
+                            if (!this._renderErrorCount) this._renderErrorCount = 0;
+                            this._renderErrorCount++;
+                            if (this._renderErrorCount >= 5) {
+                                console.error('WASM render 연속 실패, JS 폴백으로 전환');
+                                this.wasmEngine = null;
+                                this.wasmInitialized = false;
+                                if (
+                                    !this.jsEngine &&
+                                    this.projectData &&
+                                    this.projectData.objects
+                                ) {
+                                    const objects =
+                                        typeof this.projectData.objects === 'string'
+                                            ? JSON.parse(this.projectData.objects)
+                                            : this.projectData.objects;
+                                    this.initJSEngine(objects);
+                                }
                             }
                         }
                     } else if (this.jsEngine) {
                         this.jsEngine.tick++;
                     }
 
-                    // Render
                     this.render();
-
                     this.animationId = requestAnimationFrame(() => this.gameLoop());
                 }
 
@@ -1381,7 +1509,11 @@
                                 console.error('WASM render 연속 실패, JS 폴백으로 전환');
                                 this.wasmEngine = null;
                                 this.wasmInitialized = false;
-                                if (!this.jsEngine && this.projectData && this.projectData.objects) {
+                                if (
+                                    !this.jsEngine &&
+                                    this.projectData &&
+                                    this.projectData.objects
+                                ) {
                                     const objects =
                                         typeof this.projectData.objects === 'string'
                                             ? JSON.parse(this.projectData.objects)
@@ -1487,7 +1619,12 @@
                     const entityObj = this.findObjectById(entityId);
 
                     let pictureId = null;
-                    if (entityObj && entityObj.sprite && entityObj.sprite.pictures && pictureIndex >= 0) {
+                    if (
+                        entityObj &&
+                        entityObj.sprite &&
+                        entityObj.sprite.pictures &&
+                        pictureIndex >= 0
+                    ) {
                         const pic = entityObj.sprite.pictures[Math.floor(pictureIndex)];
                         if (pic) {
                             pictureId = pic.id;
