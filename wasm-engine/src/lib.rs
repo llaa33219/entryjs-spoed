@@ -644,7 +644,6 @@ impl WasmEngine {
         
         let render_entities: Vec<RenderEntity> = inner.entities
             .iter()
-            .rev()
             .filter(|e| e.visible || e.brush_down || e.fill_down)
             .map(|e| RenderEntity::from(e))
             .collect();
@@ -1330,6 +1329,8 @@ pub struct Block {
 #[derive(Clone, Debug, Serialize)]
 pub struct RenderEntity {
     pub id: usize,
+    #[serde(rename = "objectId")]
+    pub object_id: String,
     pub x: f64,
     pub y: f64,
     pub rotation: f64,
@@ -1340,6 +1341,10 @@ pub struct RenderEntity {
     pub scale_y: f64,
     pub width: f64,
     pub height: f64,
+    #[serde(rename = "regX")]
+    pub reg_x: f64,
+    #[serde(rename = "regY")]
+    pub reg_y: f64,
     pub visible: bool,
     pub color: String,
     #[serde(rename = "pictureId")]
@@ -1348,7 +1353,6 @@ pub struct RenderEntity {
     pub dialog_message: Option<String>,
     #[serde(rename = "dialogMode")]
     pub dialog_mode: Option<String>,
-    // Brush state
     #[serde(rename = "brushDown")]
     pub brush_down: bool,
     #[serde(rename = "brushColor")]
@@ -1357,7 +1361,6 @@ pub struct RenderEntity {
     pub brush_size: f64,
     #[serde(rename = "brushTransparency")]
     pub brush_transparency: f64,
-    // Fill state
     #[serde(rename = "fillDown")]
     pub fill_down: bool,
     #[serde(rename = "fillColor")]
@@ -1382,6 +1385,7 @@ impl From<&Entity> for RenderEntity {
     fn from(e: &Entity) -> Self {
         RenderEntity {
             id: e.id,
+            object_id: e.object_id.clone(),
             x: e.x,
             y: e.y,
             rotation: e.rotation,
@@ -1390,6 +1394,8 @@ impl From<&Entity> for RenderEntity {
             scale_y: e.scale_y,
             width: e.width,
             height: e.height,
+            reg_x: e.reg_x,
+            reg_y: e.reg_y,
             visible: e.visible,
             color: "#4a90d9".to_string(),
             picture_id: e.current_picture_id.clone(),
@@ -1402,7 +1408,6 @@ impl From<&Entity> for RenderEntity {
             fill_down: e.fill_down,
             fill_color: e.fill_color.clone(),
             fill_transparency: e.fill_transparency,
-            // Text Box fields
             text: e.text.clone(),
             font: e.font.clone(),
             colour: e.colour.clone(),

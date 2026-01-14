@@ -211,26 +211,48 @@ impl Entity {
     
     /// Restore from snapshot
     pub fn restore_snapshot(&mut self) {
-        if let Some(snap) = &self.snapshot {
-            self.x = snap.x;
-            self.y = snap.y;
-            self.rotation = snap.rotation;
-            self.direction = snap.direction;
-            self.scale_x = snap.scale_x;
-            self.scale_y = snap.scale_y;
-            self.visible = snap.visible;
-            self.current_picture_id = snap.current_picture_id.clone();
-            self.brightness = snap.brightness;
-            self.transparency = snap.transparency;
-            self.color_effect = snap.color_effect;
-            self.text = snap.text.clone();
-            self.font = snap.font.clone();
-            self.colour = snap.colour.clone();
-            self.bg_color = snap.bg_color.clone();
-            self.under_line = snap.under_line;
-            self.strike = snap.strike;
-            self.line_break = snap.line_break;
-            self.text_align = snap.text_align;
+        let snap_data = match &self.snapshot {
+            Some(snap) => Some((
+                snap.x, snap.y, snap.rotation, snap.direction,
+                snap.scale_x, snap.scale_y, snap.visible,
+                snap.current_picture_id.clone(), snap.brightness,
+                snap.transparency, snap.color_effect,
+                snap.text.clone(), snap.font.clone(), snap.colour.clone(),
+                snap.bg_color.clone(), snap.under_line, snap.strike,
+                snap.line_break, snap.text_align,
+            )),
+            None => None,
+        };
+        
+        if let Some((
+            x, y, rotation, direction, scale_x, scale_y, visible,
+            current_picture_id, brightness, transparency, color_effect,
+            text, font, colour, bg_color, under_line, strike, line_break, text_align,
+        )) = snap_data {
+            self.x = x;
+            self.y = y;
+            self.rotation = rotation;
+            self.direction = direction;
+            self.scale_x = scale_x;
+            self.scale_y = scale_y;
+            self.visible = visible;
+            self.current_picture_id = current_picture_id;
+            if let Some(ref pic_id) = self.current_picture_id {
+                if let Some(idx) = self.pictures.iter().position(|p| p == pic_id) {
+                    self.update_dimension_for_picture_index(idx);
+                }
+            }
+            self.brightness = brightness;
+            self.transparency = transparency;
+            self.color_effect = color_effect;
+            self.text = text;
+            self.font = font;
+            self.colour = colour;
+            self.bg_color = bg_color;
+            self.under_line = under_line;
+            self.strike = strike;
+            self.line_break = line_break;
+            self.text_align = text_align;
         }
     }
     
