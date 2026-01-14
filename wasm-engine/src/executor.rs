@@ -412,6 +412,7 @@ impl Executor {
                         // Apply delta movement
                         e.x += self.timed_dx;
                         e.y += self.timed_dy;
+                        self.accumulate_brush_and_fill_path(e);
                         self.timed_animation_frames -= 1;
                         
                         if self.timed_animation_frames == 0 {
@@ -434,6 +435,7 @@ impl Executor {
                         // Apply first frame
                         e.x += self.timed_dx;
                         e.y += self.timed_dy;
+                        self.accumulate_brush_and_fill_path(e);
                         self.timed_animation_frames -= 1;
                         
                         if self.timed_animation_frames == 0 {
@@ -454,12 +456,14 @@ impl Executor {
                         let dy = (self.timed_target_y - e.y) / self.timed_animation_frames as f64;
                         e.x += dx;
                         e.y += dy;
+                        self.accumulate_brush_and_fill_path(e);
                         self.timed_animation_frames -= 1;
                         
                         if self.timed_animation_frames == 0 {
                             // Snap to exact target
                             e.x = self.timed_target_x;
                             e.y = self.timed_target_y;
+                            self.accumulate_brush_and_fill_path(e);
                             return ExecuteResult::Continue;
                         } else {
                             return ExecuteResult::Wait;
@@ -480,11 +484,13 @@ impl Executor {
                         let dy = (self.timed_target_y - e.y) / frame_count as f64;
                         e.x += dx;
                         e.y += dy;
+                        self.accumulate_brush_and_fill_path(e);
                         self.timed_animation_frames -= 1;
                         
                         if self.timed_animation_frames == 0 {
                             e.x = self.timed_target_x;
                             e.y = self.timed_target_y;
+                            self.accumulate_brush_and_fill_path(e);
                             return ExecuteResult::Continue;
                         }
                         return ExecuteResult::Wait;

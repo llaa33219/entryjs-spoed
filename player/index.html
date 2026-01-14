@@ -1983,8 +1983,9 @@
                         // brushState.lastX/Y updated in handleBrushPath
                     }
 
-                    // 3. Draw in reverse entity order (z-index)
-                    for (let i = this.entityOrder.length - 1; i >= 0; i--) {
+                    // 3. Draw in entity order (z-index: first = bottom, last = top)
+                    // Canvas draws later items on top, so iterate forward
+                    for (let i = 0; i < this.entityOrder.length; i++) {
                         const entityId = this.entityOrder[i];
                         const offset = entityMap.get(entityId);
 
