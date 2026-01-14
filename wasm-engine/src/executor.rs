@@ -1617,20 +1617,34 @@ impl Executor {
             }
             
             "change_thickness" => {
-                if let Some(e) = entity {
+                let thickness = if let Some(e) = entity {
                     Self::flush_drawing_paths(e, js_actions);
                     let value = self.get_param_number(block, 0, variables);
                     e.brush_size = (e.brush_size + value).max(1.0);
-                }
+                    e.brush_size
+                } else {
+                    1.0
+                };
+                js_actions.push(JsAction::SetThickness {
+                    entity_id: self.entity_idx,
+                    thickness,
+                });
                 ExecuteResult::Continue
             }
             
             "set_thickness" => {
-                if let Some(e) = entity {
+                let thickness = if let Some(e) = entity {
                     Self::flush_drawing_paths(e, js_actions);
                     let value = self.get_param_number(block, 0, variables);
                     e.brush_size = value.max(1.0);
-                }
+                    e.brush_size
+                } else {
+                    1.0
+                };
+                js_actions.push(JsAction::SetThickness {
+                    entity_id: self.entity_idx,
+                    thickness,
+                });
                 ExecuteResult::Continue
             }
             

@@ -85,6 +85,7 @@ pub enum JsAction {
     SetRandomColor { entity_id: usize },
     SetFillColor { entity_id: usize, color: String },
     SetBrushTransparency { entity_id: usize, transparency: f64 },
+    SetThickness { entity_id: usize, thickness: f64 },
     
     // Timer actions  
     TimerAction { action: String },  // start, stop, reset

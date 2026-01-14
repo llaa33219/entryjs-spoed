@@ -1400,6 +1400,11 @@
                             this.handleSetFillColor(entity_id, color);
                             break;
                         }
+                        case 'SetThickness': {
+                            const { entity_id, thickness } = data;
+                            this.handleSetThickness(entity_id, thickness);
+                            break;
+                        }
                         case 'BrushLineTo': {
                             const { entity_id, x, y } = data;
                             this.handleBrushLineTo(entity_id, x, y);
@@ -1683,6 +1688,13 @@
                     if (entityKey === null) return;
                     const brushState = this.getBrushState(entityKey);
                     brushState.fillColor = color;
+                }
+
+                handleSetThickness(entityId, thickness) {
+                    const entityKey = this.getEntityId(entityId);
+                    if (entityKey === null) return;
+                    const brushState = this.getBrushState(entityKey);
+                    brushState.size = thickness;
                 }
 
                 handleBrushLineTo(entityId, x, y) {
