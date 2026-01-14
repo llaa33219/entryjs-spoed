@@ -2364,6 +2364,18 @@ impl Executor {
                                             value_stack.push(Value::Number(0.0));
                                         }
                                     }
+                                    "quotient_and_mod" => {
+                                        if let Some(p) = params {
+                                            let op = p.get(5).and_then(|v| v.as_str()).unwrap_or("QUOTIENT").to_string();
+                                            task_stack.push(EvalTask::ApplyOp { op: format!("quotient_and_mod:{}", op), arg_count: 2 });
+                                            if let Some(right) = p.get(3) { task_stack.push(EvalTask::Evaluate(right.clone())); }
+                                            else { value_stack.push(Value::Number(0.0)); }
+                                            if let Some(left) = p.get(1) { task_stack.push(EvalTask::Evaluate(left.clone())); }
+                                            else { value_stack.push(Value::Number(0.0)); }
+                                        } else {
+                                            value_stack.push(Value::Number(0.0));
+                                        }
+                                    }
                                     "substring" => {
                                         if let Some(p) = params {
                                             task_stack.push(EvalTask::ApplyOp { op: "substring".to_string(), arg_count: 3 });
@@ -2665,6 +2677,18 @@ impl Executor {
                             "abs" => val.abs(),
                             _ => val,
                         })
+                    } else if let Some(op_type) = op.strip_prefix("quotient_and_mod:") {
+                        let right = value_stack.pop().unwrap_or(Value::Number(0.0)).as_number();
+                        let left = value_stack.pop().unwrap_or(Value::Number(0.0)).as_number();
+                        if right != 0.0 {
+                            Value::Number(match op_type {
+                                "QUOTIENT" => (left / right).floor(),
+                                "MOD" => left - right * (left / right).floor(),
+                                _ => 0.0,
+                            })
+                        } else {
+                            Value::Number(0.0)
+                        }
                     } else if op == "combine" {
                         let v2 = value_stack.pop().unwrap_or(Value::String(String::new()));
                         let v1 = value_stack.pop().unwrap_or(Value::String(String::new()));
