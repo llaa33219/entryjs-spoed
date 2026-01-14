@@ -240,6 +240,7 @@
                     this.allObjects = []; // All objects from project (parsed)
                     this.sceneObjectsMap = new Map(); // sceneId -> array of objects
                     this.dialogs = new Map(); // entityId -> { message, mode }
+                    this.textEntities = new Map(); // entityId -> { text, font, colour, ... }
                 }
 
                 async initialize() {
@@ -676,6 +677,10 @@
 
                     // Get objects for current scene (or all objects if no scenes)
                     let objects = this.getCurrentSceneObjects();
+
+                    // Initialize text entities from initial state
+                    this.initializeTextEntities(objects);
+
                     console.log(
                         'objects 준비 완료:',
                         objects ? `${objects.length}개 오브젝트 (현재 장면)` : 'null/undefined'
@@ -824,6 +829,48 @@
                     }
                 }
 
+                // Initialize text entities map from object data
+                initializeTextEntities(objects) {
+                    this.textEntities.clear();
+                    if (!objects) return;
+
+                    for (let i = 0; i < objects.length; i++) {
+                        const obj = objects[i];
+                        // Check if it's a text object (has text property or objectType is textBox)
+                        // Note: Entry objects usually have 'text' property if they are text boxes
+                        // Also check entity.text
+                        const hasText =
+                            obj.text !== undefined ||
+                            (obj.entity && obj.entity.text !== undefined) ||
+                            obj.objectType === 'textBox';
+
+                        if (hasText) {
+                            const initialText = (obj.entity && obj.entity.text) || obj.text || '';
+                            const font =
+                                (obj.entity && obj.entity.font) || obj.font || 'Nanum Gothic';
+                            const colour =
+                                (obj.entity && obj.entity.colour) || obj.colour || '#000000';
+                            const bgColor = (obj.entity && obj.entity.bgColor) || obj.bgColor;
+                            const underLine = (obj.entity && obj.entity.underLine) || false;
+                            const strike = (obj.entity && obj.entity.strike) || false;
+                            const lineBreak = (obj.entity && obj.entity.lineBreak) || false;
+                            const textAlign = (obj.entity && obj.entity.textAlign) || 0;
+
+                            this.textEntities.set(i, {
+                                text: initialText,
+                                font,
+                                colour,
+                                bgColor,
+                                underLine,
+                                strike,
+                                lineBreak,
+                                textAlign,
+                            });
+                        }
+                    }
+                    console.log(`텍스트 객체 초기화 완료: ${this.textEntities.size}개`);
+                }
+
                 // Get objects for current scene
                 getCurrentSceneObjects() {
                     if (!this.currentSceneId) {
@@ -845,6 +892,9 @@
 
                     // Get objects for the new scene
                     const sceneObjects = this.getCurrentSceneObjects();
+
+                    // Initialize text entities for the new scene
+                    this.initializeTextEntities(sceneObjects);
 
                     // Update entity order for the new scene
                     this.entityOrder = [];
@@ -1472,6 +1522,30 @@
                         case 'StopOtherEntities': {
                             break;
                         }
+                        case 'UpdateText': {
+                            const {
+                                entity_id,
+                                text,
+                                font,
+                                colour,
+                                bg_color,
+                                under_line,
+                                strike,
+                                line_break,
+                                text_align,
+                            } = data;
+                            this.textEntities.set(entity_id, {
+                                text,
+                                font,
+                                colour,
+                                bgColor: bg_color,
+                                underLine: under_line,
+                                strike,
+                                lineBreak: line_break,
+                                textAlign: text_align,
+                            });
+                            break;
+                        }
                         default:
                             // Suppress unhandled action logs to prevent console flood
                             // Uncomment the following line for debugging:
@@ -2027,6 +2101,7 @@
 
                     const entityId = buffer[offset];
                     const entityObj = this.findObjectById(entityId);
+                    const textEntity = this.textEntities.get(entityId);
 
                     let pictureId = null;
                     if (entityObj && entityObj.sprite?.pictures && pictureIndex >= 0) {
@@ -2051,9 +2126,19 @@
                             this.ctx.fillStyle = '#4a90d9';
                             this.ctx.fillRect(-width / 2, -height / 2, width, height);
                         }
+                    } else if (textEntity) {
+                        // Draw text box background if color is set
+                        if (textEntity.bgColor) {
+                            this.ctx.fillStyle = textEntity.bgColor;
+                            this.ctx.fillRect(-width / 2, -height / 2, width, height);
+                        }
                     } else {
                         this.ctx.fillStyle = '#4a90d9';
                         this.ctx.fillRect(-width / 2, -height / 2, width, height);
+                    }
+
+                    if (textEntity) {
+                        this.drawTextContent(textEntity, width, height);
                     }
 
                     this.ctx.restore();
@@ -2069,6 +2154,80 @@
                             dialogMode: dialog.mode,
                         };
                         this.drawDialog(mockEntity);
+                    }
+                }
+
+                drawTextContent(textEntity, width, height) {
+                    const ctx = this.ctx;
+                    const { text, font, colour, underLine, strike, textAlign } = textEntity;
+
+                    if (!text) return;
+
+                    // Setup font
+                    // Entry uses dynamic font sizing based on box height usually, but let's approximate
+                    // For multiline, we need to fit text or use a standard size
+                    // Let's use a heuristic: 20px default
+                    const fontSize = 20;
+
+                    ctx.font = `${fontSize}px "${font}", sans-serif`;
+                    ctx.fillStyle = colour;
+                    ctx.textBaseline = 'top';
+
+                    // Text alignment
+                    // 0: left, 1: center, 2: right
+                    let alignX = -width / 2;
+                    if (textAlign === 1) {
+                        ctx.textAlign = 'center';
+                        alignX = 0;
+                    } else if (textAlign === 2) {
+                        ctx.textAlign = 'right';
+                        alignX = width / 2;
+                    } else {
+                        ctx.textAlign = 'left';
+                    }
+
+                    // Handle multiline text
+                    // If text contains newlines, split it
+                    // Also simple wrapping could be implemented but for now just newlines
+                    const lines = text.toString().split('\n');
+                    const lineHeight = fontSize * 1.2;
+
+                    // Vertical alignment: Start from top
+                    let textY = -height / 2;
+
+                    for (let i = 0; i < lines.length; i++) {
+                        const line = lines[i];
+                        ctx.fillText(line, alignX, textY + i * lineHeight);
+
+                        if (underLine) {
+                            const metrics = ctx.measureText(line);
+                            const lineWidth = metrics.width;
+                            let lineX = alignX;
+                            if (textAlign === 1) lineX -= lineWidth / 2;
+                            else if (textAlign === 2) lineX -= lineWidth;
+
+                            ctx.beginPath();
+                            ctx.moveTo(lineX, textY + i * lineHeight + fontSize);
+                            ctx.lineTo(lineX + lineWidth, textY + i * lineHeight + fontSize);
+                            ctx.strokeStyle = colour;
+                            ctx.lineWidth = 1;
+                            ctx.stroke();
+                        }
+
+                        if (strike) {
+                            const metrics = ctx.measureText(line);
+                            const lineWidth = metrics.width;
+                            let lineX = alignX;
+                            if (textAlign === 1) lineX -= lineWidth / 2;
+                            else if (textAlign === 2) lineX -= lineWidth;
+
+                            ctx.beginPath();
+                            ctx.moveTo(lineX, textY + i * lineHeight + fontSize / 2);
+                            ctx.lineTo(lineX + lineWidth, textY + i * lineHeight + fontSize / 2);
+                            ctx.strokeStyle = colour;
+                            ctx.lineWidth = 1;
+                            ctx.stroke();
+                        }
                     }
                 }
 

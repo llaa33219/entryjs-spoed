@@ -1771,6 +1771,17 @@ impl Executor {
                 let text = self.get_param_string(block, 0, variables);
                 if let Some(e) = entity {
                     e.text = Some(text);
+                    js_actions.push(JsAction::UpdateText {
+                        entity_id: e.id,
+                        text: e.text.clone().unwrap_or_default(),
+                        font: e.font.clone().unwrap_or("Nanum Gothic".to_string()),
+                        colour: e.colour.clone().unwrap_or("#000000".to_string()),
+                        bg_color: e.bg_color.clone().unwrap_or_default(),
+                        under_line: e.under_line,
+                        strike: e.strike,
+                        line_break: e.line_break,
+                        text_align: e.text_align,
+                    });
                 }
                 ExecuteResult::Continue
             }
@@ -1779,6 +1790,17 @@ impl Executor {
                 if let Some(e) = entity {
                     let current = e.text.clone().unwrap_or_default();
                     e.text = Some(format!("{}{}", current, text));
+                    js_actions.push(JsAction::UpdateText {
+                        entity_id: e.id,
+                        text: e.text.clone().unwrap_or_default(),
+                        font: e.font.clone().unwrap_or("Nanum Gothic".to_string()),
+                        colour: e.colour.clone().unwrap_or("#000000".to_string()),
+                        bg_color: e.bg_color.clone().unwrap_or_default(),
+                        under_line: e.under_line,
+                        strike: e.strike,
+                        line_break: e.line_break,
+                        text_align: e.text_align,
+                    });
                 }
                 ExecuteResult::Continue
             }
@@ -1787,12 +1809,34 @@ impl Executor {
                 if let Some(e) = entity {
                     let current = e.text.clone().unwrap_or_default();
                     e.text = Some(format!("{}{}", text, current));
+                    js_actions.push(JsAction::UpdateText {
+                        entity_id: e.id,
+                        text: e.text.clone().unwrap_or_default(),
+                        font: e.font.clone().unwrap_or("Nanum Gothic".to_string()),
+                        colour: e.colour.clone().unwrap_or("#000000".to_string()),
+                        bg_color: e.bg_color.clone().unwrap_or_default(),
+                        under_line: e.under_line,
+                        strike: e.strike,
+                        line_break: e.line_break,
+                        text_align: e.text_align,
+                    });
                 }
                 ExecuteResult::Continue
             }
             "text_flush" => {
                 if let Some(e) = entity {
                     e.text = Some(String::new());
+                    js_actions.push(JsAction::UpdateText {
+                        entity_id: e.id,
+                        text: e.text.clone().unwrap_or_default(),
+                        font: e.font.clone().unwrap_or("Nanum Gothic".to_string()),
+                        colour: e.colour.clone().unwrap_or("#000000".to_string()),
+                        bg_color: e.bg_color.clone().unwrap_or_default(),
+                        under_line: e.under_line,
+                        strike: e.strike,
+                        line_break: e.line_break,
+                        text_align: e.text_align,
+                    });
                 }
                 ExecuteResult::Continue
             }
@@ -1808,6 +1852,17 @@ impl Executor {
                         "underLine" => e.under_line = is_on,
                         _ => {}
                     }
+                    js_actions.push(JsAction::UpdateText {
+                        entity_id: e.id,
+                        text: e.text.clone().unwrap_or_default(),
+                        font: e.font.clone().unwrap_or("Nanum Gothic".to_string()),
+                        colour: e.colour.clone().unwrap_or("#000000".to_string()),
+                        bg_color: e.bg_color.clone().unwrap_or_default(),
+                        under_line: e.under_line,
+                        strike: e.strike,
+                        line_break: e.line_break,
+                        text_align: e.text_align,
+                    });
                 }
                 ExecuteResult::Continue
             }
@@ -1816,6 +1871,17 @@ impl Executor {
                 if let Some(e) = entity {
                     let font = self.get_param_string(block, 0, variables);
                     e.font = Some(font);
+                    js_actions.push(JsAction::UpdateText {
+                        entity_id: e.id,
+                        text: e.text.clone().unwrap_or_default(),
+                        font: e.font.clone().unwrap_or("Nanum Gothic".to_string()),
+                        colour: e.colour.clone().unwrap_or("#000000".to_string()),
+                        bg_color: e.bg_color.clone().unwrap_or_default(),
+                        under_line: e.under_line,
+                        strike: e.strike,
+                        line_break: e.line_break,
+                        text_align: e.text_align,
+                    });
                 }
                 ExecuteResult::Continue
             }
@@ -1827,6 +1893,17 @@ impl Executor {
                         color = format!("#{}", color);
                     }
                     e.colour = Some(color);
+                    js_actions.push(JsAction::UpdateText {
+                        entity_id: e.id,
+                        text: e.text.clone().unwrap_or_default(),
+                        font: e.font.clone().unwrap_or("Nanum Gothic".to_string()),
+                        colour: e.colour.clone().unwrap_or("#000000".to_string()),
+                        bg_color: e.bg_color.clone().unwrap_or_default(),
+                        under_line: e.under_line,
+                        strike: e.strike,
+                        line_break: e.line_break,
+                        text_align: e.text_align,
+                    });
                 }
                 ExecuteResult::Continue
             }
@@ -1838,6 +1915,17 @@ impl Executor {
                         color = format!("#{}", color);
                     }
                     e.bg_color = Some(color);
+                    js_actions.push(JsAction::UpdateText {
+                        entity_id: e.id,
+                        text: e.text.clone().unwrap_or_default(),
+                        font: e.font.clone().unwrap_or("Nanum Gothic".to_string()),
+                        colour: e.colour.clone().unwrap_or("#000000".to_string()),
+                        bg_color: e.bg_color.clone().unwrap_or_default(),
+                        under_line: e.under_line,
+                        strike: e.strike,
+                        line_break: e.line_break,
+                        text_align: e.text_align,
+                    });
                 }
                 ExecuteResult::Continue
             }

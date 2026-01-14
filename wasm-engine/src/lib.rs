@@ -98,6 +98,19 @@ pub enum JsAction {
     ShowDialog { entity_id: usize, message: String, mode: String },
     RemoveDialog { entity_id: usize },
     
+    // Text object actions
+    UpdateText {
+        entity_id: usize,
+        text: String,
+        font: String,
+        colour: String,
+        bg_color: String,
+        under_line: bool,
+        strike: bool,
+        line_break: bool,
+        text_align: i32,
+    },
+    
     // Input actions
     AskAndWait { entity_id: usize, message: String },
     SetAnswerVisible { visible: bool },
