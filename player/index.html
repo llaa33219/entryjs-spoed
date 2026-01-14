@@ -193,6 +193,47 @@
             // Constants
             const RENDER_STRIDE = 16;
 
+            // Project Timer class
+            class ProjectTimer {
+                constructor() {
+                    this.reset();
+                }
+
+                reset() {
+                    this.startTime = 0;
+                    this.pausedTime = 0;
+                    this.isPaused = true;
+                    this.isInit = false;
+                    this.value = 0;
+                }
+
+                start() {
+                    const currentTime = new Date().getTime();
+                    if (!this.isInit) {
+                        this.startTime = currentTime;
+                        this.isPaused = false;
+                        this.isInit = true;
+                    } else if (this.isPaused) {
+                        this.startTime = currentTime - this.value * 1000;
+                        this.isPaused = false;
+                    }
+                }
+
+                stop() {
+                    if (this.isInit && !this.isPaused) {
+                        this.value = (new Date().getTime() - this.startTime) / 1000;
+                        this.isPaused = true;
+                    }
+                }
+
+                getValue() {
+                    if (this.isInit && !this.isPaused) {
+                        this.value = (new Date().getTime() - this.startTime) / 1000;
+                    }
+                    return Math.max(0, this.value);
+                }
+            }
+
             // Brush drawing helper
             class BrushState {
                 constructor() {
@@ -241,6 +282,7 @@
                     this.sceneObjectsMap = new Map(); // sceneId -> array of objects
                     this.dialogs = new Map(); // entityId -> { message, mode }
                     this.textEntities = new Map(); // entityId -> { text, font, colour, ... }
+                    this.projectTimer = new ProjectTimer();
                 }
 
                 async initialize() {
@@ -1327,6 +1369,12 @@
                                 this.mouseY,
                                 this.mouseClicked
                             );
+
+                            // Update timer value in WASM
+                            if (typeof this.wasmEngine.update_project_timer === 'function') {
+                                this.wasmEngine.update_project_timer(this.projectTimer.getValue());
+                            }
+
                             this.wasmEngine.tick();
 
                             // Process JS actions from WASM (brush, sound, etc.)
@@ -1473,6 +1521,26 @@
                         case 'FillPath': {
                             const { entity_id, points } = data;
                             this.handleFillPath(entity_id, points);
+                            break;
+                        }
+                        case 'TimerAction': {
+                            const { action } = data;
+                            switch (action) {
+                                case 'START':
+                                    this.projectTimer.start();
+                                    break;
+                                case 'STOP':
+                                    this.projectTimer.stop();
+                                    break;
+                                case 'RESET':
+                                    this.projectTimer.reset();
+                                    break;
+                            }
+                            break;
+                        }
+                        case 'SetTimerVisible': {
+                            // Timer UI is not implemented in this player yet
+                            // const { visible } = data;
                             break;
                         }
                         // Scene actions

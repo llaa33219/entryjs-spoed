@@ -164,6 +164,8 @@ struct EngineInner {
     mouse_y: f64,
     mouse_clicked: bool,
     
+    project_timer_value: f64,
+    
     program: Option<Program>,
     render_buffer: Vec<f64>,
 }
@@ -184,6 +186,7 @@ impl EngineInner {
             mouse_x: 0.0,
             mouse_y: 0.0,
             mouse_clicked: false,
+            project_timer_value: 0.0,
             program: None,
             render_buffer: Vec::with_capacity(1024),
         }
@@ -410,6 +413,7 @@ impl WasmEngine {
         }
         
         inner.variables = inner.variables_snapshot.clone();
+        inner.project_timer_value = 0.0;
     }
     
     /// Check if the engine is currently executing a tick (always returns false now since we handle this internally)
@@ -447,6 +451,8 @@ impl WasmEngine {
         let initial_action_count = pending_js_actions.len();
         
         for (idx, executor) in executors.iter_mut().enumerate() {
+            executor.cached_project_timer_value = inner.project_timer_value;
+            
             if inner.state != EngineState::Running || self.stop_requested.get() {
                 break;
             }
@@ -530,6 +536,7 @@ impl WasmEngine {
                                                 executor.cached_mouse_x = inner.mouse_x;
                                                 executor.cached_mouse_y = inner.mouse_y;
                                                 executor.mouse_clicked = inner.mouse_clicked;
+                                                executor.cached_project_timer_value = inner.project_timer_value;
                                                 new_executors.push(executor);
                                             }
                                         }
@@ -770,6 +777,17 @@ impl WasmEngine {
         }
     }
     
+    /// Update project timer value from JavaScript
+    #[wasm_bindgen]
+    pub fn update_project_timer(&self, value: f64) {
+        let mut inner = match self.inner.try_borrow_mut() {
+            Ok(inner) => inner,
+            Err(_) => return,
+        };
+        
+        inner.project_timer_value = value;
+    }
+    
     /// Update pressed keys from JavaScript
     #[wasm_bindgen]
     pub fn update_keys(&self, keys: &[u32]) {
@@ -801,6 +819,7 @@ impl WasmEngine {
                                     exec_with_state.cached_mouse_x = inner.mouse_x;
                                     exec_with_state.cached_mouse_y = inner.mouse_y;
                                     exec_with_state.mouse_clicked = inner.mouse_clicked;
+                                    exec_with_state.cached_project_timer_value = inner.project_timer_value;
                                     inner.executors.push(exec_with_state);
                                 }
                             }
@@ -858,6 +877,7 @@ impl WasmEngine {
                                                 exec_with_state.cached_mouse_x = inner.mouse_x;
                                                 exec_with_state.cached_mouse_y = inner.mouse_y;
                                                 exec_with_state.mouse_clicked = inner.mouse_clicked;
+                                                exec_with_state.cached_project_timer_value = inner.project_timer_value;
                                                 inner.executors.push(exec_with_state);
                                             }
                                         }
@@ -927,6 +947,7 @@ impl WasmEngine {
                                         exec_with_state.cached_mouse_x = mouse_x;
                                         exec_with_state.cached_mouse_y = mouse_y;
                                         exec_with_state.mouse_clicked = true;
+                                        exec_with_state.cached_project_timer_value = inner.project_timer_value;
                                         inner.executors.push(exec_with_state);
                                     }
                                 }
@@ -994,6 +1015,7 @@ impl WasmEngine {
                                     exec_with_state.cached_mouse_x = inner.mouse_x;
                                     exec_with_state.cached_mouse_y = inner.mouse_y;
                                     exec_with_state.mouse_clicked = inner.mouse_clicked;
+                                    exec_with_state.cached_project_timer_value = inner.project_timer_value;
                                     inner.executors.push(exec_with_state);
                                 }
                             }
@@ -1030,6 +1052,7 @@ impl WasmEngine {
                                     exec_with_state.cached_mouse_x = inner.mouse_x;
                                     exec_with_state.cached_mouse_y = inner.mouse_y;
                                     exec_with_state.mouse_clicked = inner.mouse_clicked;
+                                    exec_with_state.cached_project_timer_value = inner.project_timer_value;
                                     inner.executors.push(exec_with_state);
                                 }
                             }
@@ -1111,6 +1134,7 @@ impl WasmEngine {
                                         exec_with_state.cached_mouse_x = inner.mouse_x;
                                         exec_with_state.cached_mouse_y = inner.mouse_y;
                                         exec_with_state.mouse_clicked = inner.mouse_clicked;
+                                        exec_with_state.cached_project_timer_value = inner.project_timer_value;
                                         executors.push(exec_with_state);
                                     }
                                 }

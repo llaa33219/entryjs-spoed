@@ -23,6 +23,20 @@ pub enum ExecuteResult {
 const MAX_CALL_STACK_DEPTH: usize = 1_000_000;
 const MAX_EVAL_ITERATIONS: usize = 100_000;
 
+#[derive(Clone, Debug)]
+struct EntityState {
+    x: f64,
+    y: f64,
+    rotation: f64,
+    direction: f64,
+    scale_x: f64,
+    scale_y: f64,
+    width: f64,
+    height: f64,
+    picture_index: f64,
+    picture_name: String,
+}
+
 struct PendingFunc {
     func_id: String,
     call_params: Option<Vec<serde_json::Value>>,
@@ -52,6 +66,8 @@ pub struct Executor {
     cached_entity_reg_x: f64,
     cached_entity_reg_y: f64,
     cached_entity_text: String,
+    cached_entity_picture_index: f64,
+    cached_entity_picture_name: String,
     
     // Input state (set from JavaScript)
     pub cached_mouse_x: f64,
@@ -69,8 +85,10 @@ pub struct Executor {
     func_params: HashMap<String, Value>,
     local_vars: HashMap<String, Value>,
     func_return_value: Option<Value>,
-    // Cache of other entity positions for lookup (object_id -> (x, y))
-    entity_positions: HashMap<String, (f64, f64)>,
+    // Cache of other entity states for lookup
+    entity_cache: HashMap<String, EntityState>,
+    // Project timer value from JS
+    pub cached_project_timer_value: f64,
 }
 
 #[derive(Clone, Debug)]
@@ -107,10 +125,13 @@ impl Executor {
             cached_entity_reg_x: 0.0,
             cached_entity_reg_y: 0.0,
             cached_entity_text: String::new(),
+            cached_entity_picture_index: 0.0,
+            cached_entity_picture_name: String::new(),
             
             cached_mouse_x: 0.0,
             cached_mouse_y: 0.0,
-            entity_positions: HashMap::default(),
+            entity_cache: HashMap::default(),
+            cached_project_timer_value: 0.0,
             mouse_clicked: false,
             pressed_keys: Vec::new(),
             
@@ -141,18 +162,53 @@ impl Executor {
             self.cached_entity_reg_x = e.reg_x;
             self.cached_entity_reg_y = e.reg_y;
             self.cached_entity_text = e.text.clone().unwrap_or_default();
+            self.cached_entity_picture_index = e.current_picture_id.as_ref()
+                .and_then(|id| e.pictures.iter().position(|p| p == id))
+                .map(|idx| idx + 1)
+                .unwrap_or(0) as f64;
+            self.cached_entity_picture_name = e.current_picture_id.as_ref()
+                .and_then(|id| {
+                    e.pictures.iter().position(|p| p == id)
+                        .and_then(|idx| e.picture_names.get(idx))
+                })
+                .cloned()
+                .unwrap_or_default();
         }
     }
     
-    pub fn update_entity_positions(&mut self, entities: &[Entity]) {
-        self.entity_positions.clear();
+    pub fn update_entity_cache(&mut self, entities: &[Entity]) {
+        self.entity_cache.clear();
         for entity in entities {
-            self.entity_positions.insert(entity.object_id.clone(), (entity.x, entity.y));
+            let picture_index = entity.current_picture_id.as_ref()
+                .and_then(|id| entity.pictures.iter().position(|p| p == id))
+                .map(|idx| idx + 1) // 1-based
+                .unwrap_or(0) as f64;
+                
+            let picture_name = entity.current_picture_id.as_ref()
+                .and_then(|id| {
+                    entity.pictures.iter().position(|p| p == id)
+                        .and_then(|idx| entity.picture_names.get(idx))
+                })
+                .cloned()
+                .unwrap_or_default();
+
+            self.entity_cache.insert(entity.object_id.clone(), EntityState {
+                x: entity.x,
+                y: entity.y,
+                rotation: entity.rotation,
+                direction: entity.direction,
+                scale_x: entity.scale_x,
+                scale_y: entity.scale_y,
+                width: entity.width,
+                height: entity.height,
+                picture_index,
+                picture_name,
+            });
         }
     }
     
-    fn get_entity_position(&self, object_id: &str) -> Option<(f64, f64)> {
-        self.entity_positions.get(object_id).copied()
+    fn get_entity_state(&self, object_id: &str) -> Option<&EntityState> {
+        self.entity_cache.get(object_id)
     }
     
     /// Helper to convert Value to String
@@ -189,7 +245,7 @@ impl Executor {
         functions: &HashMap<String, FunctionData>,
     ) -> ExecuteResult {
         self.update_cached_entity(entities.get(self.entity_idx));
-        self.update_entity_positions(entities);
+        self.update_entity_cache(entities);
         
         // Check if waiting
         if self.wait_frames > 0 {
@@ -634,8 +690,8 @@ impl Executor {
                     
                     let (target_x, target_y) = if target_trimmed == "mouse" {
                         (self.cached_mouse_x, self.cached_mouse_y)
-                    } else if let Some(pos) = self.get_entity_position(target_trimmed) {
-                        pos
+                    } else if let Some(state) = self.get_entity_state(target_trimmed) {
+                        (state.x, state.y)
                     } else {
                         (e.x, e.y)
                     };
@@ -654,8 +710,8 @@ impl Executor {
                     
                     let (target_x, target_y) = if target_trimmed == "mouse" {
                         (self.cached_mouse_x, self.cached_mouse_y)
-                    } else if let Some(pos) = self.get_entity_position(target_trimmed) {
-                        pos
+                    } else if let Some(state) = self.get_entity_state(target_trimmed) {
+                        (state.x, state.y)
                     } else {
                         (e.x, e.y)
                     };
@@ -706,8 +762,8 @@ impl Executor {
                         
                         let (target_x, target_y) = if target_trimmed == "mouse" {
                             (self.cached_mouse_x, self.cached_mouse_y)
-                        } else if let Some(pos) = self.get_entity_position(target_trimmed) {
-                            pos
+                        } else if let Some(state) = self.get_entity_state(target_trimmed) {
+                            (state.x, state.y)
                         } else {
                             (e.x, e.y)
                         };
@@ -2772,6 +2828,23 @@ impl Executor {
                             "ceil" => val.ceil(),
                             "round" => val.round(),
                             "abs" => val.abs(),
+                            "factorial" => {
+                                let n = val.round() as i64;
+                                if n < 0 { 0.0 }
+                                else if n == 0 { 1.0 }
+                                else {
+                                    (1..=n).fold(1.0, |acc, x| acc * x as f64)
+                                }
+                            },
+                            "unnatural" => {
+                                let floor = val.floor();
+                                let dec = val - floor;
+                                if val < 0.0 {
+                                    1.0 - dec
+                                } else {
+                                    dec
+                                }
+                            },
                             _ => val,
                         })
                     } else if let Some(op_type) = op.strip_prefix("quotient_and_mod:") {
@@ -2952,15 +3025,42 @@ impl Executor {
                 Value::String(self.cached_entity_text.clone())
             }
             "coordinate_object" => {
+                let target_id = get_param_str(1);
                 let coord = params.and_then(|p| p.get(3)).and_then(|v| v.as_str()).unwrap_or("x");
-                Value::Number(match coord {
-                    "x" => self.cached_entity_x,
-                    "y" => self.cached_entity_y,
-                    "rotation" => self.cached_entity_rotation,
-                    "direction" => self.cached_entity_direction,
-                    "size" => self.cached_entity_scale,
-                    _ => 0.0,
-                })
+                
+                if target_id == "self" || target_id.is_empty() {
+                    match coord {
+                        "x" => Value::Number(self.cached_entity_x),
+                        "y" => Value::Number(self.cached_entity_y),
+                        "rotation" => Value::Number(self.cached_entity_rotation),
+                        "direction" => Value::Number(self.cached_entity_direction),
+                        "size" => {
+                            let w = self.cached_entity_width * self.cached_entity_scale_x.abs();
+                            let h = self.cached_entity_height * self.cached_entity_scale_y.abs();
+                            Value::Number((w + h) / 2.0)
+                        },
+                        "picture_index" => Value::Number(self.cached_entity_picture_index),
+                        "picture_name" => Value::String(self.cached_entity_picture_name.clone()),
+                        _ => Value::Number(0.0),
+                    }
+                } else if let Some(state) = self.get_entity_state(&target_id) {
+                    match coord {
+                        "x" => Value::Number(state.x),
+                        "y" => Value::Number(state.y),
+                        "rotation" => Value::Number(state.rotation),
+                        "direction" => Value::Number(state.direction),
+                        "size" => {
+                            let w = state.width * state.scale_x.abs();
+                            let h = state.height * state.scale_y.abs();
+                            Value::Number((w + h) / 2.0)
+                        },
+                        "picture_index" => Value::Number(state.picture_index),
+                        "picture_name" => Value::String(state.picture_name.clone()),
+                        _ => Value::Number(0.0),
+                    }
+                } else {
+                    Value::Number(0.0)
+                }
             }
             "get_date" => {
                 let date_type = get_param_str(1);
@@ -3044,7 +3144,7 @@ impl Executor {
                     .unwrap_or(0);
                 Value::Bool(self.pressed_keys.contains(&keycode))
             }
-            "get_project_timer_value" => Value::Number(0.0),
+            "get_project_timer_value" => Value::Number(self.cached_project_timer_value),
             "get_sound_volume" => Value::Number(100.0),
             _ => Value::Null,
         }

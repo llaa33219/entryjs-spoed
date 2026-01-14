@@ -47,6 +47,10 @@ export class WasmEngine {
    * Fire mouse clicked event
    */
   fire_mouse_clicked(): void;
+  /**
+   * Update project timer value from JavaScript
+   */
+  update_project_timer(value: number): void;
   get_render_buffer_len(): number;
   get_render_buffer_ptr(): number;
   has_pending_js_actions(): boolean;
@@ -116,6 +120,7 @@ export interface InitOutput {
   readonly wasmengine_tick: (a: number) => void;
   readonly wasmengine_update_keys: (a: number, b: number, c: number) => void;
   readonly wasmengine_update_mouse: (a: number, b: number, c: number, d: number) => void;
+  readonly wasmengine_update_project_timer: (a: number, b: number) => void;
   readonly init: () => void;
   readonly __wbindgen_export: (a: number, b: number, c: number) => void;
   readonly __wbindgen_export2: (a: number, b: number) => number;

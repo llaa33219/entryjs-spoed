@@ -29,6 +29,7 @@ export const wasmengine_stop: (a: number) => void;
 export const wasmengine_tick: (a: number) => void;
 export const wasmengine_update_keys: (a: number, b: number, c: number) => void;
 export const wasmengine_update_mouse: (a: number, b: number, c: number, d: number) => void;
+export const wasmengine_update_project_timer: (a: number, b: number) => void;
 export const init: () => void;
 export const __wbindgen_export: (a: number, b: number, c: number) => void;
 export const __wbindgen_export2: (a: number, b: number) => number;

@@ -34,6 +34,7 @@ pub struct Entity {
     // Graphics
     pub current_picture_id: Option<String>,
     pub pictures: Vec<String>,
+    pub picture_names: Vec<String>,
     /// Dimension info for each picture (indexed same as pictures Vec)
     pub picture_dimensions: Vec<PictureDimension>,
     
@@ -107,12 +108,14 @@ impl Entity {
         let entity_data = obj.entity.as_ref();
         
         let mut pictures = Vec::new();
+        let mut picture_names = Vec::new();
         let mut picture_dimensions = Vec::new();
         
         if let Some(sprite) = &obj.sprite {
             if let Some(pics) = &sprite.pictures {
                 for pic in pics {
                     pictures.push(pic.id.clone());
+                    picture_names.push(pic.name.clone().unwrap_or_default());
                     
                     let dim = pic.dimension.as_ref()
                         .map(|d| PictureDimension {
@@ -148,6 +151,7 @@ impl Entity {
             
             current_picture_id: obj.selected_picture_id.clone(),
             pictures,
+            picture_names,
             picture_dimensions,
             
             snapshot: None,
@@ -462,6 +466,7 @@ mod tests {
             visible: true,
             current_picture_id: None,
             pictures: vec!["pic1".to_string(), "pic2".to_string()],
+            picture_names: vec!["Picture 1".to_string(), "Picture 2".to_string()],
             picture_dimensions: vec![
                 PictureDimension { width: 100.0, height: 100.0 },
                 PictureDimension { width: 80.0, height: 120.0 },

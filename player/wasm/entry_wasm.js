@@ -320,6 +320,13 @@ export class WasmEngine {
         wasm.wasmengine_fire_mouse_clicked(this.__wbg_ptr);
     }
     /**
+     * Update project timer value from JavaScript
+     * @param {number} value
+     */
+    update_project_timer(value) {
+        wasm.wasmengine_update_project_timer(this.__wbg_ptr, value);
+    }
+    /**
      * @returns {number}
      */
     get_render_buffer_len() {
