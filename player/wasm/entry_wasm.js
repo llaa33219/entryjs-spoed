@@ -1,18 +1,13 @@
 let wasm;
 
-function addHeapObject(obj) {
-    if (heap_next === heap.length) heap.push(heap.length + 1);
-    const idx = heap_next;
-    heap_next = heap[idx];
-
-    heap[idx] = obj;
-    return idx;
+function _assertBoolean(n) {
+    if (typeof(n) !== 'boolean') {
+        throw new Error(`expected a boolean argument, found ${typeof(n)}`);
+    }
 }
 
-function dropObject(idx) {
-    if (idx < 132) return;
-    heap[idx] = heap_next;
-    heap_next = idx;
+function _assertNum(n) {
+    if (typeof(n) !== 'number') throw new Error(`expected a number argument, found ${typeof(n)}`);
 }
 
 let cachedDataViewMemory0 = null;
@@ -44,12 +39,21 @@ function getUint8ArrayMemory0() {
     return cachedUint8ArrayMemory0;
 }
 
-function getObject(idx) { return heap[idx]; }
-
-let heap = new Array(128).fill(undefined);
-heap.push(undefined, null, true, false);
-
-let heap_next = heap.length;
+function logError(f, args) {
+    try {
+        return f.apply(this, args);
+    } catch (e) {
+        let error = (function () {
+            try {
+                return e instanceof Error ? `${e.message}\n\nStack:\n${e.stack}` : e.toString();
+            } catch(_) {
+                return "<failed to stringify thrown value>";
+            }
+        }());
+        console.error("wasm-bindgen: imported JS function that was not marked as `catch` threw an error:", error);
+        throw e;
+    }
+}
 
 function passArray32ToWasm0(arg, malloc) {
     const ptr = malloc(arg.length * 4, 4) >>> 0;
@@ -59,6 +63,7 @@ function passArray32ToWasm0(arg, malloc) {
 }
 
 function passStringToWasm0(arg, malloc, realloc) {
+    if (typeof(arg) !== 'string') throw new Error(`expected a string argument, found ${typeof(arg)}`);
     if (realloc === undefined) {
         const buf = cachedTextEncoder.encode(arg);
         const ptr = malloc(buf.length, 1) >>> 0;
@@ -86,7 +91,7 @@ function passStringToWasm0(arg, malloc, realloc) {
         ptr = realloc(ptr, len, len = offset + arg.length * 3, 1) >>> 0;
         const view = getUint8ArrayMemory0().subarray(ptr + offset, ptr + len);
         const ret = cachedTextEncoder.encodeInto(arg, view);
-
+        if (ret.read !== arg.length) throw new Error('failed to pass whole string');
         offset += ret.written;
         ptr = realloc(ptr, len, offset, 1) >>> 0;
     }
@@ -95,10 +100,10 @@ function passStringToWasm0(arg, malloc, realloc) {
     return ptr;
 }
 
-function takeObject(idx) {
-    const ret = getObject(idx);
-    dropObject(idx);
-    return ret;
+function takeFromExternrefTable0(idx) {
+    const value = wasm.__wbindgen_externrefs.get(idx);
+    wasm.__externref_table_dealloc(idx);
+    return value;
 }
 
 let cachedTextDecoder = new TextDecoder('utf-8', { ignoreBOM: true, fatal: true });
@@ -154,6 +159,8 @@ export class WasmEngine {
      * @returns {boolean}
      */
     is_running() {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
         const ret = wasm.wasmengine_is_running(this.__wbg_ptr);
         return ret !== 0;
     }
@@ -161,6 +168,8 @@ export class WasmEngine {
      * Start the engine for scene transition (fires only "when_scene_start", not "start")
      */
     start_scene() {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
         wasm.wasmengine_start_scene(this.__wbg_ptr);
     }
     /**
@@ -168,7 +177,9 @@ export class WasmEngine {
      * @param {Uint32Array} keys
      */
     update_keys(keys) {
-        const ptr0 = passArray32ToWasm0(keys, wasm.__wbindgen_export2);
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ptr0 = passArray32ToWasm0(keys, wasm.__wbindgen_malloc);
         const len0 = WASM_VECTOR_LEN;
         wasm.wasmengine_update_keys(this.__wbg_ptr, ptr0, len0);
     }
@@ -177,18 +188,13 @@ export class WasmEngine {
      * @param {string} json
      */
     load_project(json) {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passStringToWasm0(json, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
-            const len0 = WASM_VECTOR_LEN;
-            wasm.wasmengine_load_project(retptr, this.__wbg_ptr, ptr0, len0);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            if (r1) {
-                throw takeObject(r0);
-            }
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ptr0 = passStringToWasm0(json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.wasmengine_load_project(this.__wbg_ptr, ptr0, len0);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
         }
     }
     /**
@@ -198,6 +204,9 @@ export class WasmEngine {
      * @param {boolean} clicked
      */
     update_mouse(x, y, clicked) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        _assertBoolean(clicked);
         wasm.wasmengine_update_mouse(this.__wbg_ptr, x, y, clicked);
     }
     /**
@@ -207,16 +216,14 @@ export class WasmEngine {
         let deferred1_0;
         let deferred1_1;
         try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.wasmengine_get_variables(retptr, this.__wbg_ptr);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            deferred1_0 = r0;
-            deferred1_1 = r1;
-            return getStringFromWasm0(r0, r1);
+            if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+            _assertNum(this.__wbg_ptr);
+            const ret = wasm.wasmengine_get_variables(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
         } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-            wasm.__wbindgen_export(deferred1_0, deferred1_1, 1);
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
         }
     }
     /**
@@ -225,7 +232,9 @@ export class WasmEngine {
      * @param {string} json
      */
     set_variables(json) {
-        const ptr0 = passStringToWasm0(json, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ptr0 = passStringToWasm0(json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
         wasm.wasmengine_set_variables(this.__wbg_ptr, ptr0, len0);
     }
@@ -234,6 +243,9 @@ export class WasmEngine {
      * @param {number} key_code
      */
     fire_key_event(key_code) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        _assertNum(key_code);
         wasm.wasmengine_fire_key_event(this.__wbg_ptr, key_code);
     }
     /**
@@ -243,16 +255,14 @@ export class WasmEngine {
         let deferred1_0;
         let deferred1_1;
         try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.wasmengine_get_debug_info(retptr, this.__wbg_ptr);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            deferred1_0 = r0;
-            deferred1_1 = r1;
-            return getStringFromWasm0(r0, r1);
+            if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+            _assertNum(this.__wbg_ptr);
+            const ret = wasm.wasmengine_get_debug_info(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
         } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-            wasm.__wbindgen_export(deferred1_0, deferred1_1, 1);
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
         }
     }
     /**
@@ -262,16 +272,14 @@ export class WasmEngine {
         let deferred1_0;
         let deferred1_1;
         try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.wasmengine_get_js_actions(retptr, this.__wbg_ptr);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            deferred1_0 = r0;
-            deferred1_1 = r1;
-            return getStringFromWasm0(r0, r1);
+            if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+            _assertNum(this.__wbg_ptr);
+            const ret = wasm.wasmengine_get_js_actions(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
         } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-            wasm.__wbindgen_export(deferred1_0, deferred1_1, 1);
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
         }
     }
     /**
@@ -281,29 +289,31 @@ export class WasmEngine {
         let deferred1_0;
         let deferred1_1;
         try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.wasmengine_get_render_data(retptr, this.__wbg_ptr);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            deferred1_0 = r0;
-            deferred1_1 = r1;
-            return getStringFromWasm0(r0, r1);
+            if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+            _assertNum(this.__wbg_ptr);
+            const ret = wasm.wasmengine_get_render_data(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
         } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-            wasm.__wbindgen_export(deferred1_0, deferred1_1, 1);
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
         }
     }
     /**
      * Fire scene start event
      */
     fire_scene_start() {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
         wasm.wasmengine_fire_scene_start(this.__wbg_ptr);
     }
     /**
      * @param {string} message_id
      */
     fire_message_cast(message_id) {
-        const ptr0 = passStringToWasm0(message_id, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ptr0 = passStringToWasm0(message_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
         wasm.wasmengine_fire_message_cast(this.__wbg_ptr, ptr0, len0);
     }
@@ -311,18 +321,25 @@ export class WasmEngine {
      * @param {number} entity_id
      */
     fire_object_click(entity_id) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        _assertNum(entity_id);
         wasm.wasmengine_fire_object_click(this.__wbg_ptr, entity_id);
     }
     /**
      * Fire mouse clicked event
      */
     fire_mouse_clicked() {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
         wasm.wasmengine_fire_mouse_clicked(this.__wbg_ptr);
     }
     /**
      * @returns {number}
      */
     get_render_buffer_len() {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
         const ret = wasm.wasmengine_get_render_buffer_len(this.__wbg_ptr);
         return ret >>> 0;
     }
@@ -330,6 +347,8 @@ export class WasmEngine {
      * @returns {number}
      */
     get_render_buffer_ptr() {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
         const ret = wasm.wasmengine_get_render_buffer_ptr(this.__wbg_ptr);
         return ret >>> 0;
     }
@@ -337,6 +356,8 @@ export class WasmEngine {
      * @returns {boolean}
      */
     has_pending_js_actions() {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
         const ret = wasm.wasmengine_has_pending_js_actions(this.__wbg_ptr);
         return ret !== 0;
     }
@@ -344,12 +365,17 @@ export class WasmEngine {
      * Fire mouse click cancelled event
      */
     fire_mouse_click_cancled() {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
         wasm.wasmengine_fire_mouse_click_cancled(this.__wbg_ptr);
     }
     /**
      * @param {number} entity_id
      */
     fire_object_click_canceled(entity_id) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        _assertNum(entity_id);
         wasm.wasmengine_fire_object_click_canceled(this.__wbg_ptr, entity_id);
     }
     /**
@@ -365,18 +391,26 @@ export class WasmEngine {
      * Stop the engine
      */
     stop() {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
         wasm.wasmengine_stop(this.__wbg_ptr);
     }
     tick() {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
         wasm.wasmengine_tick(this.__wbg_ptr);
     }
     reset() {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
         wasm.wasmengine_reset(this.__wbg_ptr);
     }
     /**
      * Start the engine (fires both "start" and "when_scene_start" events)
      */
     start() {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
         wasm.wasmengine_start(this.__wbg_ptr);
     }
     /**
@@ -384,6 +418,8 @@ export class WasmEngine {
      * @returns {boolean}
      */
     is_busy() {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
         const ret = wasm.wasmengine_is_busy(this.__wbg_ptr);
         return ret !== 0;
     }
@@ -392,6 +428,8 @@ export class WasmEngine {
      * @returns {bigint}
      */
     get_tick() {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
         const ret = wasm.wasmengine_get_tick(this.__wbg_ptr);
         return BigInt.asUintN(64, ret);
     }
@@ -443,7 +481,7 @@ function __wbg_get_imports() {
     imports.wbg.__wbg___wbindgen_throw_dd24417ed36fc46e = function(arg0, arg1) {
         throw new Error(getStringFromWasm0(arg0, arg1));
     };
-    imports.wbg.__wbg_error_7534b8e9a36f1ab4 = function(arg0, arg1) {
+    imports.wbg.__wbg_error_7534b8e9a36f1ab4 = function() { return logError(function (arg0, arg1) {
         let deferred0_0;
         let deferred0_1;
         try {
@@ -451,63 +489,76 @@ function __wbg_get_imports() {
             deferred0_1 = arg1;
             console.error(getStringFromWasm0(arg0, arg1));
         } finally {
-            wasm.__wbindgen_export(deferred0_0, deferred0_1, 1);
+            wasm.__wbindgen_free(deferred0_0, deferred0_1, 1);
         }
-    };
-    imports.wbg.__wbg_getDate_b8071ea9fc4f6838 = function(arg0) {
-        const ret = getObject(arg0).getDate();
+    }, arguments) };
+    imports.wbg.__wbg_getDate_b8071ea9fc4f6838 = function() { return logError(function (arg0) {
+        const ret = arg0.getDate();
+        _assertNum(ret);
         return ret;
-    };
-    imports.wbg.__wbg_getDay_c13a50561112f77a = function(arg0) {
-        const ret = getObject(arg0).getDay();
+    }, arguments) };
+    imports.wbg.__wbg_getDay_c13a50561112f77a = function() { return logError(function (arg0) {
+        const ret = arg0.getDay();
+        _assertNum(ret);
         return ret;
-    };
-    imports.wbg.__wbg_getFullYear_6ac412e8eee86879 = function(arg0) {
-        const ret = getObject(arg0).getFullYear();
+    }, arguments) };
+    imports.wbg.__wbg_getFullYear_6ac412e8eee86879 = function() { return logError(function (arg0) {
+        const ret = arg0.getFullYear();
+        _assertNum(ret);
         return ret;
-    };
-    imports.wbg.__wbg_getHours_52eb417ad6e924e8 = function(arg0) {
-        const ret = getObject(arg0).getHours();
+    }, arguments) };
+    imports.wbg.__wbg_getHours_52eb417ad6e924e8 = function() { return logError(function (arg0) {
+        const ret = arg0.getHours();
+        _assertNum(ret);
         return ret;
-    };
-    imports.wbg.__wbg_getMinutes_4097cef8e08622f9 = function(arg0) {
-        const ret = getObject(arg0).getMinutes();
+    }, arguments) };
+    imports.wbg.__wbg_getMinutes_4097cef8e08622f9 = function() { return logError(function (arg0) {
+        const ret = arg0.getMinutes();
+        _assertNum(ret);
         return ret;
-    };
-    imports.wbg.__wbg_getMonth_48a392071f9e5017 = function(arg0) {
-        const ret = getObject(arg0).getMonth();
+    }, arguments) };
+    imports.wbg.__wbg_getMonth_48a392071f9e5017 = function() { return logError(function (arg0) {
+        const ret = arg0.getMonth();
+        _assertNum(ret);
         return ret;
-    };
-    imports.wbg.__wbg_getSeconds_d94762aec8103802 = function(arg0) {
-        const ret = getObject(arg0).getSeconds();
+    }, arguments) };
+    imports.wbg.__wbg_getSeconds_d94762aec8103802 = function() { return logError(function (arg0) {
+        const ret = arg0.getSeconds();
+        _assertNum(ret);
         return ret;
-    };
-    imports.wbg.__wbg_new_0_23cedd11d9b40c9d = function() {
+    }, arguments) };
+    imports.wbg.__wbg_new_0_23cedd11d9b40c9d = function() { return logError(function () {
         const ret = new Date();
-        return addHeapObject(ret);
-    };
-    imports.wbg.__wbg_new_8a6f238a6ece86ea = function() {
+        return ret;
+    }, arguments) };
+    imports.wbg.__wbg_new_8a6f238a6ece86ea = function() { return logError(function () {
         const ret = new Error();
-        return addHeapObject(ret);
-    };
-    imports.wbg.__wbg_random_cc1f9237d866d212 = function() {
+        return ret;
+    }, arguments) };
+    imports.wbg.__wbg_random_cc1f9237d866d212 = function() { return logError(function () {
         const ret = Math.random();
         return ret;
-    };
-    imports.wbg.__wbg_stack_0ed75d68575b0f3c = function(arg0, arg1) {
-        const ret = getObject(arg1).stack;
-        const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+    }, arguments) };
+    imports.wbg.__wbg_stack_0ed75d68575b0f3c = function() { return logError(function (arg0, arg1) {
+        const ret = arg1.stack;
+        const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len1 = WASM_VECTOR_LEN;
         getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
         getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
-    };
-    imports.wbg.__wbindgen_cast_2241b6af4c4b2941 = function(arg0, arg1) {
+    }, arguments) };
+    imports.wbg.__wbindgen_cast_2241b6af4c4b2941 = function() { return logError(function (arg0, arg1) {
         // Cast intrinsic for `Ref(String) -> Externref`.
         const ret = getStringFromWasm0(arg0, arg1);
-        return addHeapObject(ret);
-    };
-    imports.wbg.__wbindgen_object_drop_ref = function(arg0) {
-        takeObject(arg0);
+        return ret;
+    }, arguments) };
+    imports.wbg.__wbindgen_init_externref_table = function() {
+        const table = wasm.__wbindgen_externrefs;
+        const offset = table.grow(4);
+        table.set(0, undefined);
+        table.set(offset + 0, undefined);
+        table.set(offset + 1, null);
+        table.set(offset + 2, true);
+        table.set(offset + 3, false);
     };
 
     return imports;

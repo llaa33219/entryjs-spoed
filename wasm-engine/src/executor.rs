@@ -609,12 +609,14 @@ impl Executor {
             
             "locate" => {
                 // Move to another object or mouse position
-                // This requires knowing target entity position - for now, move to mouse
                 if let Some(e) = entity {
                     let target = self.get_param_string(block, 0, variables);
-                    if target == "mouse" {
+                    let target_trimmed = target.trim();
+                    
+                    if target_trimmed == "mouse" {
                         e.x = self.cached_mouse_x;
                         e.y = self.cached_mouse_y;
+                        self.accumulate_brush_and_fill_path(e);
                     }
                     // For other objects, we'd need access to all entities
                 }
@@ -622,18 +624,16 @@ impl Executor {
             }
             
             "see_angle_object" => {
-                // Look at another object or mouse
                 if let Some(e) = entity {
                     let target = self.get_param_string(block, 0, variables);
+                    let target_trimmed = target.trim();
                     let target_x: f64;
                     let target_y: f64;
                     
-                    if target == "mouse" {
+                    if target_trimmed == "mouse" {
                         target_x = self.cached_mouse_x;
                         target_y = self.cached_mouse_y;
                     } else {
-                        // For other objects, we'd need entity lookup
-                        // Default to current position (no change)
                         target_x = e.x;
                         target_y = e.y;
                     }
@@ -663,28 +663,28 @@ impl Executor {
             }
             
             "locate_object_time" => {
-                // Move to another object over time
                 if let Some(e) = entity {
                     if self.timed_animation_frames > 0 {
-                        // Move towards target
                         e.x += self.timed_dx;
                         e.y += self.timed_dy;
+                        self.accumulate_brush_and_fill_path(e);
                         self.timed_animation_frames -= 1;
                         
                         if self.timed_animation_frames == 0 {
                             e.x = self.timed_target_x;
                             e.y = self.timed_target_y;
+                            self.accumulate_brush_and_fill_path(e);
                             return ExecuteResult::Continue;
                         }
                         return ExecuteResult::Wait;
                     } else {
                         let time_value = self.get_param_number(block, 0, variables);
                         let target = self.get_param_string(block, 1, variables);
+                        let target_trimmed = target.trim();
                         
-                        let (target_x, target_y) = if target == "mouse" {
+                        let (target_x, target_y) = if target_trimmed == "mouse" {
                             (self.cached_mouse_x, self.cached_mouse_y)
                         } else {
-                            // For other objects, default to current position
                             (e.x, e.y)
                         };
                         
@@ -697,11 +697,13 @@ impl Executor {
                         
                         e.x += self.timed_dx;
                         e.y += self.timed_dy;
+                        self.accumulate_brush_and_fill_path(e);
                         self.timed_animation_frames -= 1;
                         
                         if self.timed_animation_frames == 0 {
                             e.x = self.timed_target_x;
                             e.y = self.timed_target_y;
+                            self.accumulate_brush_and_fill_path(e);
                             return ExecuteResult::Continue;
                         }
                         return ExecuteResult::Wait;
@@ -2875,7 +2877,8 @@ impl Executor {
                 let min_y = y1.min(y2);
                 let max_y = y1.max(y2);
                 
-                let result = match target.as_str() {
+                let target_trimmed = target.trim();
+                let result = match target_trimmed {
                     "wall" => min_x <= -240.0 || max_x >= 240.0 || max_y >= 135.0 || min_y <= -135.0,
                     "wall_up" => max_y >= 135.0,
                     "wall_down" => min_y <= -135.0,
