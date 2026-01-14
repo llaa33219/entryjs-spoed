@@ -15,6 +15,10 @@ pub struct Entity {
     pub id: usize,
     pub object_id: String,
     pub name: String,
+    /// Whether this entity is a clone (created via create_clone block)
+    pub is_clone: bool,
+    /// Original entity index this clone was created from (only valid if is_clone is true)
+    pub source_entity_idx: usize,
     
     // Position and transform
     pub x: f64,
@@ -135,6 +139,8 @@ impl Entity {
             id: idx,
             object_id: obj.id.clone(),
             name: obj.name.clone().unwrap_or_else(|| format!("Object{}", idx)),
+            is_clone: false,
+            source_entity_idx: 0,
             
             x: entity_data.and_then(|e| e.x).unwrap_or(0.0),
             y: entity_data.and_then(|e| e.y).unwrap_or(0.0),
@@ -453,6 +459,8 @@ mod tests {
             id: 0,
             object_id: "test".to_string(),
             name: "Test".to_string(),
+            is_clone: false,
+            source_entity_idx: 0,
             x: 0.0,
             y: 0.0,
             rotation: 0.0,

@@ -1627,11 +1627,15 @@
                 }
 
                 handleDeleteClone(entityId) {
-                    // Clean up canvas resources to prevent memory leaks
                     this.brushCanvases.delete(entityId);
                     this.brushContexts.delete(entityId);
                     this.brushStates.delete(entityId);
                     this.dialogs.delete(entityId);
+
+                    const idx = this.entityOrder.indexOf(entityId);
+                    if (idx !== -1) {
+                        this.entityOrder.splice(idx, 1);
+                    }
                 }
 
                 handleRemoveAllClones() {
@@ -2095,15 +2099,25 @@
                                 this.dialogs.delete(id);
                             }
                         }
+
+                        // Remove dead entities from entityOrder
+                        this.entityOrder = this.entityOrder.filter((id) => livingIds.has(id));
+
                         this.needsGarbageCollection = false;
                     }
 
-                    // 1. Create a map of entity_id -> buffer_offset
+                    // 1. Create a map of entity_id -> buffer_offset and detect new entities (clones)
                     const entityMap = new Map();
                     const len = buffer.length;
+                    const existingIds = new Set(this.entityOrder);
+
                     for (let i = 0; i < len; i += RENDER_STRIDE) {
                         const id = buffer[i];
                         entityMap.set(id, i);
+
+                        if (!existingIds.has(id)) {
+                            this.entityOrder.push(id);
+                        }
                     }
 
                     // 2. Update brush states first

@@ -524,6 +524,8 @@ impl WasmEngine {
                     let new_id = entities.len();
                     let mut cloned_entity = source_entity.clone();
                     cloned_entity.id = new_id;
+                    cloned_entity.is_clone = true;
+                    cloned_entity.source_entity_idx = target_entity_idx;
                     
                     if let Some(project) = &inner.project_data {
                         if let Some(objects) = &project.objects {
@@ -553,6 +555,8 @@ impl WasmEngine {
             executors.append(&mut new_executors);
         }
         
+        let mut entities_to_remove: Vec<usize> = Vec::new();
+        
         for action in &pending_js_actions {
             match action {
                 JsAction::StopAll => {
@@ -564,7 +568,31 @@ impl WasmEngine {
                 JsAction::StopOtherEntities { entity_id } => {
                     executors.retain(|e| e.entity_idx == *entity_id);
                 }
+                JsAction::DeleteClone { entity_id } => {
+                    if let Some(entity) = entities.get(*entity_id) {
+                        if entity.is_clone {
+                            entities_to_remove.push(*entity_id);
+                            executors.retain(|e| e.entity_idx != *entity_id);
+                        }
+                    }
+                }
+                JsAction::RemoveAllClones => {
+                    for entity in entities.iter() {
+                        if entity.is_clone {
+                            entities_to_remove.push(entity.id);
+                        }
+                    }
+                    executors.retain(|e| {
+                        entities.get(e.entity_idx).map(|ent| !ent.is_clone).unwrap_or(true)
+                    });
+                }
                 _ => {}
+            }
+        }
+        
+        for entity_id in &entities_to_remove {
+            if let Some(entity) = entities.get_mut(*entity_id) {
+                entity.visible = false;
             }
         }
         
@@ -587,6 +615,8 @@ impl WasmEngine {
         
         pending_js_actions.retain(|action| !matches!(action, 
             JsAction::CreateClone { .. } | 
+            JsAction::DeleteClone { .. } |
+            JsAction::RemoveAllClones |
             JsAction::StopAll | 
             JsAction::StopEntity { .. } | 
             JsAction::StopOtherEntities { .. }
