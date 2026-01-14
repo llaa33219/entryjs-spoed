@@ -2467,6 +2467,15 @@ impl Executor {
                                             value_stack.push(Value::String(String::new()));
                                         }
                                     }
+                                    "length_of_string" => {
+                                        if let Some(p) = params {
+                                            task_stack.push(EvalTask::ApplyOp { op: "strlen".to_string(), arg_count: 1 });
+                                            if let Some(string) = p.get(1) { task_stack.push(EvalTask::Evaluate(string.clone())); }
+                                            else { value_stack.push(Value::String(String::new())); }
+                                        } else {
+                                            value_stack.push(Value::Number(0.0));
+                                        }
+                                    }
                                     "reverse_of_string" => {
                                         if let Some(p) = params {
                                             task_stack.push(EvalTask::ApplyOp { op: "reverse_string".to_string(), arg_count: 1 });
