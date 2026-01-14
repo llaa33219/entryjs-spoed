@@ -69,6 +69,8 @@ pub struct Executor {
     func_params: HashMap<String, Value>,
     local_vars: HashMap<String, Value>,
     func_return_value: Option<Value>,
+    // Cache of other entity positions for lookup (object_id -> (x, y))
+    entity_positions: HashMap<String, (f64, f64)>,
 }
 
 #[derive(Clone, Debug)]
@@ -108,6 +110,7 @@ impl Executor {
             
             cached_mouse_x: 0.0,
             cached_mouse_y: 0.0,
+            entity_positions: HashMap::default(),
             mouse_clicked: false,
             pressed_keys: Vec::new(),
             
@@ -124,7 +127,6 @@ impl Executor {
         }
     }
     
-    /// Update cached entity properties from the entity
     fn update_cached_entity(&mut self, entity: Option<&Entity>) {
         if let Some(e) = entity {
             self.cached_entity_x = e.x;
@@ -140,6 +142,17 @@ impl Executor {
             self.cached_entity_reg_y = e.reg_y;
             self.cached_entity_text = e.text.clone().unwrap_or_default();
         }
+    }
+    
+    pub fn update_entity_positions(&mut self, entities: &[Entity]) {
+        self.entity_positions.clear();
+        for entity in entities {
+            self.entity_positions.insert(entity.object_id.clone(), (entity.x, entity.y));
+        }
+    }
+    
+    fn get_entity_position(&self, object_id: &str) -> Option<(f64, f64)> {
+        self.entity_positions.get(object_id).copied()
     }
     
     /// Helper to convert Value to String
@@ -176,6 +189,7 @@ impl Executor {
         functions: &HashMap<String, FunctionData>,
     ) -> ExecuteResult {
         self.update_cached_entity(entities.get(self.entity_idx));
+        self.update_entity_positions(entities);
         
         // Check if waiting
         if self.wait_frames > 0 {
@@ -273,7 +287,7 @@ impl Executor {
     fn execute_block(
         &mut self,
         block: &Block,
-        mut entity: Option<&mut Entity>,
+        entity: Option<&mut Entity>,
         variables: &mut HashMap<String, Value>,
         js_actions: &mut Vec<JsAction>,
         functions: &HashMap<String, FunctionData>,
@@ -614,17 +628,21 @@ impl Executor {
             }
             
             "locate" => {
-                // Move to another object or mouse position
                 if let Some(e) = entity {
                     let target = self.get_param_string(block, 0, variables);
                     let target_trimmed = target.trim();
                     
-                    if target_trimmed == "mouse" {
-                        e.x = self.cached_mouse_x;
-                        e.y = self.cached_mouse_y;
-                        self.accumulate_brush_and_fill_path(e);
-                    }
-                    // For other objects, we'd need access to all entities
+                    let (target_x, target_y) = if target_trimmed == "mouse" {
+                        (self.cached_mouse_x, self.cached_mouse_y)
+                    } else if let Some(pos) = self.get_entity_position(target_trimmed) {
+                        pos
+                    } else {
+                        (e.x, e.y)
+                    };
+                    
+                    e.x = target_x;
+                    e.y = target_y;
+                    self.accumulate_brush_and_fill_path(e);
                 }
                 ExecuteResult::Continue
             }
@@ -633,16 +651,14 @@ impl Executor {
                 if let Some(e) = entity {
                     let target = self.get_param_string(block, 0, variables);
                     let target_trimmed = target.trim();
-                    let target_x: f64;
-                    let target_y: f64;
                     
-                    if target_trimmed == "mouse" {
-                        target_x = self.cached_mouse_x;
-                        target_y = self.cached_mouse_y;
+                    let (target_x, target_y) = if target_trimmed == "mouse" {
+                        (self.cached_mouse_x, self.cached_mouse_y)
+                    } else if let Some(pos) = self.get_entity_position(target_trimmed) {
+                        pos
                     } else {
-                        target_x = e.x;
-                        target_y = e.y;
-                    }
+                        (e.x, e.y)
+                    };
                     
                     let dx = target_x - e.x;
                     let dy = target_y - e.y;
@@ -690,6 +706,8 @@ impl Executor {
                         
                         let (target_x, target_y) = if target_trimmed == "mouse" {
                             (self.cached_mouse_x, self.cached_mouse_y)
+                        } else if let Some(pos) = self.get_entity_position(target_trimmed) {
+                            pos
                         } else {
                             (e.x, e.y)
                         };
