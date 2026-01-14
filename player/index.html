@@ -2073,10 +2073,10 @@
                 }
 
                 findObjectById(entityId) {
-                    // Fast lookup if possible, or search allObjects
-                    // objects are indexed by entityId in WASM (0 to N)
-                    // If allObjects matches WASM indices:
-                    return this.allObjects[entityId];
+                    // WASM engine loads only current scene's objects with indices 0 to N
+                    // So we must look up from current scene's objects, not allObjects
+                    const sceneObjects = this.getCurrentSceneObjects();
+                    return sceneObjects[entityId];
                 }
 
                 // drawRenderData(data) is deprecated/removed in favor of drawRenderBuffer
