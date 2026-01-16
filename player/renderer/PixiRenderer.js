@@ -377,6 +377,7 @@ class PixiRenderer {
             const width = buffer[i + 7];
             const height = buffer[i + 8];
             const visible = buffer[i + 9] > 0.5;
+            const pictureIndex = buffer[i + 15];
 
             // Force visible for debugging
             // if (!visible) console.log(`Entity ${id} hidden`);
