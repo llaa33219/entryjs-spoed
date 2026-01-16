@@ -1,0 +1,875 @@
+/**
+ * PixiRenderer - High-performance WebGL/WebGPU rendering for Entry Player
+ *
+ * Architecture:
+ * - PixiJS v8 for sprite batching and general 2D rendering
+ * - Custom WebGL shaders for brush strokes (Ciallo-inspired)
+ * - Zero-copy integration with WASM render buffer
+ */
+
+const RENDER_STRIDE = 16; // Must match WASM render buffer stride
+
+/**
+ * BrushRenderer - GPU-accelerated brush stroke rendering
+ * Based on Ciallo technique (SIGGRAPH 2024)
+ */
+class BrushRenderer {
+    constructor(app) {
+        this.app = app;
+        this.gl = null;
+        this.program = null;
+        this.vao = null;
+        this.positionBuffer = null;
+        this.initialized = false;
+
+        // Stroke data buffers
+        this.strokeVertices = new Float32Array(100000 * 8); // Pre-allocate for performance
+        this.strokeCount = 0;
+
+        // Per-entity stroke layers (stored as textures for compositing)
+        this.entityLayers = new Map(); // entityId -> RenderTexture
+
+        this._initShaders();
+    }
+
+    _initShaders() {
+        // Get WebGL context from PixiJS
+        const renderer = this.app.renderer;
+        if (!renderer.gl) {
+            console.warn('WebGL context not available, brush rendering will use fallback');
+            return;
+        }
+
+        this.gl = renderer.gl;
+        const gl = this.gl;
+
+        // Vertex Shader - Articulated Line Rendering (Ciallo-style)
+        const vertexShaderSource = `#version 300 es
+            precision highp float;
+            
+            // Per-vertex attributes
+            in vec2 aPosition;      // Stroke point position
+            in float aRadius;       // Stroke radius at this point
+            in vec2 aNextPosition;  // Next point position
+            in float aNextRadius;   // Next point radius
+            in vec2 aOffset;        // Quad vertex offset (-1 or 1)
+            
+            // Uniforms
+            uniform mat3 uProjection;
+            uniform vec2 uResolution;
+            
+            // Outputs to fragment shader
+            out vec2 vPosition;
+            out float vRadius;
+            out vec2 vNextPosition;
+            out float vNextRadius;
+            out vec2 vLocalPos;
+            
+            void main() {
+                vec2 p0 = aPosition;
+                vec2 p1 = aNextPosition;
+                float r0 = aRadius;
+                float r1 = aNextRadius;
+                
+                vec2 tangent = p1 - p0;
+                float len = length(tangent);
+                
+                if (len < 0.001) {
+                    // Degenerate case: draw a circle
+                    vec2 pos = p0 + aOffset * r0;
+                    vec3 projected = uProjection * vec3(pos, 1.0);
+                    gl_Position = vec4(projected.xy, 0.0, 1.0);
+                    vLocalPos = aOffset * r0;
+                    vPosition = p0;
+                    vRadius = r0;
+                    vNextPosition = p1;
+                    vNextRadius = r1;
+                    return;
+                }
+                
+                tangent = normalize(tangent);
+                vec2 normal = vec2(-tangent.y, tangent.x);
+                
+                // Handle radius difference for smooth joints
+                float cosTheta = clamp((r0 - r1) / len, -1.0, 1.0);
+                float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
+                
+                // Generate trapezoid vertex positions
+                vec2 offset0 = r0 * (aOffset.y * normal * sinTheta - aOffset.x * tangent * cosTheta);
+                vec2 offset1 = r1 * (aOffset.y * normal * sinTheta + aOffset.x * tangent * cosTheta);
+                
+                vec2 pos;
+                if (aOffset.x < 0.0) {
+                    pos = p0 + offset0;
+                } else {
+                    pos = p1 + offset1;
+                }
+                
+                vec3 projected = uProjection * vec3(pos, 1.0);
+                gl_Position = vec4(projected.xy, 0.0, 1.0);
+                
+                vPosition = p0;
+                vRadius = r0;
+                vNextPosition = p1;
+                vNextRadius = r1;
+                vLocalPos = pos - p0;
+            }
+        `;
+
+        // Fragment Shader - Smooth anti-aliased stroke with proper alpha
+        const fragmentShaderSource = `#version 300 es
+            precision highp float;
+            
+            in vec2 vPosition;
+            in float vRadius;
+            in vec2 vNextPosition;
+            in float vNextRadius;
+            in vec2 vLocalPos;
+            
+            uniform vec4 uColor;
+            uniform float uSoftness; // 0 = hard edge, 1 = full gradient (airbrush)
+            
+            out vec4 fragColor;
+            
+            float sdSegment(vec2 p, vec2 a, vec2 b) {
+                vec2 pa = p - a;
+                vec2 ba = b - a;
+                float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+                return length(pa - ba * h);
+            }
+            
+            float sdVariableSegment(vec2 p, vec2 a, vec2 b, float ra, float rb) {
+                vec2 pa = p - a;
+                vec2 ba = b - a;
+                float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+                float r = mix(ra, rb, h);
+                return length(pa - ba * h) - r;
+            }
+            
+            void main() {
+                vec2 p = vPosition + vLocalPos;
+                
+                // Distance to stroke centerline with variable radius
+                float d = sdVariableSegment(p, vPosition, vNextPosition, vRadius, vNextRadius);
+                
+                // Anti-aliasing
+                float aa = 1.5; // Anti-alias width in pixels
+                float alpha;
+                
+                if (uSoftness > 0.01) {
+                    // Airbrush mode: soft falloff
+                    float maxR = max(vRadius, vNextRadius);
+                    float softD = sdVariableSegment(p, vPosition, vNextPosition, 0.0, 0.0);
+                    float t = softD / maxR;
+                    alpha = 1.0 - smoothstep(0.0, 1.0, t);
+                    alpha = pow(alpha, 1.0 + uSoftness * 2.0);
+                } else {
+                    // Hard brush: sharp edge with AA
+                    alpha = 1.0 - smoothstep(-aa, aa, d);
+                }
+                
+                // Proper alpha compositing at joints (prevents double-coloring)
+                float strokeAlpha = uColor.a;
+                float jointAlpha = 1.0 - sqrt(1.0 - strokeAlpha);
+                
+                // Distance to endpoints for joint handling
+                float d0 = length(p - vPosition);
+                float d1 = length(p - vNextPosition);
+                
+                if (d0 < vRadius || d1 < vNextRadius) {
+                    alpha *= jointAlpha / strokeAlpha;
+                }
+                
+                fragColor = vec4(uColor.rgb, uColor.a * alpha);
+            }
+        `;
+
+        // Compile shaders
+        const vertexShader = this._compileShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+        const fragmentShader = this._compileShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+
+        if (!vertexShader || !fragmentShader) {
+            console.error('Failed to compile brush shaders');
+            return;
+        }
+
+        // Link program
+        this.program = gl.createProgram();
+        gl.attachShader(this.program, vertexShader);
+        gl.attachShader(this.program, fragmentShader);
+        gl.linkProgram(this.program);
+
+        if (!gl.getProgramParameter(this.program, gl.LINK_STATUS)) {
+            console.error('Shader program link failed:', gl.getProgramInfoLog(this.program));
+            return;
+        }
+
+        // Get attribute and uniform locations
+        this.attribs = {
+            position: gl.getAttribLocation(this.program, 'aPosition'),
+            radius: gl.getAttribLocation(this.program, 'aRadius'),
+            nextPosition: gl.getAttribLocation(this.program, 'aNextPosition'),
+            nextRadius: gl.getAttribLocation(this.program, 'aNextRadius'),
+            offset: gl.getAttribLocation(this.program, 'aOffset'),
+        };
+
+        this.uniforms = {
+            projection: gl.getUniformLocation(this.program, 'uProjection'),
+            resolution: gl.getUniformLocation(this.program, 'uResolution'),
+            color: gl.getUniformLocation(this.program, 'uColor'),
+            softness: gl.getUniformLocation(this.program, 'uSoftness'),
+        };
+
+        // Create VAO and buffers
+        this.vao = gl.createVertexArray();
+        gl.bindVertexArray(this.vao);
+
+        this.strokeBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.strokeBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, this.strokeVertices, gl.DYNAMIC_DRAW);
+
+        // Setup attribute pointers
+        // Each vertex: position(2) + radius(1) + nextPosition(2) + nextRadius(1) + offset(2) = 8 floats
+        const stride = 8 * 4; // 8 floats * 4 bytes
+
+        gl.enableVertexAttribArray(this.attribs.position);
+        gl.vertexAttribPointer(this.attribs.position, 2, gl.FLOAT, false, stride, 0);
+
+        gl.enableVertexAttribArray(this.attribs.radius);
+        gl.vertexAttribPointer(this.attribs.radius, 1, gl.FLOAT, false, stride, 2 * 4);
+
+        gl.enableVertexAttribArray(this.attribs.nextPosition);
+        gl.vertexAttribPointer(this.attribs.nextPosition, 2, gl.FLOAT, false, stride, 3 * 4);
+
+        gl.enableVertexAttribArray(this.attribs.nextRadius);
+        gl.vertexAttribPointer(this.attribs.nextRadius, 1, gl.FLOAT, false, stride, 5 * 4);
+
+        gl.enableVertexAttribArray(this.attribs.offset);
+        gl.vertexAttribPointer(this.attribs.offset, 2, gl.FLOAT, false, stride, 6 * 4);
+
+        gl.bindVertexArray(null);
+
+        this.initialized = true;
+        console.log('BrushRenderer initialized with WebGL shaders');
+    }
+
+    _compileShader(gl, type, source) {
+        const shader = gl.createShader(type);
+        gl.shaderSource(shader, source);
+        gl.compileShader(shader);
+
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+            console.error('Shader compile error:', gl.getShaderInfoLog(shader));
+            gl.deleteShader(shader);
+            return null;
+        }
+
+        return shader;
+    }
+
+    /**
+     * Get or create a render texture for an entity's brush layer
+     */
+    getEntityLayer(entityId, width = 640, height = 360) {
+        if (!this.entityLayers.has(entityId)) {
+            const texture = PIXI.RenderTexture.create({
+                width,
+                height,
+                resolution: window.devicePixelRatio || 1,
+            });
+            this.entityLayers.set(entityId, {
+                texture,
+                sprite: new PIXI.Sprite(texture),
+                graphics: new PIXI.Graphics(), // For PixiJS fallback
+            });
+        }
+        return this.entityLayers.get(entityId);
+    }
+
+    /**
+     * Draw a stroke path to an entity's brush layer
+     * @param {number} entityId - Entity ID
+     * @param {Array<{x: number, y: number}>} points - Stroke points in Entry coordinates
+     * @param {string} color - Stroke color (hex)
+     * @param {number} thickness - Stroke thickness
+     * @param {number} opacity - Stroke opacity (0-100, Entry format)
+     * @param {number} softness - Brush softness (0 = hard, 1 = airbrush)
+     */
+    drawStroke(entityId, points, color, thickness, opacity = 0, softness = 0) {
+        if (!points || points.length < 2) return;
+
+        const layer = this.getEntityLayer(entityId);
+
+        // Convert Entry coordinates to screen coordinates
+        const screenPoints = points.map((p) => ({
+            x: 320 + p.x,
+            y: 180 - p.y,
+            radius: thickness / 2,
+        }));
+
+        // Use PixiJS Graphics for now (will upgrade to custom WebGL later if needed)
+        const g = layer.graphics;
+
+        // Parse color
+        const colorNum = parseInt(color.replace('#', ''), 16);
+        const alpha = 1 - opacity / 100;
+
+        g.moveTo(screenPoints[0].x, screenPoints[0].y);
+
+        // Use quadratic curves for smooth strokes
+        for (let i = 1; i < screenPoints.length; i++) {
+            const p0 = screenPoints[i - 1];
+            const p1 = screenPoints[i];
+
+            if (i < screenPoints.length - 1) {
+                const p2 = screenPoints[i + 1];
+                const midX = (p1.x + p2.x) / 2;
+                const midY = (p1.y + p2.y) / 2;
+                g.lineStyle(thickness, colorNum, alpha);
+                g.lineTo(p1.x, p1.y);
+            } else {
+                g.lineStyle(thickness, colorNum, alpha);
+                g.lineTo(p1.x, p1.y);
+            }
+        }
+
+        // Render to the entity's texture
+        this.app.renderer.render(g, { renderTexture: layer.texture, clear: false });
+
+        // Clear graphics for next stroke
+        g.clear();
+    }
+
+    /**
+     * Clear an entity's brush layer
+     */
+    clearEntityLayer(entityId) {
+        const layer = this.entityLayers.get(entityId);
+        if (layer) {
+            // Clear the render texture
+            const g = new PIXI.Graphics();
+            g.rect(0, 0, layer.texture.width, layer.texture.height);
+            g.fill({ color: 0x000000, alpha: 0 });
+            this.app.renderer.render(g, { renderTexture: layer.texture, clear: true });
+            g.destroy();
+        }
+    }
+
+    /**
+     * Draw a stamp (entity image) onto the brush layer
+     */
+    drawStamp(entityId, sprite, x, y, rotation, scaleX, scaleY) {
+        const layer = this.getEntityLayer(entityId);
+
+        // Create a temporary sprite for stamping
+        const stampSprite = new PIXI.Sprite(sprite.texture);
+        stampSprite.anchor.set(0.5);
+        stampSprite.position.set(320 + x, 180 - y);
+        stampSprite.rotation = (-rotation * Math.PI) / 180;
+        stampSprite.scale.set(scaleX, scaleY);
+
+        // Render to entity's texture
+        this.app.renderer.render(stampSprite, { renderTexture: layer.texture, clear: false });
+        stampSprite.destroy();
+    }
+
+    /**
+     * Get the sprite for an entity's brush layer (for compositing)
+     */
+    getLayerSprite(entityId) {
+        const layer = this.entityLayers.get(entityId);
+        return layer ? layer.sprite : null;
+    }
+
+    /**
+     * Clean up resources for a deleted entity
+     */
+    deleteEntityLayer(entityId) {
+        const layer = this.entityLayers.get(entityId);
+        if (layer) {
+            layer.texture.destroy(true);
+            layer.sprite.destroy();
+            layer.graphics.destroy();
+            this.entityLayers.delete(entityId);
+        }
+    }
+
+    /**
+     * Clean up all resources
+     */
+    destroy() {
+        for (const [id, layer] of this.entityLayers) {
+            layer.texture.destroy(true);
+            layer.sprite.destroy();
+            layer.graphics.destroy();
+        }
+        this.entityLayers.clear();
+
+        if (this.gl && this.program) {
+            this.gl.deleteProgram(this.program);
+        }
+    }
+}
+
+/**
+ * FillRenderer - GPU-accelerated fill polygon rendering
+ */
+class FillRenderer {
+    constructor(app) {
+        this.app = app;
+        this.fillGraphics = new PIXI.Graphics();
+        this.previewGraphics = new PIXI.Graphics();
+    }
+
+    /**
+     * Draw a filled polygon preview (real-time)
+     */
+    drawPreview(points, color) {
+        if (!points || points.length < 3) return;
+
+        this.previewGraphics.clear();
+
+        const colorNum = parseInt(color.replace('#', ''), 16);
+
+        this.previewGraphics.poly(points.map((p) => ({ x: 320 + p.x, y: 180 - p.y })));
+        this.previewGraphics.fill({ color: colorNum });
+    }
+
+    /**
+     * Finalize fill to an entity's brush layer
+     */
+    finalizeFill(entityId, points, color, brushRenderer) {
+        if (!points || points.length < 3) return;
+
+        const layer = brushRenderer.getEntityLayer(entityId);
+        const g = new PIXI.Graphics();
+
+        const colorNum = parseInt(color.replace('#', ''), 16);
+
+        g.poly(points.map((p) => ({ x: 320 + p.x, y: 180 - p.y })));
+        g.fill({ color: colorNum });
+
+        // Render to entity's brush layer
+        this.app.renderer.render(g, { renderTexture: layer.texture, clear: false });
+        g.destroy();
+
+        // Clear preview
+        this.previewGraphics.clear();
+    }
+
+    clearPreview() {
+        this.previewGraphics.clear();
+    }
+
+    destroy() {
+        this.fillGraphics.destroy();
+        this.previewGraphics.destroy();
+    }
+}
+
+/**
+ * Main PixiRenderer class - Manages all WebGL rendering
+ */
+class PixiRenderer {
+    constructor(canvas, options = {}) {
+        this.canvas = canvas;
+        this.width = options.width || 640;
+        this.height = options.height || 360;
+
+        this.app = null;
+        this.spritePool = new Map(); // entityId -> Sprite
+        this.textPool = new Map(); // entityId -> Text
+        this.dialogPool = new Map(); // entityId -> Container (dialog bubble)
+
+        this.brushRenderer = null;
+        this.fillRenderer = null;
+
+        this.entityContainer = null; // Main container for entities
+        this.brushContainer = null; // Container for brush layers
+        this.uiContainer = null; // Container for dialogs and UI
+
+        this.imageCache = new Map(); // pictureId -> Texture
+
+        this.initialized = false;
+    }
+
+    /**
+     * Initialize PixiJS application
+     */
+    async init() {
+        // Create PixiJS Application with WebGL preference
+        this.app = new PIXI.Application();
+
+        await this.app.init({
+            canvas: this.canvas,
+            width: this.width,
+            height: this.height,
+            backgroundColor: 0xffffff,
+            antialias: true,
+            resolution: window.devicePixelRatio || 1,
+            autoDensity: true,
+            preference: 'webgl', // Prefer WebGL, fall back to WebGPU or canvas
+        });
+
+        // Create layer containers (z-order: background -> brush -> entities -> UI)
+        this.brushContainer = new PIXI.Container();
+        this.entityContainer = new PIXI.Container();
+        this.uiContainer = new PIXI.Container();
+
+        this.app.stage.addChild(this.brushContainer);
+        this.app.stage.addChild(this.entityContainer);
+        this.app.stage.addChild(this.uiContainer);
+
+        // Initialize specialized renderers
+        this.brushRenderer = new BrushRenderer(this.app);
+        this.fillRenderer = new FillRenderer(this.app);
+
+        // Add fill preview to UI layer
+        this.uiContainer.addChild(this.fillRenderer.previewGraphics);
+
+        this.initialized = true;
+
+        console.log('%c✨ PixiRenderer initialized', 'color: #00ff00; font-weight: bold;');
+        console.log(`  Renderer: ${this.app.renderer.type === 1 ? 'WebGL' : 'WebGPU/Canvas'}`);
+        console.log(`  Resolution: ${this.width}x${this.height} @${this.app.renderer.resolution}x`);
+
+        return this;
+    }
+
+    /**
+     * Load an image and cache as texture
+     */
+    async loadTexture(pictureId, url) {
+        if (this.imageCache.has(pictureId)) {
+            return this.imageCache.get(pictureId);
+        }
+
+        try {
+            const texture = await PIXI.Assets.load(url);
+            this.imageCache.set(pictureId, texture);
+            return texture;
+        } catch (e) {
+            console.warn(`Failed to load texture: ${pictureId}`, e);
+            return null;
+        }
+    }
+
+    /**
+     * Get or create a sprite for an entity
+     */
+    getSprite(entityId) {
+        if (!this.spritePool.has(entityId)) {
+            const sprite = new PIXI.Sprite();
+            sprite.anchor.set(0.5);
+            this.spritePool.set(entityId, sprite);
+            this.entityContainer.addChild(sprite);
+        }
+        return this.spritePool.get(entityId);
+    }
+
+    /**
+     * Get or create a text object for an entity
+     */
+    getText(entityId) {
+        if (!this.textPool.has(entityId)) {
+            const text = new PIXI.Text({
+                text: '',
+                style: {
+                    fontFamily: 'Nanum Gothic, sans-serif',
+                    fontSize: 20,
+                    fill: 0x000000,
+                },
+            });
+            text.anchor.set(0.5);
+            this.textPool.set(entityId, text);
+        }
+        return this.textPool.get(entityId);
+    }
+
+    /**
+     * Main render function - called every frame
+     * @param {Float64Array} buffer - WASM render buffer
+     * @param {Object} entityData - Additional entity data (pictures, text, etc.)
+     */
+    render(buffer, entityData) {
+        if (!this.initialized || !buffer || buffer.length === 0) return;
+
+        const entityIds = new Set();
+
+        // Clear containers (sprites will be repositioned)
+        // Note: We don't destroy sprites, just hide/show them
+        for (const [id, sprite] of this.spritePool) {
+            sprite.visible = false;
+        }
+
+        // Process render buffer
+        for (let i = 0; i < buffer.length; i += RENDER_STRIDE) {
+            const id = buffer[i];
+            const x = buffer[i + 1];
+            const y = buffer[i + 2];
+            const rotation = buffer[i + 3];
+            // buffer[i + 4] is direction (unused for rendering)
+            const scaleX = buffer[i + 5];
+            const scaleY = buffer[i + 6];
+            const width = buffer[i + 7];
+            const height = buffer[i + 8];
+            const visible = buffer[i + 9] > 0.5;
+            const brushDown = buffer[i + 10] > 0.5;
+            const brushSize = buffer[i + 11];
+            const brushTransparency = buffer[i + 12];
+            const fillDown = buffer[i + 13] > 0.5;
+            const fillTransparency = buffer[i + 14];
+            const pictureIndex = buffer[i + 15];
+
+            entityIds.add(id);
+
+            // Draw brush layer first (behind entity)
+            const brushLayerSprite = this.brushRenderer.getLayerSprite(id);
+            if (brushLayerSprite && !this.brushContainer.children.includes(brushLayerSprite)) {
+                this.brushContainer.addChild(brushLayerSprite);
+            }
+
+            if (!visible) continue;
+
+            // Get entity's sprite
+            const sprite = this.getSprite(id);
+            sprite.visible = true;
+
+            // Position (convert Entry coords to screen coords)
+            sprite.position.set(320 + x, 180 - y);
+            sprite.rotation = (-rotation * Math.PI) / 180;
+            sprite.scale.set(scaleX, scaleY);
+
+            // Get texture from entity data
+            const entity = entityData?.objects?.[id];
+            if (entity) {
+                const pictureId = this._getPictureId(entity, pictureIndex);
+                if (pictureId && this.imageCache.has(pictureId)) {
+                    sprite.texture = this.imageCache.get(pictureId);
+                    sprite.width = width;
+                    sprite.height = height;
+                }
+            }
+        }
+
+        // Clean up deleted entities
+        for (const [id, sprite] of this.spritePool) {
+            if (!entityIds.has(id) && !sprite.visible) {
+                // Entity no longer exists, could clean up here
+                // For now, just keep hidden (pooling)
+            }
+        }
+    }
+
+    /**
+     * Get picture ID from entity data and index
+     */
+    _getPictureId(entity, pictureIndex) {
+        if (entity.sprite?.pictures && pictureIndex >= 0) {
+            const pic = entity.sprite.pictures[Math.floor(pictureIndex)];
+            return pic?.id;
+        }
+        return entity.selectedPictureId;
+    }
+
+    /**
+     * Handle brush path from WASM
+     */
+    handleBrushPath(entityId, points, color, thickness, opacity) {
+        this.brushRenderer.drawStroke(entityId, points, color, thickness, opacity);
+    }
+
+    /**
+     * Handle brush stamp from WASM
+     */
+    handleBrushStamp(entityId, x, y, rotation, scaleX, scaleY, pictureId) {
+        const sprite = this.spritePool.get(entityId);
+        if (sprite) {
+            this.brushRenderer.drawStamp(entityId, sprite, x, y, rotation, scaleX, scaleY);
+        }
+    }
+
+    /**
+     * Handle brush erase all
+     */
+    handleBrushEraseAll(entityId) {
+        this.brushRenderer.clearEntityLayer(entityId);
+    }
+
+    /**
+     * Handle fill path preview
+     */
+    handleFillPreview(points, color) {
+        this.fillRenderer.drawPreview(points, color);
+    }
+
+    /**
+     * Handle fill finalize
+     */
+    handleFillFinalize(entityId, points, color) {
+        this.fillRenderer.finalizeFill(entityId, points, color, this.brushRenderer);
+    }
+
+    /**
+     * Handle entity deletion
+     */
+    handleEntityDelete(entityId) {
+        // Clean up sprite
+        const sprite = this.spritePool.get(entityId);
+        if (sprite) {
+            sprite.destroy();
+            this.spritePool.delete(entityId);
+        }
+
+        // Clean up brush layer
+        this.brushRenderer.deleteEntityLayer(entityId);
+
+        // Clean up text
+        const text = this.textPool.get(entityId);
+        if (text) {
+            text.destroy();
+            this.textPool.delete(entityId);
+        }
+
+        // Clean up dialog
+        const dialog = this.dialogPool.get(entityId);
+        if (dialog) {
+            dialog.destroy();
+            this.dialogPool.delete(entityId);
+        }
+    }
+
+    /**
+     * Draw a dialog bubble
+     */
+    drawDialog(entityId, message, mode, x, y, entityHeight) {
+        // Get or create dialog container
+        let dialog = this.dialogPool.get(entityId);
+        if (!dialog) {
+            dialog = new PIXI.Container();
+            this.dialogPool.set(entityId, dialog);
+            this.uiContainer.addChild(dialog);
+        }
+
+        // Clear previous dialog
+        dialog.removeChildren();
+
+        if (!message) {
+            dialog.visible = false;
+            return;
+        }
+
+        dialog.visible = true;
+
+        // Create dialog background
+        const bg = new PIXI.Graphics();
+        const padding = 12;
+        const text = new PIXI.Text({
+            text: message,
+            style: {
+                fontFamily: 'Nanum Gothic, sans-serif',
+                fontSize: 14,
+                fill: 0x000000,
+            },
+        });
+
+        const textWidth = text.width;
+        const textHeight = text.height;
+        const balloonWidth = textWidth + padding * 2;
+        const balloonHeight = textHeight + padding * 2;
+        const radius = 10;
+
+        // Position above entity
+        const screenX = 320 + x;
+        const screenY = 180 - y - entityHeight / 2 - balloonHeight - 15;
+
+        // Draw balloon
+        if (mode === 'think') {
+            // Thought bubble style
+            bg.roundRect(0, 0, balloonWidth, balloonHeight, radius);
+            bg.fill({ color: 0xffffff });
+            bg.stroke({ color: 0x000000, width: 2 });
+
+            // Small circles for thought bubble tail
+            bg.circle(balloonWidth / 2, balloonHeight + 8, 5);
+            bg.fill({ color: 0xffffff });
+            bg.stroke({ color: 0x000000, width: 2 });
+
+            bg.circle(balloonWidth / 2 + 5, balloonHeight + 18, 3);
+            bg.fill({ color: 0xffffff });
+            bg.stroke({ color: 0x000000, width: 2 });
+        } else {
+            // Speech bubble style
+            bg.roundRect(0, 0, balloonWidth, balloonHeight, radius);
+            bg.fill({ color: 0xffffff });
+            bg.stroke({ color: 0x000000, width: 2 });
+
+            // Triangle tail
+            bg.moveTo(balloonWidth / 2 - 8, balloonHeight);
+            bg.lineTo(balloonWidth / 2, balloonHeight + 15);
+            bg.lineTo(balloonWidth / 2 + 8, balloonHeight);
+            bg.fill({ color: 0xffffff });
+            bg.stroke({ color: 0x000000, width: 2 });
+        }
+
+        dialog.addChild(bg);
+
+        text.position.set(padding, padding);
+        dialog.addChild(text);
+
+        dialog.position.set(screenX - balloonWidth / 2, screenY);
+    }
+
+    /**
+     * Remove dialog
+     */
+    removeDialog(entityId) {
+        const dialog = this.dialogPool.get(entityId);
+        if (dialog) {
+            dialog.visible = false;
+        }
+    }
+
+    /**
+     * Resize renderer
+     */
+    resize(width, height) {
+        this.app.renderer.resize(width, height);
+    }
+
+    /**
+     * Destroy renderer and clean up resources
+     */
+    destroy() {
+        this.brushRenderer?.destroy();
+        this.fillRenderer?.destroy();
+
+        for (const [id, sprite] of this.spritePool) {
+            sprite.destroy();
+        }
+        this.spritePool.clear();
+
+        for (const [id, text] of this.textPool) {
+            text.destroy();
+        }
+        this.textPool.clear();
+
+        for (const [id, dialog] of this.dialogPool) {
+            dialog.destroy();
+        }
+        this.dialogPool.clear();
+
+        for (const [id, texture] of this.imageCache) {
+            texture.destroy(true);
+        }
+        this.imageCache.clear();
+
+        this.app.destroy(false); // Don't remove canvas
+        this.initialized = false;
+    }
+}
+
+// Export for use in index.html
+window.PixiRenderer = PixiRenderer;
+window.BrushRenderer = BrushRenderer;
+window.FillRenderer = FillRenderer;
