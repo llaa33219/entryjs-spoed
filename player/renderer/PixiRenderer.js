@@ -243,8 +243,10 @@ class PixiRenderer {
         this.uiContainer = null; // Container for dialogs and UI
 
         this.imageCache = new Map(); // pictureId -> Texture
+        this.defaultTexture = PIXI.Texture.WHITE; // 1x1 White texture for fallbacks
 
         this.initialized = false;
+        this.debugLogCount = 0; // For throttling logs
     }
 
     /**
@@ -357,6 +359,13 @@ class PixiRenderer {
         }
 
         // Process render buffer
+        if (this.debugLogCount < 5) {
+            console.log(
+                `Render frame ${this.debugLogCount}: buffer len=${buffer.length}, entities=${buffer.length / RENDER_STRIDE}`
+            );
+            this.debugLogCount++;
+        }
+
         for (let i = 0; i < buffer.length; i += RENDER_STRIDE) {
             const id = buffer[i];
             const x = buffer[i + 1];
@@ -396,14 +405,27 @@ class PixiRenderer {
 
             // Get texture from entity data
             const entity = entityData?.objects?.[id];
+            let hasTexture = false;
+
             if (entity) {
                 const pictureId = this._getPictureId(entity, pictureIndex);
                 if (pictureId && this.imageCache.has(pictureId)) {
                     sprite.texture = this.imageCache.get(pictureId);
-                    sprite.width = width;
-                    sprite.height = height;
+                    sprite.tint = 0xffffff; // Reset tint
+                    hasTexture = true;
                 }
             }
+
+            // Fallback: Render colored rectangle if no texture
+            if (!hasTexture) {
+                sprite.texture = this.defaultTexture;
+                sprite.tint = entity?.color
+                    ? parseInt(entity.color.replace('#', ''), 16)
+                    : 0x4a90d9;
+            }
+
+            sprite.width = width;
+            sprite.height = height;
         }
 
         // Clean up deleted entities
