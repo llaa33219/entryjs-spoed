@@ -16,256 +16,10 @@ const RENDER_STRIDE = 16; // Must match WASM render buffer stride
 class BrushRenderer {
     constructor(app) {
         this.app = app;
-        this.gl = null;
-        this.program = null;
-        this.vao = null;
-        this.positionBuffer = null;
-        this.initialized = false;
-
-        // Stroke data buffers
-        this.strokeVertices = new Float32Array(100000 * 8); // Pre-allocate for performance
-        this.strokeCount = 0;
-
-        // Per-entity stroke layers (stored as textures for compositing)
         this.entityLayers = new Map(); // entityId -> RenderTexture
-
-        this._initShaders();
     }
 
-    _initShaders() {
-        // Get WebGL context from PixiJS
-        const renderer = this.app.renderer;
-        if (!renderer.gl) {
-            console.warn('WebGL context not available, brush rendering will use fallback');
-            return;
-        }
-
-        this.gl = renderer.gl;
-        const gl = this.gl;
-
-        // Vertex Shader - Articulated Line Rendering (Ciallo-style)
-        const vertexShaderSource = `#version 300 es
-            precision highp float;
-            
-            // Per-vertex attributes
-            in vec2 aPosition;      // Stroke point position
-            in float aRadius;       // Stroke radius at this point
-            in vec2 aNextPosition;  // Next point position
-            in float aNextRadius;   // Next point radius
-            in vec2 aOffset;        // Quad vertex offset (-1 or 1)
-            
-            // Uniforms
-            uniform mat3 uProjection;
-            uniform vec2 uResolution;
-            
-            // Outputs to fragment shader
-            out vec2 vPosition;
-            out float vRadius;
-            out vec2 vNextPosition;
-            out float vNextRadius;
-            out vec2 vLocalPos;
-            
-            void main() {
-                vec2 p0 = aPosition;
-                vec2 p1 = aNextPosition;
-                float r0 = aRadius;
-                float r1 = aNextRadius;
-                
-                vec2 tangent = p1 - p0;
-                float len = length(tangent);
-                
-                if (len < 0.001) {
-                    // Degenerate case: draw a circle
-                    vec2 pos = p0 + aOffset * r0;
-                    vec3 projected = uProjection * vec3(pos, 1.0);
-                    gl_Position = vec4(projected.xy, 0.0, 1.0);
-                    vLocalPos = aOffset * r0;
-                    vPosition = p0;
-                    vRadius = r0;
-                    vNextPosition = p1;
-                    vNextRadius = r1;
-                    return;
-                }
-                
-                tangent = normalize(tangent);
-                vec2 normal = vec2(-tangent.y, tangent.x);
-                
-                // Handle radius difference for smooth joints
-                float cosTheta = clamp((r0 - r1) / len, -1.0, 1.0);
-                float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
-                
-                // Generate trapezoid vertex positions
-                vec2 offset0 = r0 * (aOffset.y * normal * sinTheta - aOffset.x * tangent * cosTheta);
-                vec2 offset1 = r1 * (aOffset.y * normal * sinTheta + aOffset.x * tangent * cosTheta);
-                
-                vec2 pos;
-                if (aOffset.x < 0.0) {
-                    pos = p0 + offset0;
-                } else {
-                    pos = p1 + offset1;
-                }
-                
-                vec3 projected = uProjection * vec3(pos, 1.0);
-                gl_Position = vec4(projected.xy, 0.0, 1.0);
-                
-                vPosition = p0;
-                vRadius = r0;
-                vNextPosition = p1;
-                vNextRadius = r1;
-                vLocalPos = pos - p0;
-            }
-        `;
-
-        // Fragment Shader - Smooth anti-aliased stroke with proper alpha
-        const fragmentShaderSource = `#version 300 es
-            precision highp float;
-            
-            in vec2 vPosition;
-            in float vRadius;
-            in vec2 vNextPosition;
-            in float vNextRadius;
-            in vec2 vLocalPos;
-            
-            uniform vec4 uColor;
-            uniform float uSoftness; // 0 = hard edge, 1 = full gradient (airbrush)
-            
-            out vec4 fragColor;
-            
-            float sdSegment(vec2 p, vec2 a, vec2 b) {
-                vec2 pa = p - a;
-                vec2 ba = b - a;
-                float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
-                return length(pa - ba * h);
-            }
-            
-            float sdVariableSegment(vec2 p, vec2 a, vec2 b, float ra, float rb) {
-                vec2 pa = p - a;
-                vec2 ba = b - a;
-                float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
-                float r = mix(ra, rb, h);
-                return length(pa - ba * h) - r;
-            }
-            
-            void main() {
-                vec2 p = vPosition + vLocalPos;
-                
-                // Distance to stroke centerline with variable radius
-                float d = sdVariableSegment(p, vPosition, vNextPosition, vRadius, vNextRadius);
-                
-                // Anti-aliasing
-                float aa = 1.5; // Anti-alias width in pixels
-                float alpha;
-                
-                if (uSoftness > 0.01) {
-                    // Airbrush mode: soft falloff
-                    float maxR = max(vRadius, vNextRadius);
-                    float softD = sdVariableSegment(p, vPosition, vNextPosition, 0.0, 0.0);
-                    float t = softD / maxR;
-                    alpha = 1.0 - smoothstep(0.0, 1.0, t);
-                    alpha = pow(alpha, 1.0 + uSoftness * 2.0);
-                } else {
-                    // Hard brush: sharp edge with AA
-                    alpha = 1.0 - smoothstep(-aa, aa, d);
-                }
-                
-                // Proper alpha compositing at joints (prevents double-coloring)
-                float strokeAlpha = uColor.a;
-                float jointAlpha = 1.0 - sqrt(1.0 - strokeAlpha);
-                
-                // Distance to endpoints for joint handling
-                float d0 = length(p - vPosition);
-                float d1 = length(p - vNextPosition);
-                
-                if (d0 < vRadius || d1 < vNextRadius) {
-                    alpha *= jointAlpha / strokeAlpha;
-                }
-                
-                fragColor = vec4(uColor.rgb, uColor.a * alpha);
-            }
-        `;
-
-        // Compile shaders
-        const vertexShader = this._compileShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
-        const fragmentShader = this._compileShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
-
-        if (!vertexShader || !fragmentShader) {
-            console.error('Failed to compile brush shaders');
-            return;
-        }
-
-        // Link program
-        this.program = gl.createProgram();
-        gl.attachShader(this.program, vertexShader);
-        gl.attachShader(this.program, fragmentShader);
-        gl.linkProgram(this.program);
-
-        if (!gl.getProgramParameter(this.program, gl.LINK_STATUS)) {
-            console.error('Shader program link failed:', gl.getProgramInfoLog(this.program));
-            return;
-        }
-
-        // Get attribute and uniform locations
-        this.attribs = {
-            position: gl.getAttribLocation(this.program, 'aPosition'),
-            radius: gl.getAttribLocation(this.program, 'aRadius'),
-            nextPosition: gl.getAttribLocation(this.program, 'aNextPosition'),
-            nextRadius: gl.getAttribLocation(this.program, 'aNextRadius'),
-            offset: gl.getAttribLocation(this.program, 'aOffset'),
-        };
-
-        this.uniforms = {
-            projection: gl.getUniformLocation(this.program, 'uProjection'),
-            resolution: gl.getUniformLocation(this.program, 'uResolution'),
-            color: gl.getUniformLocation(this.program, 'uColor'),
-            softness: gl.getUniformLocation(this.program, 'uSoftness'),
-        };
-
-        // Create VAO and buffers
-        this.vao = gl.createVertexArray();
-        gl.bindVertexArray(this.vao);
-
-        this.strokeBuffer = gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, this.strokeBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, this.strokeVertices, gl.DYNAMIC_DRAW);
-
-        // Setup attribute pointers
-        // Each vertex: position(2) + radius(1) + nextPosition(2) + nextRadius(1) + offset(2) = 8 floats
-        const stride = 8 * 4; // 8 floats * 4 bytes
-
-        gl.enableVertexAttribArray(this.attribs.position);
-        gl.vertexAttribPointer(this.attribs.position, 2, gl.FLOAT, false, stride, 0);
-
-        gl.enableVertexAttribArray(this.attribs.radius);
-        gl.vertexAttribPointer(this.attribs.radius, 1, gl.FLOAT, false, stride, 2 * 4);
-
-        gl.enableVertexAttribArray(this.attribs.nextPosition);
-        gl.vertexAttribPointer(this.attribs.nextPosition, 2, gl.FLOAT, false, stride, 3 * 4);
-
-        gl.enableVertexAttribArray(this.attribs.nextRadius);
-        gl.vertexAttribPointer(this.attribs.nextRadius, 1, gl.FLOAT, false, stride, 5 * 4);
-
-        gl.enableVertexAttribArray(this.attribs.offset);
-        gl.vertexAttribPointer(this.attribs.offset, 2, gl.FLOAT, false, stride, 6 * 4);
-
-        gl.bindVertexArray(null);
-
-        this.initialized = true;
-        console.log('BrushRenderer initialized with WebGL shaders');
-    }
-
-    _compileShader(gl, type, source) {
-        const shader = gl.createShader(type);
-        gl.shaderSource(shader, source);
-        gl.compileShader(shader);
-
-        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-            console.error('Shader compile error:', gl.getShaderInfoLog(shader));
-            gl.deleteShader(shader);
-            return null;
-        }
-
-        return shader;
-    }
+    // Shader initialization removed to rely on PixiJS v8 Graphics for stability
 
     /**
      * Get or create a render texture for an entity's brush layer
@@ -318,20 +72,20 @@ class BrushRenderer {
 
         // Use quadratic curves for smooth strokes
         for (let i = 1; i < screenPoints.length; i++) {
-            const p0 = screenPoints[i - 1];
             const p1 = screenPoints[i];
 
             if (i < screenPoints.length - 1) {
                 const p2 = screenPoints[i + 1];
                 const midX = (p1.x + p2.x) / 2;
                 const midY = (p1.y + p2.y) / 2;
-                g.lineStyle(thickness, colorNum, alpha);
-                g.lineTo(p1.x, p1.y);
+                g.quadraticCurveTo(p1.x, p1.y, midX, midY);
             } else {
-                g.lineStyle(thickness, colorNum, alpha);
                 g.lineTo(p1.x, p1.y);
             }
         }
+
+        // PixiJS v8 syntax: stroke()
+        g.stroke({ width: thickness, color: colorNum, alpha: alpha, cap: 'round', join: 'round' });
 
         // Render to the entity's texture
         this.app.renderer.render(g, { renderTexture: layer.texture, clear: false });
@@ -406,7 +160,7 @@ class BrushRenderer {
         this.entityLayers.clear();
 
         if (this.gl && this.program) {
-            this.gl.deleteProgram(this.program);
+            // this.gl.deleteProgram(this.program);
         }
     }
 }
