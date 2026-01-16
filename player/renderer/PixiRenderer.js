@@ -315,7 +315,8 @@ class PixiRenderer {
      */
     getSprite(entityId) {
         if (!this.spritePool.has(entityId)) {
-            const sprite = new PIXI.Sprite();
+            // Initialize with default texture to ensure visibility even without image
+            const sprite = new PIXI.Sprite(this.defaultTexture);
             sprite.anchor.set(0.5);
             this.spritePool.set(entityId, sprite);
             this.entityContainer.addChild(sprite);
@@ -359,11 +360,10 @@ class PixiRenderer {
         }
 
         // Process render buffer
-        if (this.debugLogCount < 5) {
+        if (this.debugLogCount < 10) {
             console.log(
                 `Render frame ${this.debugLogCount}: buffer len=${buffer.length}, entities=${buffer.length / RENDER_STRIDE}`
             );
-            this.debugLogCount++;
         }
 
         for (let i = 0; i < buffer.length; i += RENDER_STRIDE) {
@@ -371,18 +371,22 @@ class PixiRenderer {
             const x = buffer[i + 1];
             const y = buffer[i + 2];
             const rotation = buffer[i + 3];
-            // buffer[i + 4] is direction (unused for rendering)
+            // buffer[i + 4] is direction
             const scaleX = buffer[i + 5];
             const scaleY = buffer[i + 6];
             const width = buffer[i + 7];
             const height = buffer[i + 8];
             const visible = buffer[i + 9] > 0.5;
             const brushDown = buffer[i + 10] > 0.5;
-            const brushSize = buffer[i + 11];
-            const brushTransparency = buffer[i + 12];
-            const fillDown = buffer[i + 13] > 0.5;
-            const fillTransparency = buffer[i + 14];
             const pictureIndex = buffer[i + 15];
+
+            // Detailed debug log for first entity
+            if (this.debugLogCount < 10 && i === 0) {
+                console.log(
+                    `Entity 0: id=${id} pos=(${x.toFixed(1)},${y.toFixed(1)}) size=${width}x${height} vis=${visible} scale=${scaleX.toFixed(1)},${scaleY.toFixed(1)} picIdx=${pictureIndex}`
+                );
+                this.debugLogCount++;
+            }
 
             entityIds.add(id);
 
