@@ -88,7 +88,7 @@ class BrushRenderer {
         g.stroke({ width: thickness, color: colorNum, alpha: alpha, cap: 'round', join: 'round' });
 
         // Render to the entity's texture
-        this.app.renderer.render(g, { renderTexture: layer.texture, clear: false });
+        this.app.renderer.render({ container: g, target: layer.texture, clear: false });
 
         // Clear graphics for next stroke
         g.clear();
@@ -103,8 +103,8 @@ class BrushRenderer {
             // Clear the render texture
             const g = new PIXI.Graphics();
             g.rect(0, 0, layer.texture.width, layer.texture.height);
-            g.fill({ color: 0x000000, alpha: 0 });
-            this.app.renderer.render(g, { renderTexture: layer.texture, clear: true });
+            g.fill({ color: 0x000000, alpha: 0 }); // v8: fill is correct
+            this.app.renderer.render({ container: g, target: layer.texture, clear: true });
             g.destroy();
         }
     }
@@ -123,7 +123,7 @@ class BrushRenderer {
         stampSprite.scale.set(scaleX, scaleY);
 
         // Render to entity's texture
-        this.app.renderer.render(stampSprite, { renderTexture: layer.texture, clear: false });
+        this.app.renderer.render({ container: stampSprite, target: layer.texture, clear: false });
         stampSprite.destroy();
     }
 
@@ -204,7 +204,7 @@ class FillRenderer {
         g.fill({ color: colorNum });
 
         // Render to entity's brush layer
-        this.app.renderer.render(g, { renderTexture: layer.texture, clear: false });
+        this.app.renderer.render({ container: g, target: layer.texture, clear: false });
         g.destroy();
 
         // Clear preview
