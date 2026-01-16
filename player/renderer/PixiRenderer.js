@@ -77,6 +77,12 @@ class BrushRenderer {
         const colorNum = parseInt(color.replace('#', ''), 16);
         const alpha = 1 - opacity / 100;
 
+        // Draw circles at points to ensure visibility (stroke sometimes fails with short paths)
+        for (const p of screenPoints) {
+            g.circle(p.x, p.y, thickness / 2);
+        }
+        g.fill({ color: colorNum, alpha: alpha });
+
         g.moveTo(screenPoints[0].x, screenPoints[0].y);
 
         // Use quadratic curves for smooth strokes
