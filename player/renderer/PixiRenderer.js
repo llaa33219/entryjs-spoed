@@ -377,25 +377,19 @@ class PixiRenderer {
             const width = buffer[i + 7];
             const height = buffer[i + 8];
             const visible = buffer[i + 9] > 0.5;
-            const brushDown = buffer[i + 10] > 0.5;
-            const pictureIndex = buffer[i + 15];
 
-            // Detailed debug log for first entity
-            if (this.debugLogCount < 10 && i === 0) {
-                console.log(
-                    `Entity 0: id=${id} pos=(${x.toFixed(1)},${y.toFixed(1)}) size=${width}x${height} vis=${visible} scale=${scaleX.toFixed(1)},${scaleY.toFixed(1)} picIdx=${pictureIndex}`
-                );
-                this.debugLogCount++;
-            }
+            // Force visible for debugging
+            // if (!visible) console.log(`Entity ${id} hidden`);
 
             entityIds.add(id);
 
-            // Draw brush layer first (behind entity)
+            // Draw brush layer first (always visible regardless of entity visibility)
             const brushLayerSprite = this.brushRenderer.getLayerSprite(id);
             if (brushLayerSprite && !this.brushContainer.children.includes(brushLayerSprite)) {
                 this.brushContainer.addChild(brushLayerSprite);
             }
 
+            // Only skip sprite rendering if invisible
             if (!visible) continue;
 
             // Get entity's sprite
