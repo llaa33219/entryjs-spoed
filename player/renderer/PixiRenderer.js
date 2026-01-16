@@ -17,6 +17,7 @@ class BrushRenderer {
     constructor(app) {
         this.app = app;
         this.entityLayers = new Map(); // entityId -> RenderTexture
+        this.strokeDebugCount = 0;
     }
 
     // Shader initialization removed to rely on PixiJS v8 Graphics for stability
@@ -34,7 +35,7 @@ class BrushRenderer {
             this.entityLayers.set(entityId, {
                 texture,
                 sprite: new PIXI.Sprite(texture),
-                graphics: new PIXI.Graphics(), // For PixiJS fallback
+                // No reused graphics to prevent clearing issues
             });
         }
         return this.entityLayers.get(entityId);
@@ -52,6 +53,13 @@ class BrushRenderer {
     drawStroke(entityId, points, color, thickness, opacity = 0, softness = 0) {
         if (!points || points.length < 2) return;
 
+        if (this.strokeDebugCount < 5) {
+            console.log(
+                `drawStroke: id=${entityId} pts=${points.length} col=${color} th=${thickness}`
+            );
+            this.strokeDebugCount++;
+        }
+
         const layer = this.getEntityLayer(entityId);
 
         // Convert Entry coordinates to screen coordinates
@@ -61,8 +69,8 @@ class BrushRenderer {
             radius: thickness / 2,
         }));
 
-        // Use PixiJS Graphics for now (will upgrade to custom WebGL later if needed)
-        const g = layer.graphics;
+        // Use new Graphics instance for each draw call to avoid clearing issues
+        const g = new PIXI.Graphics();
 
         // Parse color
         const colorNum = parseInt(color.replace('#', ''), 16);
@@ -90,8 +98,8 @@ class BrushRenderer {
         // Render to the entity's texture
         this.app.renderer.render({ container: g, target: layer.texture, clear: false });
 
-        // Clear graphics for next stroke
-        g.clear();
+        // Destroy graphics object
+        g.destroy();
     }
 
     /**
@@ -143,7 +151,7 @@ class BrushRenderer {
         if (layer) {
             layer.texture.destroy(true);
             layer.sprite.destroy();
-            layer.graphics.destroy();
+            // layer.graphics.destroy(); // Removed
             this.entityLayers.delete(entityId);
         }
     }
@@ -155,7 +163,7 @@ class BrushRenderer {
         for (const [id, layer] of this.entityLayers) {
             layer.texture.destroy(true);
             layer.sprite.destroy();
-            layer.graphics.destroy();
+            // layer.graphics.destroy(); // Removed
         }
         this.entityLayers.clear();
 
