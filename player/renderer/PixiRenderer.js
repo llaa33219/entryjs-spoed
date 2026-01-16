@@ -100,6 +100,7 @@ class BrushRenderer {
         this.app.renderer.render({ container: g, target: layer.texture, clear: false });
 
         // Queue graphics for destruction next frame to ensure rendering completes
+        if (!this.pendingGraphics) this.pendingGraphics = [];
         this.pendingGraphics.push(g);
     }
 
@@ -359,6 +360,9 @@ class PixiRenderer {
      */
     render(buffer, entityData) {
         if (!this.initialized || !buffer || buffer.length === 0) return;
+
+        // Ensure pendingGraphics is initialized
+        if (!this.pendingGraphics) this.pendingGraphics = [];
 
         // Cleanup pending graphics from previous frame
         while (this.pendingGraphics.length > 0) {
