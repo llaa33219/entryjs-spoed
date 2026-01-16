@@ -18,7 +18,6 @@ class BrushRenderer {
         this.app = app;
         this.entityLayers = new Map(); // entityId -> RenderTexture
         this.strokeDebugCount = 0;
-        this.pendingGraphics = []; // Graphics objects waiting to be destroyed
     }
 
     // Shader initialization removed to rely on PixiJS v8 Graphics for stability
@@ -36,7 +35,7 @@ class BrushRenderer {
             this.entityLayers.set(entityId, {
                 texture,
                 sprite: new PIXI.Sprite(texture),
-                // No reused graphics to prevent clearing issues
+                graphics: new PIXI.Graphics(), // Reusable graphics instance
             });
         }
         return this.entityLayers.get(entityId);
@@ -53,13 +52,65 @@ class BrushRenderer {
      */
     drawStroke(entityId, points, color, thickness, opacity = 0, softness = 0) {
         if (!points || points.length < 2) return;
-
+        
         if (this.strokeDebugCount < 5) {
-            console.log(
-                `drawStroke: id=${entityId} pts=${points.length} col=${color} th=${thickness}`
-            );
+            console.log(`drawStroke: id=${entityId} pts=${points.length} col=${color} th=${thickness}`);
             this.strokeDebugCount++;
         }
+
+        const layer = this.getEntityLayer(entityId);
+        const g = layer.graphics;
+        
+        g.clear();
+        
+        // Convert Entry coordinates to screen coordinates
+        const screenPoints = points.map((p) => ({
+            x: 320 + p.x,
+            y: 180 - p.y,
+            radius: thickness / 2,
+        }));
+
+        // Parse color
+        const colorNum = parseInt(color.replace('#', ''), 16);
+        const alpha = 1 - opacity / 100;
+
+        // 1. Draw circles at points (Caps/Joints)
+        for (const p of screenPoints) {
+            g.circle(p.x, p.y, thickness / 2);
+        }
+        g.fill({ color: colorNum, alpha: alpha });
+
+        // 2. Draw lines (Stroke)
+        if (screenPoints.length > 1) {
+            g.moveTo(screenPoints[0].x, screenPoints[0].y);
+
+            // Use quadratic curves for smooth strokes
+            for (let i = 1; i < screenPoints.length; i++) {
+                const p1 = screenPoints[i];
+                
+                if (i < screenPoints.length - 1) {
+                    const p2 = screenPoints[i + 1];
+                    const midX = (p1.x + p2.x) / 2;
+                    const midY = (p1.y + p2.y) / 2;
+                    g.quadraticCurveTo(p1.x, p1.y, midX, midY);
+                } else {
+                    g.lineTo(p1.x, p1.y);
+                }
+            }
+
+            // PixiJS v8 syntax: stroke()
+            g.stroke({ 
+                width: thickness, 
+                color: colorNum, 
+                alpha: alpha, 
+                cap: 'round', 
+                join: 'round' 
+            });
+        }
+        
+        // Render to the entity's texture
+        this.app.renderer.render({ container: g, target: layer.texture, clear: false });
+    }
 
         const layer = this.getEntityLayer(entityId);
 
@@ -171,11 +222,11 @@ class BrushRenderer {
         if (layer) {
             layer.texture.destroy(true);
             layer.sprite.destroy();
-            // layer.graphics.destroy(); // Removed
+            layer.graphics.destroy();
             this.entityLayers.delete(entityId);
         }
     }
-
+    
     /**
      * Clean up all resources
      */
@@ -183,7 +234,7 @@ class BrushRenderer {
         for (const [id, layer] of this.entityLayers) {
             layer.texture.destroy(true);
             layer.sprite.destroy();
-            // layer.graphics.destroy(); // Removed
+            layer.graphics.destroy();
         }
         this.entityLayers.clear();
 
@@ -378,15 +429,6 @@ class PixiRenderer {
      */
     render(buffer, entityData) {
         if (!this.initialized || !buffer || buffer.length === 0) return;
-
-        // Ensure pendingGraphics is initialized
-        if (!this.pendingGraphics) this.pendingGraphics = [];
-
-        // Cleanup pending graphics from previous frame
-        while (this.pendingGraphics.length > 0) {
-            const g = this.pendingGraphics.pop();
-            g.destroy();
-        }
 
         const entityIds = new Set();
 
