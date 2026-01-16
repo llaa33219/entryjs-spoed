@@ -77,37 +77,49 @@ class BrushRenderer {
         const colorNum = parseInt(color.replace('#', ''), 16);
         const alpha = 1 - opacity / 100;
 
-        // Draw circles at points to ensure visibility (stroke sometimes fails with short paths)
+        // 1. Draw circles at points (Caps/Joints)
         for (const p of screenPoints) {
             g.circle(p.x, p.y, thickness / 2);
         }
         g.fill({ color: colorNum, alpha: alpha });
 
-        g.moveTo(screenPoints[0].x, screenPoints[0].y);
-
-        // Use quadratic curves for smooth strokes
-        for (let i = 1; i < screenPoints.length; i++) {
-            const p1 = screenPoints[i];
-
-            if (i < screenPoints.length - 1) {
-                const p2 = screenPoints[i + 1];
-                const midX = (p1.x + p2.x) / 2;
-                const midY = (p1.y + p2.y) / 2;
-                g.quadraticCurveTo(p1.x, p1.y, midX, midY);
-            } else {
-                g.lineTo(p1.x, p1.y);
-            }
-        }
-
-        // PixiJS v8 syntax: stroke()
-        g.stroke({ width: thickness, color: colorNum, alpha: alpha, cap: 'round', join: 'round' });
-
-        // Render to the entity's texture
+        // Render dots
         this.app.renderer.render({ container: g, target: layer.texture, clear: false });
-
-        // Queue graphics for destruction next frame to ensure rendering completes
         if (!this.pendingGraphics) this.pendingGraphics = [];
         this.pendingGraphics.push(g);
+
+        // 2. Draw lines (Stroke)
+        if (screenPoints.length > 1) {
+            const gLine = new PIXI.Graphics();
+            gLine.moveTo(screenPoints[0].x, screenPoints[0].y);
+
+            // Use quadratic curves for smooth strokes
+            for (let i = 1; i < screenPoints.length; i++) {
+                const p1 = screenPoints[i];
+
+                if (i < screenPoints.length - 1) {
+                    const p2 = screenPoints[i + 1];
+                    const midX = (p1.x + p2.x) / 2;
+                    const midY = (p1.y + p2.y) / 2;
+                    gLine.quadraticCurveTo(p1.x, p1.y, midX, midY);
+                } else {
+                    gLine.lineTo(p1.x, p1.y);
+                }
+            }
+
+            // PixiJS v8 syntax: stroke()
+            gLine.stroke({
+                width: thickness,
+                color: colorNum,
+                alpha: alpha,
+                cap: 'round',
+                join: 'round',
+            });
+
+            // Render lines
+            this.app.renderer.render({ container: gLine, target: layer.texture, clear: false });
+            this.pendingGraphics.push(gLine);
+        }
     }
 
     /**
