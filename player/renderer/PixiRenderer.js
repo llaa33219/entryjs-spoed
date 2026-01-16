@@ -386,8 +386,14 @@ class PixiRenderer {
 
             // Draw brush layer first (always visible regardless of entity visibility)
             const brushLayerSprite = this.brushRenderer.getLayerSprite(id);
-            if (brushLayerSprite && !this.brushContainer.children.includes(brushLayerSprite)) {
-                this.brushContainer.addChild(brushLayerSprite);
+            if (brushLayerSprite) {
+                if (!this.brushContainer.children.includes(brushLayerSprite)) {
+                    this.brushContainer.addChild(brushLayerSprite);
+                }
+                // Ensure brush layer is visible and positioned correctly
+                brushLayerSprite.visible = true;
+                brushLayerSprite.position.set(0, 0);
+                brushLayerSprite.alpha = 1.0;
             }
 
             // Only skip sprite rendering if invisible
@@ -400,7 +406,7 @@ class PixiRenderer {
             // Position (convert Entry coords to screen coords)
             sprite.position.set(320 + x, 180 - y);
             sprite.rotation = (-rotation * Math.PI) / 180;
-            sprite.scale.set(scaleX, scaleY);
+            // Scale is set later based on texture existence
 
             // Get texture from entity data
             const entity = entityData?.objects?.[id];
@@ -421,10 +427,17 @@ class PixiRenderer {
                 sprite.tint = entity?.color
                     ? parseInt(entity.color.replace('#', ''), 16)
                     : 0x4a90d9;
-            }
 
-            sprite.width = width;
-            sprite.height = height;
+                // Only set dimensions manually for fallback texture
+                sprite.width = width * scaleX;
+                sprite.height = height * scaleY;
+                // Reset scale because we manually set sized width/height for 1x1 texture
+                sprite.scale.set(1, 1);
+            } else {
+                // If texture exists, use scale from WASM
+                // Do NOT set width/height directly as it overrides scale
+                sprite.scale.set(scaleX, scaleY);
+            }
         }
 
         // Clean up deleted entities
