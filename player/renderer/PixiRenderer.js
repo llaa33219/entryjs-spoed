@@ -18,6 +18,7 @@ class BrushRenderer {
         this.app = app;
         this.entityLayers = new Map(); // entityId -> RenderTexture
         this.strokeDebugCount = 0;
+        this.pendingGraphics = []; // Graphics objects waiting to be destroyed
     }
 
     // Shader initialization removed to rely on PixiJS v8 Graphics for stability
@@ -98,8 +99,8 @@ class BrushRenderer {
         // Render to the entity's texture
         this.app.renderer.render({ container: g, target: layer.texture, clear: false });
 
-        // Destroy graphics object
-        g.destroy();
+        // Queue graphics for destruction next frame to ensure rendering completes
+        this.pendingGraphics.push(g);
     }
 
     /**
@@ -358,6 +359,12 @@ class PixiRenderer {
      */
     render(buffer, entityData) {
         if (!this.initialized || !buffer || buffer.length === 0) return;
+
+        // Cleanup pending graphics from previous frame
+        while (this.pendingGraphics.length > 0) {
+            const g = this.pendingGraphics.pop();
+            g.destroy();
+        }
 
         const entityIds = new Set();
 
