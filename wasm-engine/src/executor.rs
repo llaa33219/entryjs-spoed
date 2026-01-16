@@ -2263,9 +2263,13 @@ impl Executor {
                                 .unwrap_or("").to_string());
                         }
                         "color" | "Color" => {
-                            return Value::String(params.and_then(|p| p.first())
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("").to_string());
+                            if let Some(p) = params.and_then(|p| p.first()) {
+                                if let Some(s) = p.as_str() {
+                                    return Value::String(s.to_string());
+                                }
+                                return self.evaluate_value(p, variables);
+                            }
+                            return Value::String(String::new());
                         }
                         "True" => return Value::Bool(true),
                         "False" => return Value::Bool(false),
@@ -2415,10 +2419,15 @@ impl Executor {
                                         value_stack.push(Value::String(val.to_string()));
                                     }
                                     "color" | "Color" => {
-                                        let val = params.and_then(|p| p.first())
-                                            .and_then(|v| v.as_str())
-                                            .unwrap_or("");
-                                        value_stack.push(Value::String(val.to_string()));
+                                        if let Some(p) = params.and_then(|p| p.first()) {
+                                            if let Some(s) = p.as_str() {
+                                                value_stack.push(Value::String(s.to_string()));
+                                            } else {
+                                                task_stack.push(EvalTask::Evaluate(p.clone()));
+                                            }
+                                        } else {
+                                            value_stack.push(Value::String(String::new()));
+                                        }
                                     }
                                     "True" => value_stack.push(Value::Bool(true)),
                                     "False" => value_stack.push(Value::Bool(false)),
