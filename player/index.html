@@ -166,7 +166,7 @@
         <div id="error"></div>
 
         <div id="canvas-container">
-            <canvas id="entryCanvas" width="480" height="360"></canvas>
+            <canvas id="entryCanvas" width="640" height="360"></canvas>
             <div id="controls">
                 <button class="control-btn" id="btn-play" title="시작/정지">▶</button>
                 <button class="control-btn" id="btn-restart" title="다시 시작">↺</button>
@@ -295,10 +295,10 @@
                     }
 
                     this.pixiApp = new PIXI.Application({
-                        width: 480,
+                        width: 640,
                         height: 360,
                         backgroundColor: 0xffffff,
-                        resolution: window.devicePixelRatio || 1,
+                        resolution: 3,
                         autoDensity: true,
                         antialias: true,
                         powerPreference: 'high-performance',
@@ -1259,7 +1259,7 @@
 
                 resizeCanvas() {
                     const container = document.getElementById('canvas-container');
-                    const aspectRatio = 480 / 360;
+                    const aspectRatio = 640 / 360;
 
                     let width = container.clientWidth;
                     let height = container.clientHeight;
@@ -1787,7 +1787,7 @@
                     if (entityKey === null) return;
                     const brushState = this.getBrushState(entityKey);
                     brushState.down = true;
-                    brushState.lastX = 240 + x;
+                    brushState.lastX = 320 + x;
                     brushState.lastY = 180 - y;
                 }
 
@@ -1814,7 +1814,7 @@
                     brushState.fillDown = true;
                     brushState.fillPath = [];
                     this.fillGraphics.clear();
-                    brushState.fillPath.push({ x: 240 + x, y: 180 - y });
+                    brushState.fillPath.push({ x: 320 + x, y: 180 - y });
                 }
 
                 handleStopFill(entityId) {
@@ -1857,7 +1857,7 @@
                     if (entityKey === null) return;
                     const brushState = this.getBrushState(entityKey);
                     const gfx = this.getBrushGraphics(entityId);
-                    const screenX = 240 + x;
+                    const screenX = 320 + x;
                     const screenY = 180 - y;
 
                     if (brushState.lastX !== null && brushState.lastY !== null) {
@@ -1876,7 +1876,7 @@
                     if (entityKey === null) return;
                     const brushState = this.getBrushState(entityKey);
                     if (!brushState.fillDown) return;
-                    const screenX = 240 + x;
+                    const screenX = 320 + x;
                     const screenY = 180 - y;
                     const lastPoint = brushState.fillPath[brushState.fillPath.length - 1];
                     if (lastPoint) {
@@ -1908,17 +1908,17 @@
                         gfx.moveTo(brushState.lastX, brushState.lastY);
                     } else {
                         const [firstX, firstY] = points[0];
-                        gfx.moveTo(240 + firstX, 180 - firstY);
+                        gfx.moveTo(320 + firstX, 180 - firstY);
                     }
 
                     for (const [x, y] of points) {
-                        const screenX = 240 + x;
+                        const screenX = 320 + x;
                         const screenY = 180 - y;
                         gfx.lineTo(screenX, screenY);
                     }
 
                     const lastPoint = points[points.length - 1];
-                    brushState.lastX = 240 + lastPoint[0];
+                    brushState.lastX = 320 + lastPoint[0];
                     brushState.lastY = 180 - lastPoint[1];
                 }
 
@@ -1929,7 +1929,7 @@
                     if (!brushState.fillDown) return;
 
                     for (const [x, y] of points) {
-                        const screenX = 240 + x;
+                        const screenX = 320 + x;
                         const screenY = 180 - y;
                         const lastPoint = brushState.fillPath[brushState.fillPath.length - 1];
                         if (lastPoint) {
@@ -1985,7 +1985,7 @@
                             brushState.lastY = null;
                         }
 
-                        const screenX = 240 + entity.x;
+                        const screenX = 320 + entity.x;
                         const screenY = 180 - entity.y;
 
                         if (brushState.fillDown) {
@@ -2186,7 +2186,7 @@
                         sprite.texture = texture;
                     }
 
-                    sprite.x = 240 + x;
+                    sprite.x = 320 + x;
                     sprite.y = 180 - y;
                     sprite.rotation = (-rotation * Math.PI) / 180;
                     sprite.scale.set(scaleX, scaleY);
@@ -2270,7 +2270,7 @@
 
                     dialogContainer.removeChildren();
 
-                    const screenX = 240 + x;
+                    const screenX = 320 + x;
                     const screenY = 180 - y;
                     const entityHalfHeight = height / 2;
 
@@ -2288,7 +2288,7 @@
                     let balloonX = screenX - balloonWidth / 2;
                     let balloonY = screenY - entityHalfHeight - balloonHeight - 20;
 
-                    balloonX = Math.max(5, Math.min(480 - balloonWidth - 5, balloonX));
+                    balloonX = Math.max(5, Math.min(640 - balloonWidth - 5, balloonX));
                     if (balloonY < 5) balloonY = screenY + entityHalfHeight + 20;
                     if (balloonY + balloonHeight > 355) balloonY = 355 - balloonHeight;
 
@@ -2415,12 +2415,12 @@
                             titleStyle
                         );
                         title.anchor.set(0.5);
-                        title.x = 240;
+                        title.x = 320;
                         title.y = 180;
 
                         const subtitle = new PIXI.Text('WASM 엔진 로딩 중...', subtitleStyle);
                         subtitle.anchor.set(0.5);
-                        subtitle.x = 240;
+                        subtitle.x = 320;
                         subtitle.y = 210;
 
                         this.jsEngineText.addChild(title);
@@ -2558,8 +2558,8 @@
                     const canvasY = e.clientY - rect.top;
 
                     // Convert to Entry coordinate system:
-                    // Canvas (0,0) to (480,360) -> Entry (-240,180) to (240,-180)
-                    this.mouseX = (canvasX / rect.width) * 480 - 240;
+                    // Canvas (0,0) to (640,360) -> Entry (-320,180) to (320,-180)
+                    this.mouseX = (canvasX / rect.width) * 640 - 320;
                     this.mouseY = 180 - (canvasY / rect.height) * 360;
                 }
 
@@ -2569,7 +2569,7 @@
                     const canvasX = touch.clientX - rect.left;
                     const canvasY = touch.clientY - rect.top;
 
-                    this.mouseX = (canvasX / rect.width) * 480 - 240;
+                    this.mouseX = (canvasX / rect.width) * 640 - 320;
                     this.mouseY = 180 - (canvasY / rect.height) * 360;
                 }
 

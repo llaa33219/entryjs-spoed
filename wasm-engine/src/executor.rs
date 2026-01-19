@@ -641,7 +641,7 @@ impl Executor {
             
             "bounce_wall" => {
                 if let Some(e) = entity {
-                    // Screen boundaries: ±240 (x), ±180 (y)
+                    // Screen boundaries: ±320 (x), ±180 (y)
                     let half_width = e.width * e.scale_x.abs() / 2.0;
                     let half_height = e.height * e.scale_y.abs() / 2.0;
                     
@@ -649,8 +649,8 @@ impl Executor {
                     let _angle = (e.rotation + e.direction) % 360.0;
                     
                     // Check wall collisions and bounce
-                    let touches_right = e.x + half_width >= 240.0;
-                    let touches_left = e.x - half_width <= -240.0;
+                    let touches_right = e.x + half_width >= 320.0;
+                    let touches_left = e.x - half_width <= -320.0;
                     let touches_up = e.y + half_height >= 180.0;
                     let touches_down = e.y - half_height <= -180.0;
                     
@@ -661,9 +661,9 @@ impl Executor {
                         
                         // Keep entity in bounds
                         if touches_right {
-                            e.x = 240.0 - half_width - 1.0;
+                            e.x = 320.0 - half_width - 1.0;
                         } else {
-                            e.x = -240.0 + half_width + 1.0;
+                            e.x = -320.0 + half_width + 1.0;
                         }
                     }
                     
@@ -3133,11 +3133,11 @@ impl Executor {
                 
                 let target_trimmed = target.trim();
                 let result = match target_trimmed {
-                    "wall" => min_x <= -240.0 || max_x >= 240.0 || max_y >= 135.0 || min_y <= -135.0,
+                    "wall" => min_x <= -320.0 || max_x >= 320.0 || max_y >= 135.0 || min_y <= -135.0,
                     "wall_up" => max_y >= 135.0,
                     "wall_down" => min_y <= -135.0,
-                    "wall_left" => min_x <= -240.0,
-                    "wall_right" => max_x >= 240.0,
+                    "wall_left" => min_x <= -320.0,
+                    "wall_right" => max_x >= 320.0,
                     "mouse" => {
                         let mx = self.cached_mouse_x;
                         let my = self.cached_mouse_y;
