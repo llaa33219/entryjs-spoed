@@ -284,7 +284,12 @@ impl Executor {
                     }
                     
                     self.iteration_count = 0;
-                    self.block_index += 1;
+                    // If this was a value function (called from a block's parameter),
+                    // don't advance block_index so we re-execute the original block
+                    // with the now-available func_return_value
+                    if !frame.is_value_func {
+                        self.block_index += 1;
+                    }
                     return ExecuteResult::Continue;
                 }
                 return ExecuteResult::End;
@@ -1679,15 +1684,16 @@ impl Executor {
             }
             
             "set_fill_color" => {
-                // Color can be a direct string or a nested "color" block
                 let mut color = self.get_param_string(block, 0, variables);
                 if color.is_empty() {
-                    // Try evaluating as a nested block (e.g., color picker block)
                     let color_value = self.get_param_value(block, 0, variables);
                     color = Self::value_as_string(&color_value);
                 }
                 if let Some(e) = entity {
                     Self::flush_drawing_paths(e, js_actions);
+                    if !color.is_empty() {
+                        e.fill_color = color.clone();
+                    }
                 }
                 if !color.is_empty() {
                     js_actions.push(JsAction::SetFillColor {
