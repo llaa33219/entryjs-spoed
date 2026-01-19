@@ -263,6 +263,32 @@ impl Executor {
                     
                     if frame.is_value_func {
                         if let Some(return_json) = &frame.return_value_json {
+                            if let Some(pending_func) = self.find_func_in_json(return_json) {
+                                if self.func_return_value.is_none() {
+                                    self.call_stack.push(StackFrame {
+                                        blocks: Rc::clone(&frame.blocks),
+                                        block_index: frame.block_index,
+                                        iteration_count: 0,
+                                        is_loop: false,
+                                        func_params: frame.func_params.clone(),
+                                        local_vars: frame.local_vars.clone(),
+                                        is_value_func: true,
+                                        return_value_json: frame.return_value_json.clone(),
+                                    });
+                                    
+                                    let inner_func_block = Block {
+                                        block_type: format!("func_{}", pending_func.func_id),
+                                        x: None,
+                                        y: None,
+                                        params: pending_func.call_params,
+                                        statements: None,
+                                    };
+                                    let result = self.execute_function_call(&inner_func_block, functions, variables);
+                                    if matches!(result, ExecuteResult::JumpedToBlock) {
+                                        return ExecuteResult::Continue;
+                                    }
+                                }
+                            }
                             self.func_return_value = Some(self.evaluate_value(return_json, variables));
                         }
                     }
