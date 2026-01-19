@@ -6,7 +6,9 @@
             name="viewport"
             content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
         />
-        <title>Entry Player (WASM)</title>
+        <title>Entry Player (WASM + PixiJS)</title>
+        <!-- PixiJS 5.x for WebGL rendering -->
+        <script src="https://cdn.jsdelivr.net/npm/pixi.js@5.3.12/dist/pixi.min.js"></script>
         <style>
             * {
                 margin: 0;
@@ -255,41 +257,87 @@
                     this.projectId = null;
                     this.projectData = null;
                     this.wasmEngine = null;
-                    this.canvas = document.getElementById('entryCanvas');
-                    this.ctx = this.canvas.getContext('2d');
                     this.isRunning = false;
                     this.animationId = null;
 
-                    // Mouse state for WASM engine
                     this.mouseX = 0;
                     this.mouseY = 0;
                     this.mouseClicked = false;
 
-                    // WASM initialization state
                     this.wasmInitialized = false;
                     this.wasmMemory = null;
 
-                    // Brush drawing state - per entity canvas layers
-                    this.brushCanvases = new Map(); // entity_id -> canvas
-                    this.brushContexts = new Map(); // entity_id -> context
-                    this.brushStates = new Map(); // entity_id -> BrushState
-                    this.entityOrder = []; // entity order for z-index (first = bottom)
+                    this.pixiApp = null;
+                    this.pixiSprites = new Map();
+                    this.pixiTextures = new Map();
+                    this.brushGraphics = new Map();
+                    this.brushStates = new Map();
+                    this.entityOrder = [];
+                    this.brushContainer = null;
+                    this.entityContainer = null;
+                    this.dialogContainer = null;
+                    this.fillGraphics = null;
 
-                    // Scene management
-                    this.scenes = []; // Array of scene objects {id, name}
-                    this.currentSceneId = null; // Currently active scene ID
-                    this.allObjects = []; // All objects from project (parsed)
-                    this.sceneObjectsMap = new Map(); // sceneId -> array of objects
-                    this.dialogs = new Map(); // entityId -> { message, mode }
-                    this.textEntities = new Map(); // entityId -> { text, font, colour, ... }
+                    this.scenes = [];
+                    this.currentSceneId = null;
+                    this.allObjects = [];
+                    this.sceneObjectsMap = new Map();
+                    this.dialogs = new Map();
+                    this.textEntities = new Map();
                     this.projectTimer = new ProjectTimer();
                 }
 
+                initPixiApp() {
+                    const container = document.getElementById('canvas-container');
+                    const existingCanvas = document.getElementById('entryCanvas');
+                    if (existingCanvas) {
+                        existingCanvas.remove();
+                    }
+
+                    this.pixiApp = new PIXI.Application({
+                        width: 480,
+                        height: 360,
+                        backgroundColor: 0xffffff,
+                        resolution: window.devicePixelRatio || 1,
+                        autoDensity: true,
+                        antialias: true,
+                        powerPreference: 'high-performance',
+                    });
+
+                    this.pixiApp.view.id = 'entryCanvas';
+                    this.pixiApp.view.style.maxWidth = '100%';
+                    this.pixiApp.view.style.maxHeight = '100%';
+                    this.pixiApp.view.style.objectFit = 'contain';
+                    container.insertBefore(this.pixiApp.view, container.firstChild);
+
+                    this.brushContainer = new PIXI.Container();
+                    this.entityContainer = new PIXI.Container();
+                    this.dialogContainer = new PIXI.Container();
+                    this.fillGraphics = new PIXI.Graphics();
+
+                    this.pixiApp.stage.addChild(this.brushContainer);
+                    this.pixiApp.stage.addChild(this.fillGraphics);
+                    this.pixiApp.stage.addChild(this.entityContainer);
+                    this.pixiApp.stage.addChild(this.dialogContainer);
+
+                    this.canvas = this.pixiApp.view;
+
+                    const rendererType =
+                        this.pixiApp.renderer.type === PIXI.RENDERER_TYPE.WEBGL
+                            ? 'WebGL'
+                            : 'Canvas';
+                    console.log(
+                        `%c🎨 PixiJS 초기화 완료 (${rendererType})`,
+                        'color: #00ff00; font-weight: bold;'
+                    );
+                }
+
                 async initialize() {
-                    this.updateProgress(10, 'WASM 엔진 초기화 중...');
+                    this.updateProgress(10, 'PixiJS + WASM 엔진 초기화 중...');
+
+                    this.initPixiApp();
 
                     try {
-                        // Initialize WASM (모듈이 로드된 경우에만)
                         if (wasmInit && WasmEngine) {
                             console.log('WASM init() 호출 중...');
                             const wasmInstance = await wasmInit();
@@ -728,23 +776,11 @@
                         objects ? `${objects.length}개 오브젝트 (현재 장면)` : 'null/undefined'
                     );
 
-                    // Initialize canvas size
-                    this.canvas.width = 480;
-                    this.canvas.height = 360;
-
-                    // Initialize entity order from objects array (reverse order: first object = top layer)
                     this.entityOrder = [];
                     for (let i = objects.length - 1; i >= 0; i--) {
                         this.entityOrder.push(i);
                     }
 
-                    // Initialize fill canvas (separate layer for real-time fill preview)
-                    this.fillCanvas = document.createElement('canvas');
-                    this.fillCanvas.width = 480;
-                    this.fillCanvas.height = 360;
-                    this.fillCtx = this.fillCanvas.getContext('2d');
-
-                    // Scale canvas to fit screen
                     this.resizeCanvas();
                     window.addEventListener('resize', () => this.resizeCanvas());
 
@@ -1286,16 +1322,11 @@
                         }
                     }
 
-                    // Clear all brush canvases on restart
-                    for (const [entityId, canvas] of this.brushCanvases) {
-                        const ctx = this.brushContexts.get(entityId);
-                        if (ctx) {
-                            ctx.clearRect(0, 0, canvas.width, canvas.height);
-                        }
+                    for (const [entityId, gfx] of this.brushGraphics) {
+                        gfx.clear();
                     }
-                    // Clear fill canvas on restart
-                    if (this.fillCtx) {
-                        this.fillCtx.clearRect(0, 0, this.fillCanvas.width, this.fillCanvas.height);
+                    if (this.fillGraphics) {
+                        this.fillGraphics.clear();
                     }
                     this.brushStates.clear();
 
@@ -1688,20 +1719,13 @@
                     return this.brushStates.get(entityStringId);
                 }
 
-                getBrushCanvas(entityId) {
-                    if (!this.brushCanvases.has(entityId)) {
-                        const canvas = document.createElement('canvas');
-                        canvas.width = 480;
-                        canvas.height = 360;
-                        this.brushCanvases.set(entityId, canvas);
-                        this.brushContexts.set(entityId, canvas.getContext('2d'));
+                getBrushGraphics(entityId) {
+                    if (!this.brushGraphics.has(entityId)) {
+                        const gfx = new PIXI.Graphics();
+                        this.brushGraphics.set(entityId, gfx);
+                        this.brushContainer.addChild(gfx);
                     }
-                    return this.brushCanvases.get(entityId);
-                }
-
-                getBrushCtx(entityId) {
-                    this.getBrushCanvas(entityId);
-                    return this.brushContexts.get(entityId);
+                    return this.brushGraphics.get(entityId);
                 }
 
                 // Convert entity index to entity.id
@@ -1712,53 +1736,29 @@
 
                 handleBrushStamp(entityId) {
                     if (!this.isWasmEngineValid()) return;
-                    let renderData;
-                    try {
-                        renderData = this.wasmEngine.get_render_data();
-                    } catch (e) {
-                        return;
-                    }
-                    if (!renderData) return;
+                    const sprite = this.pixiSprites.get(entityId);
+                    if (!sprite || !sprite.visible) return;
 
-                    try {
-                        const entities = JSON.parse(renderData);
-                        const entity = entities[entityId];
-                        if (!entity || !entity.visible) return;
+                    const gfx = this.getBrushGraphics(entityId);
+                    const texture = sprite.texture;
 
-                        const screenX = 240 + entity.x;
-                        const screenY = 180 - entity.y;
-                        const img = imageCache.get(entity.pictureId);
-                        const ctx = this.getBrushCtx(entityId);
-
-                        ctx.save();
-                        ctx.translate(screenX, screenY);
-                        ctx.rotate((-entity.rotation * Math.PI) / 180);
-                        ctx.scale(entity.scaleX, entity.scaleY);
-
-                        if (img && img.complete && img.naturalWidth > 0) {
-                            ctx.drawImage(
-                                img,
-                                -entity.width / 2,
-                                -entity.height / 2,
-                                entity.width,
-                                entity.height
-                            );
-                        } else {
-                            ctx.fillStyle = entity.color || '#4a90d9';
-                            ctx.fillRect(
-                                -entity.width / 2,
-                                -entity.height / 2,
-                                entity.width || 50,
-                                entity.height || 50
-                            );
-                        }
-
-                        ctx.restore();
-                    } catch (e) {
-                        if (!this._brushStampErrorLogged) {
-                            this._brushStampErrorLogged = true;
-                            console.error('Failed to handle brush stamp:', e);
-                        }
+                    if (texture && texture !== PIXI.Texture.WHITE) {
+                        const stampSprite = new PIXI.Sprite(texture);
+                        stampSprite.anchor.set(0.5);
+                        stampSprite.x = sprite.x;
+                        stampSprite.y = sprite.y;
+                        stampSprite.rotation = sprite.rotation;
+                        stampSprite.scale.set(sprite.scale.x, sprite.scale.y);
+                        this.brushContainer.addChild(stampSprite);
+                    } else {
+                        gfx.beginFill(0x4a90d9);
+                        gfx.drawRect(
+                            sprite.x - sprite.width / 2,
+                            sprite.y - sprite.height / 2,
+                            sprite.width,
+                            sprite.height
+                        );
+                        gfx.endFill();
                     }
                 }
 
@@ -1766,18 +1766,19 @@
                     const entityKey = this.getEntityId(entityId);
                     if (entityKey === null) return;
 
-                    // Clear brush canvas for this entity
-                    const canvas = this.brushCanvases.get(entityKey);
-                    if (canvas) {
-                        const ctx = this.brushContexts.get(entityKey);
-                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    const gfx = this.brushGraphics.get(entityKey);
+                    if (gfx) {
+                        gfx.clear();
                     }
 
-                    // Reset fill state for this entity
                     const brushState = this.brushStates.get(entityKey);
                     if (brushState) {
                         brushState.fillPath = [];
                         brushState.fillDown = false;
+                    }
+
+                    if (this.fillGraphics) {
+                        this.fillGraphics.clear();
                     }
                 }
 
@@ -1812,7 +1813,7 @@
                     const brushState = this.getBrushState(entityKey);
                     brushState.fillDown = true;
                     brushState.fillPath = [];
-                    this.fillCtx.clearRect(0, 0, this.fillCanvas.width, this.fillCanvas.height);
+                    this.fillGraphics.clear();
                     brushState.fillPath.push({ x: 240 + x, y: 180 - y });
                 }
 
@@ -1821,10 +1822,18 @@
                     if (entityKey === null) return;
                     const brushState = this.getBrushState(entityKey);
                     if (brushState.fillPath.length >= 3) {
-                        const ctx = this.getBrushCtx(entityId);
-                        ctx.drawImage(this.fillCanvas, 0, 0);
+                        const gfx = this.getBrushGraphics(entityId);
+                        const color =
+                            parseInt(brushState.fillColor.replace('#', ''), 16) || 0xff0000;
+                        gfx.beginFill(color);
+                        gfx.moveTo(brushState.fillPath[0].x, brushState.fillPath[0].y);
+                        for (let i = 1; i < brushState.fillPath.length; i++) {
+                            gfx.lineTo(brushState.fillPath[i].x, brushState.fillPath[i].y);
+                        }
+                        gfx.closePath();
+                        gfx.endFill();
                     }
-                    this.fillCtx.clearRect(0, 0, this.fillCanvas.width, this.fillCanvas.height);
+                    this.fillGraphics.clear();
                     brushState.fillDown = false;
                     brushState.fillPath = [];
                 }
@@ -1847,20 +1856,16 @@
                     const entityKey = this.getEntityId(entityId);
                     if (entityKey === null) return;
                     const brushState = this.getBrushState(entityKey);
-                    const ctx = this.getBrushCtx(entityId);
+                    const gfx = this.getBrushGraphics(entityId);
                     const screenX = 240 + x;
                     const screenY = 180 - y;
+
                     if (brushState.lastX !== null && brushState.lastY !== null) {
-                        ctx.beginPath();
-                        ctx.strokeStyle = brushState.color;
-                        ctx.lineWidth = brushState.size;
-                        ctx.lineCap = 'round';
-                        ctx.lineJoin = 'round';
-                        ctx.globalAlpha = 1 - brushState.opacity / 100;
-                        ctx.moveTo(brushState.lastX, brushState.lastY);
-                        ctx.lineTo(screenX, screenY);
-                        ctx.stroke();
-                        ctx.globalAlpha = 1;
+                        const color = parseInt(brushState.color.replace('#', ''), 16) || 0x000000;
+                        const alpha = 1 - brushState.opacity / 100;
+                        gfx.lineStyle(brushState.size, color, alpha);
+                        gfx.moveTo(brushState.lastX, brushState.lastY);
+                        gfx.lineTo(screenX, screenY);
                     }
                     brushState.lastX = screenX;
                     brushState.lastY = screenY;
@@ -1880,7 +1885,7 @@
                         const distance = Math.sqrt(dx * dx + dy * dy);
                         if (distance >= 2) {
                             brushState.fillPath.push({ x: screenX, y: screenY });
-                            this.drawFillPreview(entityKey);
+                            this.drawPixiFillPreview(entityKey);
                         }
                     } else {
                         brushState.fillPath.push({ x: screenX, y: screenY });
@@ -1891,31 +1896,26 @@
                     const entityKey = this.getEntityId(entityId);
                     if (entityKey === null) return;
                     const brushState = this.getBrushState(entityKey);
-                    const ctx = this.getBrushCtx(entityId);
+                    const gfx = this.getBrushGraphics(entityId);
 
                     if (points.length === 0) return;
 
-                    ctx.beginPath();
-                    ctx.strokeStyle = brushState.color;
-                    ctx.lineWidth = brushState.size;
-                    ctx.lineCap = 'round';
-                    ctx.lineJoin = 'round';
-                    ctx.globalAlpha = 1 - brushState.opacity / 100;
+                    const color = parseInt(brushState.color.replace('#', ''), 16) || 0x000000;
+                    const alpha = 1 - brushState.opacity / 100;
+                    gfx.lineStyle(brushState.size, color, alpha);
 
                     if (brushState.lastX !== null && brushState.lastY !== null) {
-                        ctx.moveTo(brushState.lastX, brushState.lastY);
+                        gfx.moveTo(brushState.lastX, brushState.lastY);
                     } else {
                         const [firstX, firstY] = points[0];
-                        ctx.moveTo(240 + firstX, 180 - firstY);
+                        gfx.moveTo(240 + firstX, 180 - firstY);
                     }
 
                     for (const [x, y] of points) {
                         const screenX = 240 + x;
                         const screenY = 180 - y;
-                        ctx.lineTo(screenX, screenY);
+                        gfx.lineTo(screenX, screenY);
                     }
-                    ctx.stroke();
-                    ctx.globalAlpha = 1;
 
                     const lastPoint = points[points.length - 1];
                     brushState.lastX = 240 + lastPoint[0];
@@ -1943,29 +1943,31 @@
                             brushState.fillPath.push({ x: screenX, y: screenY });
                         }
                     }
-                    this.drawFillPreview(entityKey);
+                    this.drawPixiFillPreview(entityKey);
                 }
 
-                // Draw real-time fill preview on fillCanvas
-                drawFillPreview(entityKey) {
+                drawPixiFillPreview(entityKey) {
                     const brushState = this.brushStates.get(entityKey);
                     if (!brushState || !brushState.fillDown || brushState.fillPath.length < 3) {
                         return;
                     }
 
-                    // Clear fillCanvas and redraw the polygon
-                    this.fillCtx.clearRect(0, 0, this.fillCanvas.width, this.fillCanvas.height);
+                    this.fillGraphics.clear();
 
-                    this.fillCtx.beginPath();
-                    this.fillCtx.moveTo(brushState.fillPath[0].x, brushState.fillPath[0].y);
+                    const color = parseInt(brushState.fillColor.replace('#', ''), 16) || 0xff0000;
+                    this.fillGraphics.beginFill(color);
+
+                    this.fillGraphics.moveTo(brushState.fillPath[0].x, brushState.fillPath[0].y);
 
                     for (let i = 1; i < brushState.fillPath.length; i++) {
-                        this.fillCtx.lineTo(brushState.fillPath[i].x, brushState.fillPath[i].y);
+                        this.fillGraphics.lineTo(
+                            brushState.fillPath[i].x,
+                            brushState.fillPath[i].y
+                        );
                     }
 
-                    this.fillCtx.closePath();
-                    this.fillCtx.fillStyle = brushState.fillColor;
-                    this.fillCtx.fill();
+                    this.fillGraphics.closePath();
+                    this.fillGraphics.endFill();
                 }
 
                 updateBrushDrawing(entities) {
@@ -2001,8 +2003,8 @@
                                 brushState.fillPath.push({ x: screenX, y: screenY });
                                 pointAdded = true;
                             }
-                            if (pointAdded && this.fillCtx) {
-                                this.drawFillPreview(entityKey);
+                            if (pointAdded) {
+                                this.drawPixiFillPreview(entityKey);
                             }
                         }
 
@@ -2013,17 +2015,13 @@
                         }
 
                         if (brushState.lastX !== null && brushState.lastY !== null) {
-                            const ctx = this.getBrushCtx(entityKey);
-                            ctx.beginPath();
-                            ctx.strokeStyle = brushState.color;
-                            ctx.lineWidth = brushState.size;
-                            ctx.lineCap = 'round';
-                            ctx.lineJoin = 'round';
-                            ctx.globalAlpha = 1 - brushState.opacity / 100;
-                            ctx.moveTo(brushState.lastX, brushState.lastY);
-                            ctx.lineTo(screenX, screenY);
-                            ctx.stroke();
-                            ctx.globalAlpha = 1;
+                            const gfx = this.getBrushGraphics(entityKey);
+                            const color =
+                                parseInt(brushState.color.replace('#', ''), 16) || 0x000000;
+                            const alpha = 1 - brushState.opacity / 100;
+                            gfx.lineStyle(brushState.size, color, alpha);
+                            gfx.moveTo(brushState.lastX, brushState.lastY);
+                            gfx.lineTo(screenX, screenY);
                         }
 
                         brushState.lastX = screenX;
@@ -2032,31 +2030,27 @@
                 }
 
                 render() {
-                    this.ctx.fillStyle = '#ffffff';
-                    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-
                     if (this.isWasmEngineValid()) {
                         try {
-                            // Zero-copy rendering
                             const ptr = this.wasmEngine.get_render_buffer_ptr();
                             const len = this.wasmEngine.get_render_buffer_len();
 
                             if (ptr && len > 0 && this.wasmMemory) {
-                                // Log first successful render frame details once
                                 if (!this._firstRenderLogged) {
                                     this._firstRenderLogged = true;
+                                    const rendererType =
+                                        this.pixiApp.renderer.type === PIXI.RENDERER_TYPE.WEBGL
+                                            ? 'WebGL'
+                                            : 'Canvas';
                                     console.log(
-                                        `%c✨ First Frame Rendered via Zero-copy (ptr: ${ptr}, len: ${len})`,
+                                        `%c✨ PixiJS ${rendererType} 렌더링 시작 (ptr: ${ptr}, len: ${len})`,
                                         'color: #00ff00; font-weight: bold;'
                                     );
                                 }
 
                                 const buffer = new Float64Array(this.wasmMemory.buffer, ptr, len);
-                                this.drawRenderBuffer(buffer);
+                                this.updatePixiSprites(buffer);
                                 this._renderErrorCount = 0;
-                            } else {
-                                // Fallback to JSON if buffer is empty/invalid but engine is valid?
-                                // Should not happen if everything is correct.
                             }
                         } catch (e) {
                             this._renderErrorCount = (this._renderErrorCount || 0) + 1;
@@ -2065,7 +2059,7 @@
                                 console.warn('Render error:', e);
                             }
                             if (this._renderErrorCount >= 5) {
-                                console.error('WASM render 연속 실패, JS 폴백으로 전환');
+                                console.error('PixiJS render 연속 실패');
                                 this.wasmEngine = null;
                                 this.wasmInitialized = false;
                                 if (!this.jsEngine && this.projectData?.objects) {
@@ -2082,31 +2076,34 @@
                     }
                 }
 
-                drawRenderBuffer(buffer) {
-                    // 0. Garbage Collection if requested (e.g. after RemoveAllClones)
+                updatePixiSprites(buffer) {
                     if (this.needsGarbageCollection) {
                         const livingIds = new Set();
                         for (let i = 0; i < buffer.length; i += RENDER_STRIDE) {
                             livingIds.add(buffer[i]);
                         }
 
-                        // Sweep brush resources
-                        for (const [id, _] of this.brushCanvases) {
+                        for (const [id, _] of this.brushGraphics) {
                             if (!livingIds.has(id)) {
-                                this.brushCanvases.delete(id);
-                                this.brushContexts.delete(id);
+                                const gfx = this.brushGraphics.get(id);
+                                if (gfx && gfx.parent) gfx.parent.removeChild(gfx);
+                                this.brushGraphics.delete(id);
                                 this.brushStates.delete(id);
                                 this.dialogs.delete(id);
                             }
                         }
 
-                        // Remove dead entities from entityOrder
-                        this.entityOrder = this.entityOrder.filter((id) => livingIds.has(id));
+                        for (const [id, sprite] of this.pixiSprites) {
+                            if (!livingIds.has(id)) {
+                                if (sprite.parent) sprite.parent.removeChild(sprite);
+                                this.pixiSprites.delete(id);
+                            }
+                        }
 
+                        this.entityOrder = this.entityOrder.filter((id) => livingIds.has(id));
                         this.needsGarbageCollection = false;
                     }
 
-                    // 1. Create a map of entity_id -> buffer_offset and detect new entities (clones)
                     const entityMap = new Map();
                     const len = buffer.length;
                     const existingIds = new Set(this.entityOrder);
@@ -2114,56 +2111,44 @@
                     for (let i = 0; i < len; i += RENDER_STRIDE) {
                         const id = buffer[i];
                         entityMap.set(id, i);
-
                         if (!existingIds.has(id)) {
                             this.entityOrder.push(id);
                         }
                     }
 
-                    // 2. Update brush states first
                     for (let i = 0; i < len; i += RENDER_STRIDE) {
                         const id = buffer[i];
                         const brushDown = buffer[i + 10] > 0.5;
-                        // Color is handled by JsAction, stored in state
                         const brushSize = buffer[i + 11];
                         const brushTransparency = buffer[i + 12];
                         const fillDown = buffer[i + 13] > 0.5;
-                        // FillColor is handled by JsAction
-                        // FillTransparency is buffer[i + 14]
 
                         const brushState = this.getBrushState(id);
                         brushState.down = brushDown;
                         brushState.size = brushSize;
                         brushState.opacity = brushTransparency;
                         brushState.fillDown = fillDown;
-                        // brushState.lastX/Y updated in handleBrushPath
                     }
 
-                    // 3. Draw in entity order (z-index: first = bottom, last = top)
-                    // Canvas draws later items on top, so iterate forward
+                    this.entityContainer.removeChildren();
+                    this.dialogContainer.removeChildren();
+
                     for (let i = 0; i < this.entityOrder.length; i++) {
                         const entityId = this.entityOrder[i];
                         const offset = entityMap.get(entityId);
 
-                        // Draw brush layer
-                        const brushCanvas = this.brushCanvases.get(entityId);
-                        if (brushCanvas) {
-                            this.ctx.drawImage(brushCanvas, 0, 0);
+                        const brushGfx = this.brushGraphics.get(entityId);
+                        if (brushGfx) {
+                            this.entityContainer.addChild(brushGfx);
                         }
 
-                        // Draw entity if present in render buffer (visible)
                         if (offset !== undefined) {
-                            this.drawEntityFromBuffer(buffer, offset);
+                            this.updateEntitySprite(buffer, offset, entityId);
                         }
-                    }
-
-                    // 4. Draw fill preview
-                    if (this.fillCanvas) {
-                        this.ctx.drawImage(this.fillCanvas, 0, 0);
                     }
                 }
 
-                drawEntityFromBuffer(buffer, offset) {
+                updateEntitySprite(buffer, offset, entityId) {
                     const x = buffer[offset + 1];
                     const y = buffer[offset + 2];
                     const rotation = buffer[offset + 3];
@@ -2176,141 +2161,151 @@
 
                     if (!visible) return;
 
-                    this.ctx.save();
-                    this.ctx.translate(240 + x, 180 - y);
-                    this.ctx.rotate((-rotation * Math.PI) / 180);
-                    this.ctx.scale(scaleX, scaleY);
-
-                    const entityId = buffer[offset];
+                    let sprite = this.pixiSprites.get(entityId);
                     const entityObj = this.findObjectById(entityId);
                     const textEntity = this.textEntities.get(entityId);
 
                     let pictureId = null;
                     if (entityObj && entityObj.sprite?.pictures && pictureIndex >= 0) {
                         const pic = entityObj.sprite.pictures[Math.floor(pictureIndex)];
-                        if (pic) {
-                            pictureId = pic.id;
-                        }
+                        if (pic) pictureId = pic.id;
                     }
                     if (!pictureId && entityObj) {
                         pictureId = entityObj.selectedPictureId;
                     }
 
-                    if (pictureId) {
-                        const img = imageCache.get(pictureId);
-                        if (img && img.complete && img.naturalWidth > 0) {
-                            try {
-                                this.ctx.drawImage(img, -width / 2, -height / 2, width, height);
-                            } catch (drawError) {
-                                // Ignore
-                            }
-                        } else {
-                            this.ctx.fillStyle = '#4a90d9';
-                            this.ctx.fillRect(-width / 2, -height / 2, width, height);
-                        }
-                    } else if (textEntity) {
-                        // Draw text box background if color is set
-                        if (textEntity.bgColor) {
-                            this.ctx.fillStyle = textEntity.bgColor;
-                            this.ctx.fillRect(-width / 2, -height / 2, width, height);
-                        }
-                    } else {
-                        this.ctx.fillStyle = '#4a90d9';
-                        this.ctx.fillRect(-width / 2, -height / 2, width, height);
+                    let texture = pictureId ? this.getOrCreateTexture(pictureId) : null;
+
+                    if (!sprite) {
+                        sprite = texture
+                            ? new PIXI.Sprite(texture)
+                            : new PIXI.Sprite(PIXI.Texture.WHITE);
+                        sprite.anchor.set(0.5);
+                        this.pixiSprites.set(entityId, sprite);
+                    } else if (texture && sprite.texture !== texture) {
+                        sprite.texture = texture;
                     }
 
-                    if (textEntity) {
-                        this.drawTextContent(textEntity, width, height);
+                    sprite.x = 240 + x;
+                    sprite.y = 180 - y;
+                    sprite.rotation = (-rotation * Math.PI) / 180;
+                    sprite.scale.set(scaleX, scaleY);
+                    sprite.width = width * scaleX;
+                    sprite.height = height * scaleY;
+                    sprite.visible = true;
+
+                    if (!texture) {
+                        sprite.tint = 0x4a90d9;
+                        sprite.width = width * scaleX;
+                        sprite.height = height * scaleY;
                     }
 
-                    this.ctx.restore();
+                    this.entityContainer.addChild(sprite);
+
+                    if (textEntity && textEntity.text) {
+                        this.renderPixiText(entityId, textEntity, sprite);
+                    }
 
                     const dialog = this.dialogs.get(entityId);
                     if (dialog) {
-                        const mockEntity = {
-                            x: x,
-                            y: y,
-                            width: width,
-                            height: height,
-                            dialogMessage: dialog.message,
-                            dialogMode: dialog.mode,
-                        };
-                        this.drawDialog(mockEntity);
+                        this.renderPixiDialog(entityId, x, y, width, height, dialog);
                     }
                 }
 
-                drawTextContent(textEntity, width, height) {
-                    const ctx = this.ctx;
-                    const { text, font, colour, underLine, strike, textAlign } = textEntity;
+                getOrCreateTexture(pictureId) {
+                    if (this.pixiTextures.has(pictureId)) {
+                        return this.pixiTextures.get(pictureId);
+                    }
 
-                    if (!text) return;
+                    const img = imageCache.get(pictureId);
+                    if (img && img.complete && img.naturalWidth > 0) {
+                        const texture = PIXI.Texture.from(img);
+                        this.pixiTextures.set(pictureId, texture);
+                        return texture;
+                    }
 
-                    // Setup font
-                    // Entry uses dynamic font sizing based on box height usually, but let's approximate
-                    // For multiline, we need to fit text or use a standard size
-                    // Let's use a heuristic: 20px default
-                    const fontSize = 20;
+                    return null;
+                }
 
-                    ctx.font = `${fontSize}px "${font}", sans-serif`;
-                    ctx.fillStyle = colour;
-                    ctx.textBaseline = 'top';
+                renderPixiText(entityId, textEntity, parentSprite) {
+                    const textKey = `text_${entityId}`;
+                    let pixiText = this.pixiSprites.get(textKey);
 
-                    // Text alignment
-                    // 0: left, 1: center, 2: right
-                    let alignX = -width / 2;
-                    if (textAlign === 1) {
-                        ctx.textAlign = 'center';
-                        alignX = 0;
-                    } else if (textAlign === 2) {
-                        ctx.textAlign = 'right';
-                        alignX = width / 2;
+                    const style = new PIXI.TextStyle({
+                        fontFamily: textEntity.font || 'Nanum Gothic',
+                        fontSize: 20,
+                        fill: textEntity.colour || '#000000',
+                        align:
+                            textEntity.textAlign === 1
+                                ? 'center'
+                                : textEntity.textAlign === 2
+                                  ? 'right'
+                                  : 'left',
+                        wordWrap: textEntity.lineBreak,
+                        wordWrapWidth: parentSprite.width,
+                    });
+
+                    if (!pixiText) {
+                        pixiText = new PIXI.Text(textEntity.text, style);
+                        pixiText.anchor.set(0.5);
+                        this.pixiSprites.set(textKey, pixiText);
                     } else {
-                        ctx.textAlign = 'left';
+                        pixiText.text = textEntity.text;
+                        pixiText.style = style;
                     }
 
-                    // Handle multiline text
-                    // If text contains newlines, split it
-                    // Also simple wrapping could be implemented but for now just newlines
-                    const lines = text.toString().split('\n');
-                    const lineHeight = fontSize * 1.2;
+                    pixiText.x = parentSprite.x;
+                    pixiText.y = parentSprite.y;
+                    this.entityContainer.addChild(pixiText);
+                }
 
-                    // Vertical alignment: Start from top
-                    let textY = -height / 2;
+                renderPixiDialog(entityId, x, y, width, height, dialog) {
+                    const dialogKey = `dialog_${entityId}`;
+                    let dialogContainer = this.pixiSprites.get(dialogKey);
 
-                    for (let i = 0; i < lines.length; i++) {
-                        const line = lines[i];
-                        ctx.fillText(line, alignX, textY + i * lineHeight);
-
-                        if (underLine) {
-                            const metrics = ctx.measureText(line);
-                            const lineWidth = metrics.width;
-                            let lineX = alignX;
-                            if (textAlign === 1) lineX -= lineWidth / 2;
-                            else if (textAlign === 2) lineX -= lineWidth;
-
-                            ctx.beginPath();
-                            ctx.moveTo(lineX, textY + i * lineHeight + fontSize);
-                            ctx.lineTo(lineX + lineWidth, textY + i * lineHeight + fontSize);
-                            ctx.strokeStyle = colour;
-                            ctx.lineWidth = 1;
-                            ctx.stroke();
-                        }
-
-                        if (strike) {
-                            const metrics = ctx.measureText(line);
-                            const lineWidth = metrics.width;
-                            let lineX = alignX;
-                            if (textAlign === 1) lineX -= lineWidth / 2;
-                            else if (textAlign === 2) lineX -= lineWidth;
-
-                            ctx.beginPath();
-                            ctx.moveTo(lineX, textY + i * lineHeight + fontSize / 2);
-                            ctx.lineTo(lineX + lineWidth, textY + i * lineHeight + fontSize / 2);
-                            ctx.strokeStyle = colour;
-                            ctx.lineWidth = 1;
-                            ctx.stroke();
-                        }
+                    if (!dialogContainer) {
+                        dialogContainer = new PIXI.Container();
+                        this.pixiSprites.set(dialogKey, dialogContainer);
                     }
+
+                    dialogContainer.removeChildren();
+
+                    const screenX = 240 + x;
+                    const screenY = 180 - y;
+                    const entityHalfHeight = height / 2;
+
+                    const style = new PIXI.TextStyle({
+                        fontFamily: 'Noto Sans KR, sans-serif',
+                        fontSize: 14,
+                        fill: '#000000',
+                    });
+
+                    const textMetrics = PIXI.TextMetrics.measureText(dialog.message, style);
+                    const padding = 12;
+                    const balloonWidth = textMetrics.width + padding * 2;
+                    const balloonHeight = textMetrics.height + padding * 2;
+
+                    let balloonX = screenX - balloonWidth / 2;
+                    let balloonY = screenY - entityHalfHeight - balloonHeight - 20;
+
+                    balloonX = Math.max(5, Math.min(480 - balloonWidth - 5, balloonX));
+                    if (balloonY < 5) balloonY = screenY + entityHalfHeight + 20;
+                    if (balloonY + balloonHeight > 355) balloonY = 355 - balloonHeight;
+
+                    const gfx = new PIXI.Graphics();
+                    gfx.lineStyle(2, 0x000000);
+                    gfx.beginFill(0xffffff);
+                    gfx.drawRoundedRect(balloonX, balloonY, balloonWidth, balloonHeight, 10);
+                    gfx.endFill();
+
+                    const text = new PIXI.Text(dialog.message, style);
+                    text.x = balloonX + balloonWidth / 2;
+                    text.y = balloonY + balloonHeight / 2;
+                    text.anchor.set(0.5);
+
+                    dialogContainer.addChild(gfx);
+                    dialogContainer.addChild(text);
+                    this.dialogContainer.addChild(dialogContainer);
                 }
 
                 findObjectById(entityId) {
@@ -2318,231 +2313,6 @@
                     // So we must look up from current scene's objects, not allObjects
                     const sceneObjects = this.getCurrentSceneObjects();
                     return sceneObjects[entityId];
-                }
-
-                // drawRenderData(data) is deprecated/removed in favor of drawRenderBuffer
-
-                /*
-                drawRenderData(data) {
-                    // ... old JSON logic removed ...
-                }
-                */
-
-                drawFallbackRect(entity) {
-                    this.ctx.fillStyle = entity.color || '#4a90d9';
-                    this.ctx.fillRect(
-                        -entity.width / 2,
-                        -entity.height / 2,
-                        entity.width || 50,
-                        entity.height || 50
-                    );
-                }
-
-                // Draw dialog balloon (speak/think)
-                drawDialog(entity) {
-                    const message = entity.dialogMessage;
-                    const mode = entity.dialogMode || 'speak';
-
-                    this.ctx.save();
-
-                    // Calculate position in screen coordinates
-                    const screenX = 240 + entity.x;
-                    const screenY = 180 - entity.y;
-                    const entityHalfHeight = (entity.height || 50) / 2;
-
-                    // Set font and measure text
-                    this.ctx.font = '14px "Noto Sans KR", sans-serif';
-                    const textMetrics = this.ctx.measureText(message);
-                    const textWidth = textMetrics.width;
-                    const textHeight = 18; // Approximate line height
-
-                    // Balloon dimensions
-                    const padding = 12;
-                    const balloonWidth = textWidth + padding * 2;
-                    const balloonHeight = textHeight + padding * 2;
-                    const radius = 10;
-                    const margin = 5; // margin from canvas edge
-
-                    // Initial position: above entity
-                    let balloonX = screenX - balloonWidth / 2;
-                    let balloonY = screenY - entityHalfHeight - balloonHeight - 20;
-                    let isBelowEntity = false;
-
-                    // Clamp X position to stay within canvas
-                    balloonX = Math.max(margin, Math.min(480 - balloonWidth - margin, balloonX));
-
-                    // If balloon goes above canvas, place it below entity
-                    if (balloonY < margin) {
-                        balloonY = screenY + entityHalfHeight + 20;
-                        isBelowEntity = true;
-                    }
-
-                    // Also clamp Y to stay within canvas
-                    if (balloonY + balloonHeight > 360 - margin) {
-                        balloonY = 360 - balloonHeight - margin;
-                    }
-
-                    // Calculate tail target (entity edge)
-                    const tailTargetY = isBelowEntity
-                        ? screenY + entityHalfHeight + 5
-                        : screenY - entityHalfHeight - 5;
-
-                    if (mode === 'think') {
-                        // Think bubble: cloud-style with dots
-                        this.drawThinkBubble(
-                            balloonX,
-                            balloonY,
-                            balloonWidth,
-                            balloonHeight,
-                            radius,
-                            screenX,
-                            tailTargetY,
-                            isBelowEntity
-                        );
-                    } else {
-                        // Speak bubble: regular balloon with tail
-                        this.drawSpeakBubble(
-                            balloonX,
-                            balloonY,
-                            balloonWidth,
-                            balloonHeight,
-                            radius,
-                            screenX,
-                            tailTargetY,
-                            isBelowEntity
-                        );
-                    }
-
-                    // Draw text
-                    this.ctx.fillStyle = '#000000';
-                    this.ctx.textAlign = 'center';
-                    this.ctx.textBaseline = 'middle';
-                    this.ctx.fillText(
-                        message,
-                        balloonX + balloonWidth / 2,
-                        balloonY + balloonHeight / 2
-                    );
-
-                    this.ctx.restore();
-                }
-
-                // Draw speak balloon (with triangle tail)
-                drawSpeakBubble(x, y, width, height, radius, tailX, tailY, isBelowEntity = false) {
-                    const ctx = this.ctx;
-                    const tailWidth = 10;
-
-                    // Clamp tailX to be within balloon width
-                    const clampedTailX = Math.max(
-                        x + tailWidth,
-                        Math.min(x + width - tailWidth, tailX)
-                    );
-
-                    ctx.beginPath();
-
-                    if (isBelowEntity) {
-                        // Tail pointing UP (balloon is below entity)
-                        ctx.moveTo(x + radius, y);
-
-                        // Top edge with tail
-                        ctx.lineTo(clampedTailX - tailWidth / 2, y);
-                        ctx.lineTo(clampedTailX, tailY);
-                        ctx.lineTo(clampedTailX + tailWidth / 2, y);
-
-                        ctx.lineTo(x + width - radius, y);
-                        ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-                        ctx.lineTo(x + width, y + height - radius);
-                        ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-                        ctx.lineTo(x + radius, y + height);
-                        ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-                        ctx.lineTo(x, y + radius);
-                        ctx.quadraticCurveTo(x, y, x + radius, y);
-                    } else {
-                        // Tail pointing DOWN (balloon is above entity)
-                        ctx.moveTo(x + radius, y);
-                        ctx.lineTo(x + width - radius, y);
-                        ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-                        ctx.lineTo(x + width, y + height - radius);
-                        ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-
-                        // Bottom edge with tail
-                        ctx.lineTo(clampedTailX + tailWidth / 2, y + height);
-                        ctx.lineTo(clampedTailX, tailY);
-                        ctx.lineTo(clampedTailX - tailWidth / 2, y + height);
-
-                        ctx.lineTo(x + radius, y + height);
-                        ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-                        ctx.lineTo(x, y + radius);
-                        ctx.quadraticCurveTo(x, y, x + radius, y);
-                    }
-
-                    ctx.closePath();
-
-                    // Fill and stroke
-                    ctx.fillStyle = '#ffffff';
-                    ctx.fill();
-                    ctx.strokeStyle = '#000000';
-                    ctx.lineWidth = 2;
-                    ctx.stroke();
-                }
-
-                // Draw think bubble (cloud-style with dots)
-                drawThinkBubble(x, y, width, height, radius, tailX, tailY, isBelowEntity = false) {
-                    const ctx = this.ctx;
-
-                    // Draw cloud-like rounded rectangle
-                    ctx.beginPath();
-                    ctx.moveTo(x + radius, y);
-                    ctx.lineTo(x + width - radius, y);
-                    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-                    ctx.lineTo(x + width, y + height - radius);
-                    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-                    ctx.lineTo(x + radius, y + height);
-                    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-                    ctx.lineTo(x, y + radius);
-                    ctx.quadraticCurveTo(x, y, x + radius, y);
-                    ctx.closePath();
-
-                    // Fill and stroke
-                    ctx.fillStyle = '#ffffff';
-                    ctx.fill();
-                    ctx.strokeStyle = '#000000';
-                    ctx.lineWidth = 2;
-                    ctx.stroke();
-
-                    // Clamp tailX to be within balloon width
-                    const clampedTailX = Math.max(x + 10, Math.min(x + width - 10, tailX));
-
-                    // Draw thought dots (3 circles getting smaller)
-                    const dotSizes = [6, 4, 3];
-                    let dotY;
-
-                    if (isBelowEntity) {
-                        // Dots pointing UP (balloon is below entity)
-                        dotY = y - 8;
-                        for (const size of dotSizes) {
-                            ctx.beginPath();
-                            ctx.arc(clampedTailX, dotY, size, 0, Math.PI * 2);
-                            ctx.fillStyle = '#ffffff';
-                            ctx.fill();
-                            ctx.strokeStyle = '#000000';
-                            ctx.lineWidth = 1.5;
-                            ctx.stroke();
-                            dotY -= size * 2 + 3;
-                        }
-                    } else {
-                        // Dots pointing DOWN (balloon is above entity)
-                        dotY = y + height + 8;
-                        for (const size of dotSizes) {
-                            ctx.beginPath();
-                            ctx.arc(clampedTailX, dotY, size, 0, Math.PI * 2);
-                            ctx.fillStyle = '#ffffff';
-                            ctx.fill();
-                            ctx.strokeStyle = '#000000';
-                            ctx.lineWidth = 1.5;
-                            ctx.stroke();
-                            dotY += size * 2 + 3;
-                        }
-                    }
                 }
 
                 // Preload sprite images
@@ -2626,14 +2396,37 @@
                 }
 
                 drawJSEngine() {
-                    // Simple placeholder drawing
-                    this.ctx.fillStyle = '#4a90d9';
-                    this.ctx.font = '20px sans-serif';
-                    this.ctx.textAlign = 'center';
-                    this.ctx.fillText(this.projectData?.name || 'Entry Project', 240, 180);
-                    this.ctx.font = '14px sans-serif';
-                    this.ctx.fillStyle = '#666';
-                    this.ctx.fillText('WASM 엔진 로딩 중...', 240, 210);
+                    if (!this.jsEngineText) {
+                        const titleStyle = new PIXI.TextStyle({
+                            fontFamily: 'sans-serif',
+                            fontSize: 20,
+                            fill: '#4a90d9',
+                        });
+                        const subtitleStyle = new PIXI.TextStyle({
+                            fontFamily: 'sans-serif',
+                            fontSize: 14,
+                            fill: '#666666',
+                        });
+
+                        this.jsEngineText = new PIXI.Container();
+
+                        const title = new PIXI.Text(
+                            this.projectData?.name || 'Entry Project',
+                            titleStyle
+                        );
+                        title.anchor.set(0.5);
+                        title.x = 240;
+                        title.y = 180;
+
+                        const subtitle = new PIXI.Text('WASM 엔진 로딩 중...', subtitleStyle);
+                        subtitle.anchor.set(0.5);
+                        subtitle.x = 240;
+                        subtitle.y = 210;
+
+                        this.jsEngineText.addChild(title);
+                        this.jsEngineText.addChild(subtitle);
+                        this.pixiApp.stage.addChild(this.jsEngineText);
+                    }
                 }
 
                 setupControls() {
