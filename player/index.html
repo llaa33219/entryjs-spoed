@@ -849,15 +849,23 @@
                             break;
                         }
                         case 'BrushPath': {
-                            const state = this.getBrushState(data.entity_id);
                             const points = data.points.map(([x, y]) => ({ x, y }));
+                            // Use color, size, transparency directly from WASM data
+                            const color = data.color || '#ff0000';
+                            const size = data.size || 1;
+                            const transparency = data.transparency || 0;
                             this.pixiRenderer.handleBrushPath(
                                 data.entity_id,
                                 points,
-                                state.color,
-                                state.size,
-                                state.opacity
+                                color,
+                                size,
+                                transparency
                             );
+                            // Update local brush state for consistency
+                            const state = this.getBrushState(data.entity_id);
+                            state.color = color;
+                            state.size = size;
+                            state.opacity = transparency;
                             if (points.length > 0) {
                                 const last = points[points.length - 1];
                                 state.lastX = 320 + last.x;

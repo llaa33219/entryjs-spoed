@@ -1576,7 +1576,7 @@ impl Executor {
             }
             
             "set_brush_size" | "change_brush_size" => {
-                if let Some(e) = entity {
+                let thickness = if let Some(e) = entity {
                     Self::flush_drawing_paths(e, js_actions);
                     let value = self.get_param_number(block, 0, variables);
                     if block_type == "set_brush_size" {
@@ -1584,7 +1584,14 @@ impl Executor {
                     } else {
                         e.brush_size = (e.brush_size + value).max(1.0);
                     }
-                }
+                    e.brush_size
+                } else {
+                    1.0
+                };
+                js_actions.push(JsAction::SetThickness {
+                    entity_id: self.entity_idx,
+                    thickness,
+                });
                 ExecuteResult::Continue
             }
             
@@ -2181,6 +2188,9 @@ impl Executor {
             js_actions.push(JsAction::BrushPath {
                 entity_id: entity.id,
                 points,
+                color: entity.brush_color.clone(),
+                size: entity.brush_size,
+                transparency: entity.brush_transparency,
             });
         }
         if !entity.frame_fill_path.is_empty() {

@@ -76,7 +76,7 @@ pub enum JsAction {
     StartDrawing { entity_id: usize, x: f64, y: f64 },
     StopDrawing { entity_id: usize },
     BrushLineTo { entity_id: usize, x: f64, y: f64 },
-    BrushPath { entity_id: usize, points: Vec<(f64, f64)> },
+    BrushPath { entity_id: usize, points: Vec<(f64, f64)>, color: String, size: f64, transparency: f64 },
     StartFill { entity_id: usize, x: f64, y: f64 },
     StopFill { entity_id: usize },
     FillLineTo { entity_id: usize, x: f64, y: f64 },
@@ -602,6 +602,9 @@ impl WasmEngine {
                 pending_js_actions.push(JsAction::BrushPath {
                     entity_id: entity.id,
                     points,
+                    color: entity.brush_color.clone(),
+                    size: entity.brush_size,
+                    transparency: entity.brush_transparency,
                 });
             }
             if !entity.frame_fill_path.is_empty() {
