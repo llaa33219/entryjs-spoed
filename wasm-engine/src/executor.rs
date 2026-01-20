@@ -2179,6 +2179,14 @@ impl Executor {
     
     fn find_func_in_json(&self, json: &serde_json::Value) -> Option<PendingFunc> {
         if let Some(obj) = json.as_object() {
+            if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
+                for param in params {
+                    if let Some(result) = self.find_func_in_json(param) {
+                        return Some(result);
+                    }
+                }
+            }
+            
             if let Some(block_type) = obj.get("type").and_then(|v| v.as_str()) {
                 if block_type.starts_with("func_") {
                     let func_id = block_type[5..].to_string();
@@ -2186,13 +2194,6 @@ impl Executor {
                         .and_then(|v| v.as_array())
                         .map(|arr| arr.clone());
                     return Some(PendingFunc { func_id, call_params });
-                }
-            }
-            if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
-                for param in params {
-                    if let Some(result) = self.find_func_in_json(param) {
-                        return Some(result);
-                    }
                 }
             }
         }
