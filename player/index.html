@@ -1885,7 +1885,7 @@
                         const distance = Math.sqrt(dx * dx + dy * dy);
                         if (distance >= 2) {
                             brushState.fillPath.push({ x: screenX, y: screenY });
-                            this.drawPixiFillPreview(entityKey);
+                            this.drawPixiFillPreview();
                         }
                     } else {
                         brushState.fillPath.push({ x: screenX, y: screenY });
@@ -1943,31 +1943,38 @@
                             brushState.fillPath.push({ x: screenX, y: screenY });
                         }
                     }
-                    this.drawPixiFillPreview(entityKey);
+                    this.drawPixiFillPreview();
                 }
 
-                drawPixiFillPreview(entityKey) {
-                    const brushState = this.brushStates.get(entityKey);
-                    if (!brushState || !brushState.fillDown || brushState.fillPath.length < 3) {
-                        return;
-                    }
-
+                drawPixiFillPreview() {
+                    // Clear and redraw ALL fillDown entities' previews
+                    // This fixes the bug where only the last entity's fill color was shown
                     this.fillGraphics.clear();
 
-                    const color = parseInt(brushState.fillColor.replace('#', ''), 16) || 0xff0000;
-                    this.fillGraphics.beginFill(color);
+                    for (const [entityKey, brushState] of this.brushStates) {
+                        if (!brushState.fillDown || brushState.fillPath.length < 3) {
+                            continue;
+                        }
 
-                    this.fillGraphics.moveTo(brushState.fillPath[0].x, brushState.fillPath[0].y);
+                        const color =
+                            parseInt(brushState.fillColor.replace('#', ''), 16) || 0xff0000;
+                        this.fillGraphics.beginFill(color);
 
-                    for (let i = 1; i < brushState.fillPath.length; i++) {
-                        this.fillGraphics.lineTo(
-                            brushState.fillPath[i].x,
-                            brushState.fillPath[i].y
+                        this.fillGraphics.moveTo(
+                            brushState.fillPath[0].x,
+                            brushState.fillPath[0].y
                         );
-                    }
 
-                    this.fillGraphics.closePath();
-                    this.fillGraphics.endFill();
+                        for (let i = 1; i < brushState.fillPath.length; i++) {
+                            this.fillGraphics.lineTo(
+                                brushState.fillPath[i].x,
+                                brushState.fillPath[i].y
+                            );
+                        }
+
+                        this.fillGraphics.closePath();
+                        this.fillGraphics.endFill();
+                    }
                 }
 
                 updateBrushDrawing(entities) {
@@ -2004,7 +2011,7 @@
                                 pointAdded = true;
                             }
                             if (pointAdded) {
-                                this.drawPixiFillPreview(entityKey);
+                                this.drawPixiFillPreview();
                             }
                         }
 
