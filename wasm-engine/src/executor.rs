@@ -2179,14 +2179,6 @@ impl Executor {
     
     fn find_func_in_json(&self, json: &serde_json::Value) -> Option<PendingFunc> {
         if let Some(obj) = json.as_object() {
-            if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
-                for param in params {
-                    if let Some(result) = self.find_func_in_json(param) {
-                        return Some(result);
-                    }
-                }
-            }
-            
             if let Some(block_type) = obj.get("type").and_then(|v| v.as_str()) {
                 if block_type.starts_with("func_") {
                     let func_id = block_type[5..].to_string();
@@ -2194,6 +2186,14 @@ impl Executor {
                         .and_then(|v| v.as_array())
                         .map(|arr| arr.clone());
                     return Some(PendingFunc { func_id, call_params });
+                }
+            }
+            
+            if let Some(params) = obj.get("params").and_then(|v| v.as_array()) {
+                for param in params {
+                    if let Some(result) = self.find_func_in_json(param) {
+                        return Some(result);
+                    }
                 }
             }
         }
@@ -2981,9 +2981,9 @@ impl Executor {
                             }
                         }
                     } else if op == "rgb_to_hex" {
-                        let r = value_stack.pop().unwrap_or(Value::Number(0.0)).as_number() as i32;
-                        let g = value_stack.pop().unwrap_or(Value::Number(0.0)).as_number() as i32;
                         let b = value_stack.pop().unwrap_or(Value::Number(0.0)).as_number() as i32;
+                        let g = value_stack.pop().unwrap_or(Value::Number(0.0)).as_number() as i32;
+                        let r = value_stack.pop().unwrap_or(Value::Number(0.0)).as_number() as i32;
                         let r = r.clamp(0, 255) as u32;
                         let g = g.clamp(0, 255) as u32;
                         let b = b.clamp(0, 255) as u32;
