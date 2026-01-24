@@ -1810,6 +1810,7 @@
                 }
 
                 handleStartFill(entityId, x, y) {
+                    console.log('StartFill called:', entityId, 'at', x, y);
                     const entityKey = this.getEntityId(entityId);
                     if (entityKey === null) return;
                     const brushState = this.getBrushState(entityKey);
@@ -1820,9 +1821,12 @@
                 }
 
                 handleStopFill(entityId) {
+                    console.log('StopFill called for entity:', entityId);
                     const entityKey = this.getEntityId(entityId);
                     if (entityKey === null) return;
                     const brushState = this.getBrushState(entityKey);
+                    
+                    console.log('StopFill segments:', brushState.fillSegments?.map(s => ({ points: s.points?.length, color: s.color })));
                     
                     // Draw all segments to the permanent graphics
                     const gfx = this.getBrushGraphics(entityId);
@@ -1831,16 +1835,21 @@
                     // Draw each segment as a separate filled polygon.
                     if (brushState.fillSegments) {
                         for (const segment of brushState.fillSegments) {
-                            if (segment && segment.points && segment.points.length >= 3) {
-                                const color = parseInt((segment.color || '#ff0000').replace('#', ''), 16) || 0xff0000;
-                                const alpha = 1 - (segment.transparency || 0) / 100;
-                                gfx.beginFill(color, alpha);
-                                gfx.moveTo(segment.points[0].x, segment.points[0].y);
-                                for (let i = 1; i < segment.points.length; i++) {
-                                    gfx.lineTo(segment.points[i].x, segment.points[i].y);
+                            if (segment && segment.points) {
+                                console.log('Drawing segment with', segment.points.length, 'points, color:', segment.color);
+                                if (segment.points.length >= 3) {
+                                    const color = parseInt((segment.color || '#ff0000').replace('#', ''), 16) || 0xff0000;
+                                    const alpha = 1 - (segment.transparency || 0) / 100;
+                                    gfx.beginFill(color, alpha);
+                                    gfx.moveTo(segment.points[0].x, segment.points[0].y);
+                                    for (let i = 1; i < segment.points.length; i++) {
+                                        gfx.lineTo(segment.points[i].x, segment.points[i].y);
+                                    }
+                                    gfx.closePath();
+                                    gfx.endFill();
+                                } else {
+                                    console.warn('Segment has less than 3 points, cannot draw polygon');
                                 }
-                                gfx.closePath();
-                                gfx.endFill();
                             }
                         }
                     }
@@ -1957,6 +1966,7 @@
                 }
 
                 handleFillPath(entityId, points, color, transparency) {
+                    console.log('FillPath received:', entityId, 'points:', points?.length, 'color:', color);
                     const entityKey = this.getEntityId(entityId);
                     if (entityKey === null) return;
                     if (!points || points.length === 0) return;
@@ -1983,9 +1993,12 @@
                     if (newPoints.length === 0) return;
                     
                     // Check if we can append to the last segment (same color and transparency)
+                    // Normalize colors to lowercase for comparison
                     const lastSegment = brushState.fillSegments[brushState.fillSegments.length - 1];
+                    const normalizedLastColor = lastSegment?.color?.toLowerCase();
+                    const normalizedSegmentColor = segmentColor?.toLowerCase();
                     if (lastSegment && 
-                        lastSegment.color === segmentColor && 
+                        normalizedLastColor === normalizedSegmentColor && 
                         Math.abs((lastSegment.transparency || 0) - (segmentTransparency || 0)) < 0.01) {
                         // Append points to existing segment
                         lastSegment.points.push(...newPoints);
@@ -2181,10 +2194,8 @@
                         const entityId = this.entityOrder[i];
                         const offset = entityMap.get(entityId);
 
-                        const brushGfx = this.brushGraphics.get(entityId);
-                        if (brushGfx) {
-                            this.entityContainer.addChild(brushGfx);
-                        }
+                        // brushGfx stays in brushContainer, don't move to entityContainer
+                        // This ensures fill graphics are not removed when entityContainer is cleared
 
                         if (offset !== undefined) {
                             this.updateEntitySprite(buffer, offset, entityId);
