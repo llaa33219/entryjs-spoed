@@ -248,7 +248,11 @@
                     // Fill state
                     this.fillDown = false;
                     this.fillColor = '#ff0000';
-                    this.fillPath = []; // Array of {x, y} points for polygon
+                    this.fillTransparency = 0;
+                    // Array of fill segments, each with its own color: { points: [{x, y}], color, transparency }
+                    this.fillSegments = [];
+                    // Current segment being drawn (points accumulate here until flushed)
+                    this.currentFillSegment = null;
                 }
             }
 
@@ -1550,8 +1554,8 @@
                             break;
                         }
                         case 'FillPath': {
-                            const { entity_id, points } = data;
-                            this.handleFillPath(entity_id, points);
+                            const { entity_id, points, color, transparency } = data;
+                            this.handleFillPath(entity_id, points, color, transparency);
                             break;
                         }
                         case 'TimerAction': {
@@ -1773,7 +1777,8 @@
 
                     const brushState = this.brushStates.get(entityKey);
                     if (brushState) {
-                        brushState.fillPath = [];
+                        brushState.fillSegments = [];
+                        brushState.currentFillSegment = null;
                         brushState.fillDown = false;
                     }
 
@@ -1812,30 +1817,65 @@
                     if (entityKey === null) return;
                     const brushState = this.getBrushState(entityKey);
                     brushState.fillDown = true;
-                    brushState.fillPath = [];
+                    brushState.fillSegments = [];
+                    brushState.currentFillSegment = {
+                        points: [{ x: 320 + x, y: 180 - y }],
+                        color: brushState.fillColor,
+                        transparency: brushState.fillTransparency
+                    };
                     this.fillGraphics.clear();
-                    brushState.fillPath.push({ x: 320 + x, y: 180 - y });
                 }
 
                 handleStopFill(entityId) {
                     const entityKey = this.getEntityId(entityId);
                     if (entityKey === null) return;
                     const brushState = this.getBrushState(entityKey);
-                    if (brushState.fillPath.length >= 3) {
-                        const gfx = this.getBrushGraphics(entityId);
-                        const color =
-                            parseInt(brushState.fillColor.replace('#', ''), 16) || 0xff0000;
-                        gfx.beginFill(color);
-                        gfx.moveTo(brushState.fillPath[0].x, brushState.fillPath[0].y);
-                        for (let i = 1; i < brushState.fillPath.length; i++) {
-                            gfx.lineTo(brushState.fillPath[i].x, brushState.fillPath[i].y);
-                        }
-                        gfx.closePath();
-                        gfx.endFill();
+                    
+                    // Finalize current segment if it exists
+                    if (brushState.currentFillSegment && brushState.currentFillSegment.points.length > 0) {
+                        brushState.fillSegments.push(brushState.currentFillSegment);
+                        brushState.currentFillSegment = null;
                     }
+                    
+                    // Draw all segments to the permanent graphics
+                    const gfx = this.getBrushGraphics(entityId);
+                    
+                    // Collect all points from all segments to form one polygon
+                    // but we need to draw each segment with its own color
+                    // Actually, for fill, we want one continuous polygon
+                    // The segments represent parts of the same fill path with different colors at different times
+                    // But a filled polygon can only have one color...
+                    // 
+                    // Re-thinking: The fill path is one continuous polygon.
+                    // When color changes mid-fill, we should use the color at stop time?
+                    // No - the original Entry behavior is that each segment keeps its color.
+                    // But a polygon fill is a single shape...
+                    //
+                    // Looking at the WASM behavior: flush happens BEFORE color change.
+                    // So each FillPath action contains points drawn with ONE color.
+                    // At StopFill, we should draw each segment as part of the final shape.
+                    //
+                    // For simplicity, let's draw all segments into one polygon using the first segment's color.
+                    // Or better: draw each segment as a separate filled polygon (this matches Entry behavior better).
+                    
+                    for (const segment of brushState.fillSegments) {
+                        if (segment.points.length >= 3) {
+                            const color = parseInt((segment.color || '#ff0000').replace('#', ''), 16) || 0xff0000;
+                            const alpha = 1 - (segment.transparency || 0) / 100;
+                            gfx.beginFill(color, alpha);
+                            gfx.moveTo(segment.points[0].x, segment.points[0].y);
+                            for (let i = 1; i < segment.points.length; i++) {
+                                gfx.lineTo(segment.points[i].x, segment.points[i].y);
+                            }
+                            gfx.closePath();
+                            gfx.endFill();
+                        }
+                    }
+                    
                     this.fillGraphics.clear();
                     brushState.fillDown = false;
-                    brushState.fillPath = [];
+                    brushState.fillSegments = [];
+                    brushState.currentFillSegment = null;
                 }
 
                 handleSetFillColor(entityId, color) {
@@ -1843,6 +1883,18 @@
                     if (entityKey === null) return;
                     const brushState = this.getBrushState(entityKey);
                     brushState.fillColor = color;
+                    
+                    // If currently filling, start a new segment with the new color
+                    // (WASM flushes before this, so currentFillSegment should be pushed to segments)
+                    if (brushState.fillDown && brushState.currentFillSegment) {
+                        // The flush from WASM already happened via FillPath, so currentFillSegment
+                        // should already be saved. Just create a new segment for future points.
+                        brushState.currentFillSegment = {
+                            points: [],
+                            color: color,
+                            transparency: brushState.fillTransparency
+                        };
+                    }
                 }
 
                 handleSetThickness(entityId, thickness) {
@@ -1876,19 +1928,30 @@
                     if (entityKey === null) return;
                     const brushState = this.getBrushState(entityKey);
                     if (!brushState.fillDown) return;
+                    
+                    // Ensure we have a current segment
+                    if (!brushState.currentFillSegment) {
+                        brushState.currentFillSegment = {
+                            points: [],
+                            color: brushState.fillColor,
+                            transparency: brushState.fillTransparency
+                        };
+                    }
+                    
                     const screenX = 320 + x;
                     const screenY = 180 - y;
-                    const lastPoint = brushState.fillPath[brushState.fillPath.length - 1];
+                    const points = brushState.currentFillSegment.points;
+                    const lastPoint = points[points.length - 1];
                     if (lastPoint) {
                         const dx = screenX - lastPoint.x;
                         const dy = screenY - lastPoint.y;
                         const distance = Math.sqrt(dx * dx + dy * dy);
                         if (distance >= 2) {
-                            brushState.fillPath.push({ x: screenX, y: screenY });
+                            points.push({ x: screenX, y: screenY });
                             this.drawPixiFillPreview();
                         }
                     } else {
-                        brushState.fillPath.push({ x: screenX, y: screenY });
+                        points.push({ x: screenX, y: screenY });
                     }
                 }
 
@@ -1922,58 +1985,97 @@
                     brushState.lastY = 180 - lastPoint[1];
                 }
 
-                handleFillPath(entityId, points) {
+                handleFillPath(entityId, points, color, transparency) {
                     const entityKey = this.getEntityId(entityId);
                     if (entityKey === null) return;
                     const brushState = this.getBrushState(entityKey);
                     if (!brushState.fillDown) return;
 
+                    // Use the color from the action if provided, otherwise use current
+                    const segmentColor = color || brushState.fillColor;
+                    const segmentTransparency = transparency !== undefined ? transparency : brushState.fillTransparency;
+                    
+                    // If we have a current segment, finalize it first
+                    if (brushState.currentFillSegment && brushState.currentFillSegment.points.length > 0) {
+                        brushState.fillSegments.push(brushState.currentFillSegment);
+                    }
+                    
+                    // Create a new segment with the incoming points and color
+                    const newSegment = {
+                        points: [],
+                        color: segmentColor,
+                        transparency: segmentTransparency
+                    };
+                    
                     for (const [x, y] of points) {
                         const screenX = 320 + x;
                         const screenY = 180 - y;
-                        const lastPoint = brushState.fillPath[brushState.fillPath.length - 1];
+                        const lastPoint = newSegment.points[newSegment.points.length - 1];
                         if (lastPoint) {
                             const dx = screenX - lastPoint.x;
                             const dy = screenY - lastPoint.y;
                             const distance = Math.sqrt(dx * dx + dy * dy);
                             if (distance >= 2) {
-                                brushState.fillPath.push({ x: screenX, y: screenY });
+                                newSegment.points.push({ x: screenX, y: screenY });
                             }
                         } else {
-                            brushState.fillPath.push({ x: screenX, y: screenY });
+                            newSegment.points.push({ x: screenX, y: screenY });
                         }
                     }
+                    
+                    // Save this segment and prepare for more points
+                    if (newSegment.points.length > 0) {
+                        brushState.fillSegments.push(newSegment);
+                    }
+                    
+                    // Prepare a new current segment for any future points (with current color)
+                    brushState.currentFillSegment = {
+                        points: [],
+                        color: brushState.fillColor,
+                        transparency: brushState.fillTransparency
+                    };
+                    
                     this.drawPixiFillPreview();
                 }
 
                 drawPixiFillPreview() {
                     // Clear and redraw ALL fillDown entities' previews
-                    // This fixes the bug where only the last entity's fill color was shown
+                    // Each segment is drawn with its own color
                     this.fillGraphics.clear();
 
                     for (const [entityKey, brushState] of this.brushStates) {
-                        if (!brushState.fillDown || brushState.fillPath.length < 3) {
+                        if (!brushState.fillDown) {
                             continue;
                         }
 
-                        const color =
-                            parseInt(brushState.fillColor.replace('#', ''), 16) || 0xff0000;
-                        this.fillGraphics.beginFill(color);
-
-                        this.fillGraphics.moveTo(
-                            brushState.fillPath[0].x,
-                            brushState.fillPath[0].y
-                        );
-
-                        for (let i = 1; i < brushState.fillPath.length; i++) {
-                            this.fillGraphics.lineTo(
-                                brushState.fillPath[i].x,
-                                brushState.fillPath[i].y
-                            );
+                        // Draw all saved segments
+                        for (const segment of brushState.fillSegments) {
+                            if (segment.points.length >= 3) {
+                                const color = parseInt((segment.color || '#ff0000').replace('#', ''), 16) || 0xff0000;
+                                const alpha = 1 - (segment.transparency || 0) / 100;
+                                this.fillGraphics.beginFill(color, alpha);
+                                this.fillGraphics.moveTo(segment.points[0].x, segment.points[0].y);
+                                for (let i = 1; i < segment.points.length; i++) {
+                                    this.fillGraphics.lineTo(segment.points[i].x, segment.points[i].y);
+                                }
+                                this.fillGraphics.closePath();
+                                this.fillGraphics.endFill();
+                            }
                         }
-
-                        this.fillGraphics.closePath();
-                        this.fillGraphics.endFill();
+                        
+                        // Draw current segment in progress
+                        if (brushState.currentFillSegment && brushState.currentFillSegment.points.length >= 3) {
+                            const segment = brushState.currentFillSegment;
+                            const color = parseInt((segment.color || '#ff0000').replace('#', ''), 16) || 0xff0000;
+                            const alpha = 1 - (segment.transparency || 0) / 100;
+                            this.fillGraphics.beginFill(color, alpha);
+                            this.fillGraphics.moveTo(segment.points[0].x, segment.points[0].y);
+                            for (let i = 1; i < segment.points.length; i++) {
+                                this.fillGraphics.lineTo(segment.points[i].x, segment.points[i].y);
+                            }
+                            this.fillGraphics.closePath();
+                            this.fillGraphics.endFill();
+                        }
                     }
                 }
 
@@ -1995,19 +2097,20 @@
                         const screenX = 320 + entity.x;
                         const screenY = 180 - entity.y;
 
-                        if (brushState.fillDown) {
-                            const lastPoint = brushState.fillPath[brushState.fillPath.length - 1];
+                        if (brushState.fillDown && brushState.currentFillSegment) {
+                            const points = brushState.currentFillSegment.points;
+                            const lastPoint = points[points.length - 1];
                             let pointAdded = false;
                             if (lastPoint) {
                                 const dx = screenX - lastPoint.x;
                                 const dy = screenY - lastPoint.y;
                                 const distance = Math.sqrt(dx * dx + dy * dy);
                                 if (distance >= 2) {
-                                    brushState.fillPath.push({ x: screenX, y: screenY });
+                                    points.push({ x: screenX, y: screenY });
                                     pointAdded = true;
                                 }
                             } else {
-                                brushState.fillPath.push({ x: screenX, y: screenY });
+                                points.push({ x: screenX, y: screenY });
                                 pointAdded = true;
                             }
                             if (pointAdded) {

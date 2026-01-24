@@ -2222,6 +2222,8 @@ impl Executor {
             js_actions.push(JsAction::FillPath {
                 entity_id: entity.id,
                 points,
+                color: entity.fill_color.clone(),
+                transparency: entity.fill_transparency,
             });
         }
     }

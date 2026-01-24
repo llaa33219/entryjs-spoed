@@ -80,7 +80,7 @@ pub enum JsAction {
     StartFill { entity_id: usize, x: f64, y: f64 },
     StopFill { entity_id: usize },
     FillLineTo { entity_id: usize, x: f64, y: f64 },
-    FillPath { entity_id: usize, points: Vec<(f64, f64)> },
+    FillPath { entity_id: usize, points: Vec<(f64, f64)>, color: String, transparency: f64 },
     SetBrushColor { entity_id: usize, color: String },
     SetRandomColor { entity_id: usize },
     SetFillColor { entity_id: usize, color: String },
@@ -609,6 +609,8 @@ impl WasmEngine {
                 pending_js_actions.push(JsAction::FillPath {
                     entity_id: entity.id,
                     points,
+                    color: entity.fill_color.clone(),
+                    transparency: entity.fill_transparency,
                 });
             }
         }
