@@ -1810,7 +1810,6 @@
                 }
 
                 handleStartFill(entityId, x, y) {
-                    console.log('StartFill called:', entityId, 'at', x, y);
                     const entityKey = this.getEntityId(entityId);
                     if (entityKey === null) return;
                     const brushState = this.getBrushState(entityKey);
@@ -1821,36 +1820,27 @@
                 }
 
                 handleStopFill(entityId) {
-                    console.log('StopFill called for entity:', entityId);
                     const entityKey = this.getEntityId(entityId);
                     if (entityKey === null) return;
                     const brushState = this.getBrushState(entityKey);
                     
-                    console.log('StopFill segments:', brushState.fillSegments?.map(s => ({ points: s.points?.length, color: s.color })));
-                    
-                    // Draw all segments to the permanent graphics
+                    // Draw each segment as its own independent polygon with its own color
+                    // Each color change creates a separate "덩어리" (chunk)
                     const gfx = this.getBrushGraphics(entityId);
                     
-                    // Each FillPath action contains points drawn with ONE color.
-                    // Draw each segment as a separate filled polygon.
-                    if (brushState.fillSegments) {
+                    if (brushState.fillSegments && brushState.fillSegments.length > 0) {
                         for (const segment of brushState.fillSegments) {
-                            if (segment && segment.points) {
-                                console.log('Drawing segment with', segment.points.length, 'points, color:', segment.color);
-                                if (segment.points.length >= 3) {
-                                    const color = parseInt((segment.color || '#ff0000').replace('#', ''), 16) || 0xff0000;
-                                    const alpha = 1 - (segment.transparency || 0) / 100;
-                                    gfx.beginFill(color, alpha);
-                                    gfx.moveTo(segment.points[0].x, segment.points[0].y);
-                                    for (let i = 1; i < segment.points.length; i++) {
-                                        gfx.lineTo(segment.points[i].x, segment.points[i].y);
-                                    }
-                                    gfx.closePath();
-                                    gfx.endFill();
-                                } else {
-                                    console.warn('Segment has less than 3 points, cannot draw polygon');
-                                }
+                            if (!segment || !segment.points || segment.points.length < 3) continue;
+                            
+                            const color = parseInt((segment.color || '#ff0000').replace('#', ''), 16) || 0xff0000;
+                            const alpha = 1 - (segment.transparency || 0) / 100;
+                            gfx.beginFill(color, alpha);
+                            gfx.moveTo(segment.points[0].x, segment.points[0].y);
+                            for (let i = 1; i < segment.points.length; i++) {
+                                gfx.lineTo(segment.points[i].x, segment.points[i].y);
                             }
+                            gfx.closePath();
+                            gfx.endFill();
                         }
                     }
                     
@@ -1966,7 +1956,6 @@
                 }
 
                 handleFillPath(entityId, points, color, transparency) {
-                    console.log('FillPath received:', entityId, 'points:', points?.length, 'color:', color);
                     const entityKey = this.getEntityId(entityId);
                     if (entityKey === null) return;
                     if (!points || points.length === 0) return;
@@ -2019,7 +2008,7 @@
 
                 drawPixiFillPreview() {
                     // Clear and redraw ALL fillDown entities' previews
-                    // Each segment is drawn with its own color
+                    // Draw each segment as its own independent polygon with its own color
                     this.fillGraphics.clear();
 
                     for (const [entityKey, brushState] of this.brushStates) {
@@ -2027,19 +2016,20 @@
                             continue;
                         }
 
-                        // Draw all saved segments
+                        // Draw each segment as its own independent polygon
+                        // Each color change creates a separate "덩어리" (chunk)
                         for (const segment of brushState.fillSegments) {
-                            if (segment && segment.points && segment.points.length >= 3) {
-                                const color = parseInt((segment.color || '#ff0000').replace('#', ''), 16) || 0xff0000;
-                                const alpha = 1 - (segment.transparency || 0) / 100;
-                                this.fillGraphics.beginFill(color, alpha);
-                                this.fillGraphics.moveTo(segment.points[0].x, segment.points[0].y);
-                                for (let i = 1; i < segment.points.length; i++) {
-                                    this.fillGraphics.lineTo(segment.points[i].x, segment.points[i].y);
-                                }
-                                this.fillGraphics.closePath();
-                                this.fillGraphics.endFill();
+                            if (!segment || !segment.points || segment.points.length < 3) continue;
+                            
+                            const color = parseInt((segment.color || '#ff0000').replace('#', ''), 16) || 0xff0000;
+                            const alpha = 1 - (segment.transparency || 0) / 100;
+                            this.fillGraphics.beginFill(color, alpha);
+                            this.fillGraphics.moveTo(segment.points[0].x, segment.points[0].y);
+                            for (let i = 1; i < segment.points.length; i++) {
+                                this.fillGraphics.lineTo(segment.points[i].x, segment.points[i].y);
                             }
+                            this.fillGraphics.closePath();
+                            this.fillGraphics.endFill();
                         }
                     }
                 }

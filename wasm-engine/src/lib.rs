@@ -448,9 +448,11 @@ impl WasmEngine {
         let mut pending_js_actions = std::mem::take(&mut inner.pending_js_actions);
         let functions_ref = &inner.functions;
         
-        // Ensure path continuity for brush and fill drawing
-        // When drawing is active, add current position at tick start if path is empty
-        // (path was cleared at end of previous tick)
+        // Ensure path continuity for brush drawing
+        // When brush is active, add current position at tick start if path is empty
+        // (brush path was cleared at end of previous tick)
+        // For fill, add starting position only when fill_down is active and path is empty
+        // (fill path persists across ticks until stop_fill/set_fill_color is called)
         for entity in &mut entities {
             if entity.brush_down && entity.frame_brush_path.is_empty() {
                 entity.frame_brush_path.push((entity.x, entity.y));
@@ -608,6 +610,7 @@ impl WasmEngine {
             }
         }
         
+        // Flush brush and fill paths at end of each tick for incremental rendering
         for entity in &mut entities {
             if !entity.frame_brush_path.is_empty() {
                 let points = std::mem::take(&mut entity.frame_brush_path);
@@ -616,6 +619,7 @@ impl WasmEngine {
                     points,
                 });
             }
+            // Also flush fill paths so preview is shown even without stop_fill
             if !entity.frame_fill_path.is_empty() {
                 let points = std::mem::take(&mut entity.frame_fill_path);
                 pending_js_actions.push(JsAction::FillPath {
