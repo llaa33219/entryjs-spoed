@@ -448,6 +448,18 @@ impl WasmEngine {
         let mut pending_js_actions = std::mem::take(&mut inner.pending_js_actions);
         let functions_ref = &inner.functions;
         
+        // Ensure path continuity for brush and fill drawing
+        // When drawing is active, add current position at tick start if path is empty
+        // (path was cleared at end of previous tick)
+        for entity in &mut entities {
+            if entity.brush_down && entity.frame_brush_path.is_empty() {
+                entity.frame_brush_path.push((entity.x, entity.y));
+            }
+            if entity.fill_down && entity.frame_fill_path.is_empty() {
+                entity.frame_fill_path.push((entity.x, entity.y));
+            }
+        }
+        
         let initial_action_count = pending_js_actions.len();
         
         for (idx, executor) in executors.iter_mut().enumerate() {
