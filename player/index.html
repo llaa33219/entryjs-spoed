@@ -251,8 +251,6 @@
                     this.fillTransparency = 0;
                     // Array of fill segments, each with its own color: { points: [{x, y}], color, transparency }
                     this.fillSegments = [];
-                    // Current segment being drawn (points accumulate here until flushed)
-                    this.currentFillSegment = null;
                 }
             }
 
@@ -1778,7 +1776,6 @@
                     const brushState = this.brushStates.get(entityKey);
                     if (brushState) {
                         brushState.fillSegments = [];
-                        brushState.currentFillSegment = null;
                         brushState.fillDown = false;
                     }
 
@@ -1818,11 +1815,7 @@
                     const brushState = this.getBrushState(entityKey);
                     brushState.fillDown = true;
                     brushState.fillSegments = [];
-                    brushState.currentFillSegment = {
-                        points: [{ x: 320 + x, y: 180 - y }],
-                        color: brushState.fillColor,
-                        transparency: brushState.fillTransparency
-                    };
+                    // Don't add start point here - it will come in FillPath from WASM
                     this.fillGraphics.clear();
                 }
 
@@ -1831,51 +1824,30 @@
                     if (entityKey === null) return;
                     const brushState = this.getBrushState(entityKey);
                     
-                    // Finalize current segment if it exists
-                    if (brushState.currentFillSegment && brushState.currentFillSegment.points.length > 0) {
-                        brushState.fillSegments.push(brushState.currentFillSegment);
-                        brushState.currentFillSegment = null;
-                    }
-                    
                     // Draw all segments to the permanent graphics
                     const gfx = this.getBrushGraphics(entityId);
                     
-                    // Collect all points from all segments to form one polygon
-                    // but we need to draw each segment with its own color
-                    // Actually, for fill, we want one continuous polygon
-                    // The segments represent parts of the same fill path with different colors at different times
-                    // But a filled polygon can only have one color...
-                    // 
-                    // Re-thinking: The fill path is one continuous polygon.
-                    // When color changes mid-fill, we should use the color at stop time?
-                    // No - the original Entry behavior is that each segment keeps its color.
-                    // But a polygon fill is a single shape...
-                    //
-                    // Looking at the WASM behavior: flush happens BEFORE color change.
-                    // So each FillPath action contains points drawn with ONE color.
-                    // At StopFill, we should draw each segment as part of the final shape.
-                    //
-                    // For simplicity, let's draw all segments into one polygon using the first segment's color.
-                    // Or better: draw each segment as a separate filled polygon (this matches Entry behavior better).
-                    
-                    for (const segment of brushState.fillSegments) {
-                        if (segment.points.length >= 3) {
-                            const color = parseInt((segment.color || '#ff0000').replace('#', ''), 16) || 0xff0000;
-                            const alpha = 1 - (segment.transparency || 0) / 100;
-                            gfx.beginFill(color, alpha);
-                            gfx.moveTo(segment.points[0].x, segment.points[0].y);
-                            for (let i = 1; i < segment.points.length; i++) {
-                                gfx.lineTo(segment.points[i].x, segment.points[i].y);
+                    // Each FillPath action contains points drawn with ONE color.
+                    // Draw each segment as a separate filled polygon.
+                    if (brushState.fillSegments) {
+                        for (const segment of brushState.fillSegments) {
+                            if (segment && segment.points && segment.points.length >= 3) {
+                                const color = parseInt((segment.color || '#ff0000').replace('#', ''), 16) || 0xff0000;
+                                const alpha = 1 - (segment.transparency || 0) / 100;
+                                gfx.beginFill(color, alpha);
+                                gfx.moveTo(segment.points[0].x, segment.points[0].y);
+                                for (let i = 1; i < segment.points.length; i++) {
+                                    gfx.lineTo(segment.points[i].x, segment.points[i].y);
+                                }
+                                gfx.closePath();
+                                gfx.endFill();
                             }
-                            gfx.closePath();
-                            gfx.endFill();
                         }
                     }
                     
                     this.fillGraphics.clear();
                     brushState.fillDown = false;
                     brushState.fillSegments = [];
-                    brushState.currentFillSegment = null;
                 }
 
                 handleSetFillColor(entityId, color) {
@@ -1883,18 +1855,8 @@
                     if (entityKey === null) return;
                     const brushState = this.getBrushState(entityKey);
                     brushState.fillColor = color;
-                    
-                    // If currently filling, start a new segment with the new color
-                    // (WASM flushes before this, so currentFillSegment should be pushed to segments)
-                    if (brushState.fillDown && brushState.currentFillSegment) {
-                        // The flush from WASM already happened via FillPath, so currentFillSegment
-                        // should already be saved. Just create a new segment for future points.
-                        brushState.currentFillSegment = {
-                            points: [],
-                            color: color,
-                            transparency: brushState.fillTransparency
-                        };
-                    }
+                    // WASM flushes the path before color change, so new FillPath actions
+                    // will use this new color automatically
                 }
 
                 handleSetThickness(entityId, thickness) {
@@ -1924,23 +1886,32 @@
                 }
 
                 handleFillLineTo(entityId, x, y) {
+                    // FillLineTo is not used - points are accumulated in WASM and sent via FillPath
+                    // Keeping this for potential future use
                     const entityKey = this.getEntityId(entityId);
                     if (entityKey === null) return;
                     const brushState = this.getBrushState(entityKey);
                     if (!brushState.fillDown) return;
                     
-                    // Ensure we have a current segment
-                    if (!brushState.currentFillSegment) {
-                        brushState.currentFillSegment = {
+                    // Add point directly to a temporary segment for preview
+                    if (!brushState.fillSegments) {
+                        brushState.fillSegments = [];
+                    }
+                    
+                    // Get or create the last segment for line-to operations
+                    let lastSegment = brushState.fillSegments[brushState.fillSegments.length - 1];
+                    if (!lastSegment || lastSegment.color !== brushState.fillColor) {
+                        lastSegment = {
                             points: [],
                             color: brushState.fillColor,
                             transparency: brushState.fillTransparency
                         };
+                        brushState.fillSegments.push(lastSegment);
                     }
                     
                     const screenX = 320 + x;
                     const screenY = 180 - y;
-                    const points = brushState.currentFillSegment.points;
+                    const points = lastSegment.points;
                     const lastPoint = points[points.length - 1];
                     if (lastPoint) {
                         const dx = screenX - lastPoint.x;
@@ -1988,16 +1959,17 @@
                 handleFillPath(entityId, points, color, transparency) {
                     const entityKey = this.getEntityId(entityId);
                     if (entityKey === null) return;
+                    if (!points || points.length === 0) return;
                     const brushState = this.getBrushState(entityKey);
-                    if (!brushState.fillDown) return;
-
+                    
+                    // Always process FillPath actions - WASM only sends them when filling is active
                     // Use the color from the action if provided, otherwise use current
                     const segmentColor = color || brushState.fillColor;
                     const segmentTransparency = transparency !== undefined ? transparency : brushState.fillTransparency;
                     
-                    // If we have a current segment, finalize it first
-                    if (brushState.currentFillSegment && brushState.currentFillSegment.points.length > 0) {
-                        brushState.fillSegments.push(brushState.currentFillSegment);
+                    // Ensure fillSegments array exists
+                    if (!brushState.fillSegments) {
+                        brushState.fillSegments = [];
                     }
                     
                     // Create a new segment with the incoming points and color
@@ -2010,30 +1982,16 @@
                     for (const [x, y] of points) {
                         const screenX = 320 + x;
                         const screenY = 180 - y;
-                        const lastPoint = newSegment.points[newSegment.points.length - 1];
-                        if (lastPoint) {
-                            const dx = screenX - lastPoint.x;
-                            const dy = screenY - lastPoint.y;
-                            const distance = Math.sqrt(dx * dx + dy * dy);
-                            if (distance >= 2) {
-                                newSegment.points.push({ x: screenX, y: screenY });
-                            }
-                        } else {
-                            newSegment.points.push({ x: screenX, y: screenY });
-                        }
+                        newSegment.points.push({ x: screenX, y: screenY });
                     }
                     
-                    // Save this segment and prepare for more points
+                    // Save this segment
                     if (newSegment.points.length > 0) {
                         brushState.fillSegments.push(newSegment);
                     }
                     
-                    // Prepare a new current segment for any future points (with current color)
-                    brushState.currentFillSegment = {
-                        points: [],
-                        color: brushState.fillColor,
-                        transparency: brushState.fillTransparency
-                    };
+                    // Mark that we're filling (in case StartFill wasn't called)
+                    brushState.fillDown = true;
                     
                     this.drawPixiFillPreview();
                 }
@@ -2044,13 +2002,13 @@
                     this.fillGraphics.clear();
 
                     for (const [entityKey, brushState] of this.brushStates) {
-                        if (!brushState.fillDown) {
+                        if (!brushState.fillDown || !brushState.fillSegments) {
                             continue;
                         }
 
                         // Draw all saved segments
                         for (const segment of brushState.fillSegments) {
-                            if (segment.points.length >= 3) {
+                            if (segment && segment.points && segment.points.length >= 3) {
                                 const color = parseInt((segment.color || '#ff0000').replace('#', ''), 16) || 0xff0000;
                                 const alpha = 1 - (segment.transparency || 0) / 100;
                                 this.fillGraphics.beginFill(color, alpha);
@@ -2061,20 +2019,6 @@
                                 this.fillGraphics.closePath();
                                 this.fillGraphics.endFill();
                             }
-                        }
-                        
-                        // Draw current segment in progress
-                        if (brushState.currentFillSegment && brushState.currentFillSegment.points.length >= 3) {
-                            const segment = brushState.currentFillSegment;
-                            const color = parseInt((segment.color || '#ff0000').replace('#', ''), 16) || 0xff0000;
-                            const alpha = 1 - (segment.transparency || 0) / 100;
-                            this.fillGraphics.beginFill(color, alpha);
-                            this.fillGraphics.moveTo(segment.points[0].x, segment.points[0].y);
-                            for (let i = 1; i < segment.points.length; i++) {
-                                this.fillGraphics.lineTo(segment.points[i].x, segment.points[i].y);
-                            }
-                            this.fillGraphics.closePath();
-                            this.fillGraphics.endFill();
                         }
                     }
                 }
@@ -2097,26 +2041,8 @@
                         const screenX = 320 + entity.x;
                         const screenY = 180 - entity.y;
 
-                        if (brushState.fillDown && brushState.currentFillSegment) {
-                            const points = brushState.currentFillSegment.points;
-                            const lastPoint = points[points.length - 1];
-                            let pointAdded = false;
-                            if (lastPoint) {
-                                const dx = screenX - lastPoint.x;
-                                const dy = screenY - lastPoint.y;
-                                const distance = Math.sqrt(dx * dx + dy * dy);
-                                if (distance >= 2) {
-                                    points.push({ x: screenX, y: screenY });
-                                    pointAdded = true;
-                                }
-                            } else {
-                                points.push({ x: screenX, y: screenY });
-                                pointAdded = true;
-                            }
-                            if (pointAdded) {
-                                this.drawPixiFillPreview();
-                            }
-                        }
+                        // Fill path accumulation is handled by WASM -> FillPath actions
+                        // No need to accumulate points here in JS
 
                         if (!brushState.down) {
                             brushState.lastX = null;
