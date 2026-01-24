@@ -1972,22 +1972,30 @@
                         brushState.fillSegments = [];
                     }
                     
-                    // Create a new segment with the incoming points and color
-                    const newSegment = {
-                        points: [],
-                        color: segmentColor,
-                        transparency: segmentTransparency
-                    };
-                    
+                    // Convert incoming points to screen coordinates
+                    const newPoints = [];
                     for (const [x, y] of points) {
                         const screenX = 320 + x;
                         const screenY = 180 - y;
-                        newSegment.points.push({ x: screenX, y: screenY });
+                        newPoints.push({ x: screenX, y: screenY });
                     }
                     
-                    // Save this segment
-                    if (newSegment.points.length > 0) {
-                        brushState.fillSegments.push(newSegment);
+                    if (newPoints.length === 0) return;
+                    
+                    // Check if we can append to the last segment (same color and transparency)
+                    const lastSegment = brushState.fillSegments[brushState.fillSegments.length - 1];
+                    if (lastSegment && 
+                        lastSegment.color === segmentColor && 
+                        Math.abs((lastSegment.transparency || 0) - (segmentTransparency || 0)) < 0.01) {
+                        // Append points to existing segment
+                        lastSegment.points.push(...newPoints);
+                    } else {
+                        // Create a new segment
+                        brushState.fillSegments.push({
+                            points: newPoints,
+                            color: segmentColor,
+                            transparency: segmentTransparency
+                        });
                     }
                     
                     // Mark that we're filling (in case StartFill wasn't called)
