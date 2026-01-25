@@ -1981,40 +1981,49 @@
                         brushState.fillSegments = [];
                     }
                     
-                    // Convert incoming points to screen coordinates
+                    // Convert points from [[x,y], [x,y], ...] to [{x, y}, {x, y}, ...]
                     const newPoints = [];
-                    for (const [x, y] of points) {
-                        const screenX = 320 + x;
-                        const screenY = 180 - y;
-                        newPoints.push({ x: screenX, y: screenY });
+                    for (const point of points) {
+                        if (Array.isArray(point) && point.length >= 2) {
+                            newPoints.push({ x: 320 + point[0], y: 180 - point[1] });
+                        }
                     }
                     
                     if (newPoints.length === 0) return;
                     
                     // WASM sends the FULL accumulated path each tick (using clone, not take)
-                    // So we should REPLACE the LAST segment if same color (preview update)
-                    // but create NEW segment if color changed (to preserve previous work)
+                    // So we should REPLACE the last segment if it has the same color, not append
+                    // Normalize colors to lowercase for comparison
                     const normalizedSegmentColor = segmentColor?.toLowerCase();
                     
-                    // Only check the LAST segment - don't search through all segments
-                    // This prevents overwriting old segments when user cycles back to same color
+                    // Only check the LAST segment to avoid overwriting previous segments of the same color
                     const lastSegment = brushState.fillSegments[brushState.fillSegments.length - 1];
-                    const normalizedLastColor = lastSegment?.color?.toLowerCase();
-                    
                     if (lastSegment && 
-                        normalizedLastColor === normalizedSegmentColor &&
+                        lastSegment.color?.toLowerCase() === normalizedSegmentColor && 
                         Math.abs((lastSegment.transparency || 0) - (segmentTransparency || 0)) < 0.01) {
-                        // REPLACE the last segment's points (this is the active preview segment)
+                        // REPLACE the last segment's points with the full path from WASM
                         lastSegment.points = newPoints;
-                        console.log('[DEBUG] FillPath: replaced last segment, now has', newPoints.length, 'points');
+                        console.log('[DEBUG] FillPath: replaced last segment with', newPoints.length, 'points');
                     } else {
-                        // Create a new segment for this color
+                        // Color changed, create a new segment
+                        // To ensure continuity, prepend the last point from the previous segment
+                        // This ensures each segment has enough points for a valid polygon
+                        const segmentPoints = newPoints;
+                        if (lastSegment && lastSegment.points.length > 0) {
+                            const lastPoint = lastSegment.points[lastSegment.points.length - 1];
+                            // Only prepend if it's different from the first new point
+                            if (segmentPoints.length === 0 || 
+                                segmentPoints[0].x !== lastPoint.x || 
+                                segmentPoints[0].y !== lastPoint.y) {
+                                segmentPoints.unshift({ x: lastPoint.x, y: lastPoint.y });
+                            }
+                        }
                         brushState.fillSegments.push({
-                            points: newPoints,
+                            points: segmentPoints,
                             color: segmentColor,
                             transparency: segmentTransparency
                         });
-                        console.log('[DEBUG] FillPath: created new segment for color', segmentColor, 'with', newPoints.length, 'points, total segments:', brushState.fillSegments.length);
+                        console.log('[DEBUG] FillPath: created new segment for color', segmentColor, 'with', segmentPoints.length, 'points, total segments:', brushState.fillSegments.length);
                     }
                     
                     // Mark that we're filling (in case StartFill wasn't called)
