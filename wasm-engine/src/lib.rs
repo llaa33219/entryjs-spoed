@@ -451,12 +451,13 @@ impl WasmEngine {
         // Ensure path continuity for brush drawing
         // When brush is active, add current position at tick start if path is empty
         // (brush path was cleared at end of previous tick)
-        // For fill, add starting position only when fill_down is active and path is empty
-        // (fill path persists across ticks until stop_fill/set_fill_color is called)
         for entity in &mut entities {
             if entity.brush_down && entity.frame_brush_path.is_empty() {
                 entity.frame_brush_path.push((entity.x, entity.y));
             }
+            // Note: fill path is NOT cleared at tick end (we use clone, not take)
+            // So we only need to add starting point if path is empty AND fill is active
+            // This happens when fill just started or was cleared by color change
             if entity.fill_down && entity.frame_fill_path.is_empty() {
                 entity.frame_fill_path.push((entity.x, entity.y));
             }
@@ -619,12 +620,12 @@ impl WasmEngine {
                     points,
                 });
             }
-            // Also flush fill paths so preview is shown even without stop_fill
+            // Send fill path preview (don't clear - keep accumulating points)
+            // The path will be cleared by flush_drawing_paths when stop_fill or set_fill_color is called
             if !entity.frame_fill_path.is_empty() {
-                let points = std::mem::take(&mut entity.frame_fill_path);
                 pending_js_actions.push(JsAction::FillPath {
                     entity_id: entity.id,
-                    points,
+                    points: entity.frame_fill_path.clone(),
                     color: entity.fill_color.clone(),
                     transparency: entity.fill_transparency,
                 });

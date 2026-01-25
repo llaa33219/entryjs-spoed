@@ -1961,7 +1961,6 @@
                     if (!points || points.length === 0) return;
                     const brushState = this.getBrushState(entityKey);
                     
-                    // Always process FillPath actions - WASM only sends them when filling is active
                     // Use the color from the action if provided, otherwise use current
                     const segmentColor = color || brushState.fillColor;
                     const segmentTransparency = transparency !== undefined ? transparency : brushState.fillTransparency;
@@ -1981,18 +1980,23 @@
                     
                     if (newPoints.length === 0) return;
                     
-                    // Check if we can append to the last segment (same color and transparency)
-                    // Normalize colors to lowercase for comparison
+                    // WASM sends the FULL accumulated path each tick (using clone, not take)
+                    // So we should REPLACE the LAST segment if same color (preview update)
+                    // but create NEW segment if color changed (to preserve previous work)
+                    const normalizedSegmentColor = segmentColor?.toLowerCase();
+                    
+                    // Only check the LAST segment - don't search through all segments
+                    // This prevents overwriting old segments when user cycles back to same color
                     const lastSegment = brushState.fillSegments[brushState.fillSegments.length - 1];
                     const normalizedLastColor = lastSegment?.color?.toLowerCase();
-                    const normalizedSegmentColor = segmentColor?.toLowerCase();
+                    
                     if (lastSegment && 
-                        normalizedLastColor === normalizedSegmentColor && 
+                        normalizedLastColor === normalizedSegmentColor &&
                         Math.abs((lastSegment.transparency || 0) - (segmentTransparency || 0)) < 0.01) {
-                        // Append points to existing segment
-                        lastSegment.points.push(...newPoints);
+                        // REPLACE the last segment's points (this is the active preview segment)
+                        lastSegment.points = newPoints;
                     } else {
-                        // Create a new segment
+                        // Create a new segment for this color
                         brushState.fillSegments.push({
                             points: newPoints,
                             color: segmentColor,
