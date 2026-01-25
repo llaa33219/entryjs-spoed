@@ -448,6 +448,23 @@ impl Entity {
     pub fn get_scale(&self) -> f64 {
         (self.scale_x + self.scale_y) / 2.0 * 100.0
     }
+    
+    /// Get the visual size of the entity
+    /// Matches JS: (width * |scaleX| + height * |scaleY|) / 2
+    pub fn get_size(&self) -> f64 {
+        (self.width * self.scale_x.abs() + self.height * self.scale_y.abs()) / 2.0
+    }
+    
+    /// Set the visual size of the entity by scaling proportionally
+    /// Matches JS: scale = max(1, size) / getSize(); scaleX *= scale; scaleY *= scale;
+    pub fn set_size(&mut self, size: f64) {
+        let current_size = self.get_size();
+        if current_size > 0.0 {
+            let ratio = size.max(1.0) / current_size;
+            self.scale_x *= ratio;
+            self.scale_y *= ratio;
+        }
+    }
 }
 
 #[cfg(test)]

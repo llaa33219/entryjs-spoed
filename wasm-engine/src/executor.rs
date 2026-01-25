@@ -936,7 +936,8 @@ impl Executor {
             "change_scale_size" => {
                 if let Some(e) = entity {
                     let value = self.get_param_number(block, 0, variables);
-                    e.change_scale(value / 100.0);
+                    // Match JS: sprite.setSize(sprite.getSize() + value)
+                    e.set_size(e.get_size() + value);
                 }
                 ExecuteResult::Continue
             }
@@ -944,7 +945,8 @@ impl Executor {
             "set_scale_size" => {
                 if let Some(e) = entity {
                     let value = self.get_param_number(block, 0, variables);
-                    e.set_scale(value / 100.0);
+                    // Match JS: sprite.setSize(value)
+                    e.set_size(value);
                 }
                 ExecuteResult::Continue
             }
