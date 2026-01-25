@@ -1788,7 +1788,6 @@
                     const entityKey = this.getEntityId(entityId);
                     if (entityKey === null) return;
                     const brushState = this.getBrushState(entityKey);
-                    console.log('[DEBUG] StartDrawing:', entityId, 'at', x, y);
                     brushState.down = true;
                     brushState.lastX = 320 + x;
                     brushState.lastY = 180 - y;
@@ -1798,7 +1797,6 @@
                     const entityKey = this.getEntityId(entityId);
                     if (entityKey === null) return;
                     const brushState = this.getBrushState(entityKey);
-                    console.log('[DEBUG] StopDrawing:', entityId, 'was down:', brushState.down);
                     brushState.down = false;
                     brushState.lastX = null;
                     brushState.lastY = null;
@@ -1819,7 +1817,7 @@
                     brushState.fillSegments = [];
                     // Don't add start point here - it will come in FillPath from WASM
                     this.fillGraphics.clear();
-                    console.log('[DEBUG] StartFill:', entityId, 'x:', x, 'y:', y, 'fillColor:', brushState.fillColor);
+
                 }
 
                 handleStopFill(entityId) {
@@ -1827,7 +1825,7 @@
                     if (entityKey === null) return;
                     const brushState = this.getBrushState(entityKey);
                     
-                    console.log('[DEBUG] StopFill:', entityId, 'segments:', brushState.fillSegments?.length, 'segmentDetails:', brushState.fillSegments?.map(s => ({ points: s.points?.length, color: s.color })));
+
                     
                     // Draw each segment as its own independent polygon with its own color
                     // Each color change creates a separate "덩어리" (chunk)
@@ -1836,13 +1834,13 @@
                     if (brushState.fillSegments && brushState.fillSegments.length > 0) {
                         for (const segment of brushState.fillSegments) {
                             if (!segment || !segment.points || segment.points.length < 3) {
-                                console.log('[DEBUG] StopFill skipping segment - not enough points:', segment?.points?.length);
+    
                                 continue;
                             }
                             
                             const color = parseInt((segment.color || '#ff0000').replace('#', ''), 16) || 0xff0000;
                             const alpha = 1 - (segment.transparency || 0) / 100;
-                            console.log('[DEBUG] StopFill drawing segment:', segment.points.length, 'points, color:', segment.color, 'hex:', color.toString(16));
+
                             gfx.lineStyle(0); // Remove stroke outline
                             gfx.beginFill(color, alpha);
                             gfx.moveTo(segment.points[0].x, segment.points[0].y);
@@ -1853,7 +1851,7 @@
                             gfx.endFill();
                         }
                     } else {
-                        console.log('[DEBUG] StopFill - no segments to draw!');
+
                     }
                     
                     this.fillGraphics.clear();
@@ -1973,7 +1971,7 @@
                     if (!points || points.length === 0) return;
                     const brushState = this.getBrushState(entityKey);
                     
-                    console.log('[DEBUG] FillPath:', entityId, 'points:', points?.length, 'color:', color, 'transparency:', transparency);
+
                     
                     // Use the color from the action if provided, otherwise use current
                     const segmentColor = color || brushState.fillColor;
@@ -2006,7 +2004,7 @@
                         Math.abs((lastSegment.transparency || 0) - (segmentTransparency || 0)) < 0.01) {
                         // REPLACE the last segment's points with the full path from WASM
                         lastSegment.points = newPoints;
-                        console.log('[DEBUG] FillPath: replaced last segment with', newPoints.length, 'points');
+
                     } else {
                         // Color changed, create a new segment
                         // To ensure continuity, prepend the last point from the previous segment
@@ -2026,7 +2024,7 @@
                             color: segmentColor,
                             transparency: segmentTransparency
                         });
-                        console.log('[DEBUG] FillPath: created new segment for color', segmentColor, 'with', segmentPoints.length, 'points, total segments:', brushState.fillSegments.length);
+
                     }
                     
                     // Mark that we're filling (in case StartFill wasn't called)
