@@ -1817,6 +1817,7 @@
                     brushState.fillSegments = [];
                     // Don't add start point here - it will come in FillPath from WASM
                     this.fillGraphics.clear();
+                    console.log('[DEBUG] StartFill:', entityId, 'x:', x, 'y:', y, 'fillColor:', brushState.fillColor);
                 }
 
                 handleStopFill(entityId) {
@@ -1824,16 +1825,22 @@
                     if (entityKey === null) return;
                     const brushState = this.getBrushState(entityKey);
                     
+                    console.log('[DEBUG] StopFill:', entityId, 'segments:', brushState.fillSegments?.length, 'segmentDetails:', brushState.fillSegments?.map(s => ({ points: s.points?.length, color: s.color })));
+                    
                     // Draw each segment as its own independent polygon with its own color
                     // Each color change creates a separate "덩어리" (chunk)
                     const gfx = this.getBrushGraphics(entityId);
                     
                     if (brushState.fillSegments && brushState.fillSegments.length > 0) {
                         for (const segment of brushState.fillSegments) {
-                            if (!segment || !segment.points || segment.points.length < 3) continue;
+                            if (!segment || !segment.points || segment.points.length < 3) {
+                                console.log('[DEBUG] StopFill skipping segment - not enough points:', segment?.points?.length);
+                                continue;
+                            }
                             
                             const color = parseInt((segment.color || '#ff0000').replace('#', ''), 16) || 0xff0000;
                             const alpha = 1 - (segment.transparency || 0) / 100;
+                            console.log('[DEBUG] StopFill drawing segment:', segment.points.length, 'points, color:', segment.color, 'hex:', color.toString(16));
                             gfx.beginFill(color, alpha);
                             gfx.moveTo(segment.points[0].x, segment.points[0].y);
                             for (let i = 1; i < segment.points.length; i++) {
@@ -1842,6 +1849,8 @@
                             gfx.closePath();
                             gfx.endFill();
                         }
+                    } else {
+                        console.log('[DEBUG] StopFill - no segments to draw!');
                     }
                     
                     this.fillGraphics.clear();
@@ -1961,6 +1970,8 @@
                     if (!points || points.length === 0) return;
                     const brushState = this.getBrushState(entityKey);
                     
+                    console.log('[DEBUG] FillPath:', entityId, 'points:', points?.length, 'color:', color, 'transparency:', transparency);
+                    
                     // Use the color from the action if provided, otherwise use current
                     const segmentColor = color || brushState.fillColor;
                     const segmentTransparency = transparency !== undefined ? transparency : brushState.fillTransparency;
@@ -1995,6 +2006,7 @@
                         Math.abs((lastSegment.transparency || 0) - (segmentTransparency || 0)) < 0.01) {
                         // REPLACE the last segment's points (this is the active preview segment)
                         lastSegment.points = newPoints;
+                        console.log('[DEBUG] FillPath: replaced last segment, now has', newPoints.length, 'points');
                     } else {
                         // Create a new segment for this color
                         brushState.fillSegments.push({
@@ -2002,6 +2014,7 @@
                             color: segmentColor,
                             transparency: segmentTransparency
                         });
+                        console.log('[DEBUG] FillPath: created new segment for color', segmentColor, 'with', newPoints.length, 'points, total segments:', brushState.fillSegments.length);
                     }
                     
                     // Mark that we're filling (in case StartFill wasn't called)
