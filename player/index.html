@@ -275,10 +275,10 @@
                     this.brushGraphics = new Map();
                     this.brushStates = new Map();
                     this.entityOrder = [];
-                    this.brushContainer = null;
                     this.entityContainer = null;
                     this.dialogContainer = null;
-                    this.fillGraphics = null;
+                    this.fillGraphicsMap = new Map();
+                    this.stampContainers = new Map();
 
                     this.scenes = [];
                     this.currentSceneId = null;
@@ -312,13 +312,12 @@
                     this.pixiApp.view.style.objectFit = 'contain';
                     container.insertBefore(this.pixiApp.view, container.firstChild);
 
-                    this.brushContainer = new PIXI.Container();
                     this.entityContainer = new PIXI.Container();
                     this.dialogContainer = new PIXI.Container();
-                    this.fillGraphics = new PIXI.Graphics();
+                    // Per-entity graphics maps (for drawings that persist after entity sprite)
+                    this.fillGraphicsMap = new Map();
+                    this.stampContainers = new Map();
 
-                    this.pixiApp.stage.addChild(this.brushContainer);
-                    this.pixiApp.stage.addChild(this.fillGraphics);
                     this.pixiApp.stage.addChild(this.entityContainer);
                     this.pixiApp.stage.addChild(this.dialogContainer);
 
@@ -1327,8 +1326,15 @@
                     for (const [entityId, gfx] of this.brushGraphics) {
                         gfx.clear();
                     }
-                    if (this.fillGraphics) {
-                        this.fillGraphics.clear();
+                    for (const [entityId, gfx] of this.fillGraphicsMap) {
+                        gfx.clear();
+                    }
+                    // Clear stamp containers
+                    if (this.stampContainers) {
+                        for (const [entityId, container] of this.stampContainers) {
+                            container.removeChildren();
+                        }
+                        this.stampContainers.clear();
                     }
                     this.brushStates.clear();
 
@@ -1660,8 +1666,29 @@
                 }
 
                 handleDeleteClone(entityId) {
-                    this.brushCanvases.delete(entityId);
-                    this.brushContexts.delete(entityId);
+                    // Clean up brush graphics
+                    const brushGfx = this.brushGraphics.get(entityId);
+                    if (brushGfx && brushGfx.parent) {
+                        brushGfx.parent.removeChild(brushGfx);
+                    }
+                    this.brushGraphics.delete(entityId);
+                    
+                    // Clean up fill graphics
+                    const fillGfx = this.fillGraphicsMap.get(entityId);
+                    if (fillGfx && fillGfx.parent) {
+                        fillGfx.parent.removeChild(fillGfx);
+                    }
+                    this.fillGraphicsMap.delete(entityId);
+                    
+                    // Clean up stamp container
+                    if (this.stampContainers) {
+                        const stampContainer = this.stampContainers.get(entityId);
+                        if (stampContainer && stampContainer.parent) {
+                            stampContainer.parent.removeChild(stampContainer);
+                        }
+                        this.stampContainers.delete(entityId);
+                    }
+                    
                     this.brushStates.delete(entityId);
                     this.dialogs.delete(entityId);
 
@@ -1725,9 +1752,19 @@
                     if (!this.brushGraphics.has(entityId)) {
                         const gfx = new PIXI.Graphics();
                         this.brushGraphics.set(entityId, gfx);
-                        this.brushContainer.addChild(gfx);
+                        // Don't add to container here - will be added in updatePixiSprites
+                        // in the correct z-order after each entity's sprite
                     }
                     return this.brushGraphics.get(entityId);
+                }
+
+                getFillGraphics(entityId) {
+                    if (!this.fillGraphicsMap.has(entityId)) {
+                        const gfx = new PIXI.Graphics();
+                        this.fillGraphicsMap.set(entityId, gfx);
+                        // Don't add to container here - will be added in updatePixiSprites
+                    }
+                    return this.fillGraphicsMap.get(entityId);
                 }
 
                 // Convert entity index to entity.id
@@ -1745,13 +1782,21 @@
                     const texture = sprite.texture;
 
                     if (texture && texture !== PIXI.Texture.WHITE) {
+                        // For stamp with texture, we need a container to hold the stamp sprites
+                        // Each entity has its own stamp container for proper z-order
+                        if (!this.stampContainers.has(entityId)) {
+                            const stampContainer = new PIXI.Container();
+                            this.stampContainers.set(entityId, stampContainer);
+                        }
+                        const stampContainer = this.stampContainers.get(entityId);
+                        
                         const stampSprite = new PIXI.Sprite(texture);
                         stampSprite.anchor.set(0.5);
                         stampSprite.x = sprite.x;
                         stampSprite.y = sprite.y;
                         stampSprite.rotation = sprite.rotation;
                         stampSprite.scale.set(sprite.scale.x, sprite.scale.y);
-                        this.brushContainer.addChild(stampSprite);
+                        stampContainer.addChild(stampSprite);
                     } else {
                         gfx.beginFill(0x4a90d9);
                         gfx.drawRect(
@@ -1779,8 +1824,15 @@
                         brushState.fillDown = false;
                     }
 
-                    if (this.fillGraphics) {
-                        this.fillGraphics.clear();
+                    const fillGfx = this.fillGraphicsMap.get(entityKey);
+                    if (fillGfx) {
+                        fillGfx.clear();
+                    }
+                    
+                    // Also clear stamps for this entity
+                    const stampContainer = this.stampContainers.get(entityKey);
+                    if (stampContainer) {
+                        stampContainer.removeChildren();
                     }
                 }
 
@@ -1816,16 +1868,14 @@
                     brushState.fillDown = true;
                     brushState.fillSegments = [];
                     // Don't add start point here - it will come in FillPath from WASM
-                    this.fillGraphics.clear();
-
+                    const fillGfx = this.getFillGraphics(entityKey);
+                    fillGfx.clear();
                 }
 
                 handleStopFill(entityId) {
                     const entityKey = this.getEntityId(entityId);
                     if (entityKey === null) return;
                     const brushState = this.getBrushState(entityKey);
-                    
-
                     
                     // Draw each segment as its own independent polygon with its own color
                     // Each color change creates a separate "덩어리" (chunk)
@@ -1834,7 +1884,6 @@
                     if (brushState.fillSegments && brushState.fillSegments.length > 0) {
                         for (const segment of brushState.fillSegments) {
                             if (!segment || !segment.points || segment.points.length < 3) {
-    
                                 continue;
                             }
                             
@@ -1850,11 +1899,12 @@
                             gfx.closePath();
                             gfx.endFill();
                         }
-                    } else {
-
                     }
                     
-                    this.fillGraphics.clear();
+                    // Clear the fill preview graphics for this entity
+                    const fillGfx = this.getFillGraphics(entityKey);
+                    fillGfx.clear();
+                    
                     brushState.fillDown = false;
                     brushState.fillSegments = [];
                 }
@@ -2034,11 +2084,12 @@
                 }
 
                 drawPixiFillPreview() {
-                    // Clear and redraw ALL fillDown entities' previews
-                    // Draw each segment as its own independent polygon with its own color
-                    this.fillGraphics.clear();
-
+                    // Redraw each entity's fill preview in its own fill graphics
+                    // This maintains proper z-order (each entity's fill appears after its sprite)
                     for (const [entityKey, brushState] of this.brushStates) {
+                        const fillGfx = this.getFillGraphics(entityKey);
+                        fillGfx.clear();
+                        
                         if (!brushState.fillDown || !brushState.fillSegments) {
                             continue;
                         }
@@ -2050,14 +2101,14 @@
                             
                             const color = parseInt((segment.color || '#ff0000').replace('#', ''), 16) || 0xff0000;
                             const alpha = 1 - (segment.transparency || 0) / 100;
-                            this.fillGraphics.lineStyle(0); // Remove stroke outline
-                            this.fillGraphics.beginFill(color, alpha);
-                            this.fillGraphics.moveTo(segment.points[0].x, segment.points[0].y);
+                            fillGfx.lineStyle(0); // Remove stroke outline
+                            fillGfx.beginFill(color, alpha);
+                            fillGfx.moveTo(segment.points[0].x, segment.points[0].y);
                             for (let i = 1; i < segment.points.length; i++) {
-                                this.fillGraphics.lineTo(segment.points[i].x, segment.points[i].y);
+                                fillGfx.lineTo(segment.points[i].x, segment.points[i].y);
                             }
-                            this.fillGraphics.closePath();
-                            this.fillGraphics.endFill();
+                            fillGfx.closePath();
+                            fillGfx.endFill();
                         }
                     }
                 }
@@ -2158,13 +2209,29 @@
                             livingIds.add(buffer[i]);
                         }
 
-                        for (const [id, _] of this.brushGraphics) {
+                        for (const [id, gfx] of this.brushGraphics) {
                             if (!livingIds.has(id)) {
-                                const gfx = this.brushGraphics.get(id);
                                 if (gfx && gfx.parent) gfx.parent.removeChild(gfx);
                                 this.brushGraphics.delete(id);
                                 this.brushStates.delete(id);
                                 this.dialogs.delete(id);
+                            }
+                        }
+
+                        for (const [id, gfx] of this.fillGraphicsMap) {
+                            if (!livingIds.has(id)) {
+                                if (gfx && gfx.parent) gfx.parent.removeChild(gfx);
+                                this.fillGraphicsMap.delete(id);
+                            }
+                        }
+
+                        // Clean up stamp containers for deleted entities
+                        if (this.stampContainers) {
+                            for (const [id, container] of this.stampContainers) {
+                                if (!livingIds.has(id)) {
+                                    if (container.parent) container.parent.removeChild(container);
+                                    this.stampContainers.delete(id);
+                                }
                             }
                         }
 
@@ -2208,15 +2275,34 @@
                     this.entityContainer.removeChildren();
                     this.dialogContainer.removeChildren();
 
+                    // Render each entity followed by its brush/fill graphics
+                    // This ensures z-order: entity1 -> entity1's drawings -> entity2 -> entity2's drawings
                     for (let i = 0; i < this.entityOrder.length; i++) {
                         const entityId = this.entityOrder[i];
                         const offset = entityMap.get(entityId);
 
-                        // brushGfx stays in brushContainer, don't move to entityContainer
-                        // This ensures fill graphics are not removed when entityContainer is cleared
-
                         if (offset !== undefined) {
                             this.updateEntitySprite(buffer, offset, entityId);
+                        }
+
+                        // Add this entity's stamp container (for brush_stamp) right after its sprite
+                        if (this.stampContainers) {
+                            const stampContainer = this.stampContainers.get(entityId);
+                            if (stampContainer) {
+                                this.entityContainer.addChild(stampContainer);
+                            }
+                        }
+
+                        // Add this entity's fill graphics (preview) right after stamps
+                        const fillGfx = this.fillGraphicsMap.get(entityId);
+                        if (fillGfx) {
+                            this.entityContainer.addChild(fillGfx);
+                        }
+
+                        // Add this entity's brush graphics right after fill graphics
+                        const brushGfx = this.brushGraphics.get(entityId);
+                        if (brushGfx) {
+                            this.entityContainer.addChild(brushGfx);
                         }
                     }
                 }
