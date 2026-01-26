@@ -48,6 +48,10 @@ export class WasmEngine {
    */
   fire_mouse_clicked(): void;
   /**
+   * Update pressed keys from JavaScript
+   */
+  update_pressed_keys(keys: Uint32Array): void;
+  /**
    * Update project timer value from JavaScript
    */
   update_project_timer(value: number): void;
@@ -120,6 +124,7 @@ export interface InitOutput {
   readonly wasmengine_tick: (a: number) => void;
   readonly wasmengine_update_keys: (a: number, b: number, c: number) => void;
   readonly wasmengine_update_mouse: (a: number, b: number, c: number, d: number) => void;
+  readonly wasmengine_update_pressed_keys: (a: number, b: number, c: number) => void;
   readonly wasmengine_update_project_timer: (a: number, b: number) => void;
   readonly init: () => void;
   readonly __wbindgen_export: (a: number, b: number, c: number) => void;

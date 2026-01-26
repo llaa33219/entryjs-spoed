@@ -320,6 +320,15 @@ export class WasmEngine {
         wasm.wasmengine_fire_mouse_clicked(this.__wbg_ptr);
     }
     /**
+     * Update pressed keys from JavaScript
+     * @param {Uint32Array} keys
+     */
+    update_pressed_keys(keys) {
+        const ptr0 = passArray32ToWasm0(keys, wasm.__wbindgen_export2);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.wasmengine_update_pressed_keys(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
      * Update project timer value from JavaScript
      * @param {number} value
      */

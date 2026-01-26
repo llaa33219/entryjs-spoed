@@ -23,9 +23,9 @@ mod vm;
 pub use blocks::*;
 pub use executor::*;
 pub use entity::*;
-pub use bytecode::*;
+pub use bytecode::{Program, ScriptInfo, TriggerValue, RegisterAllocator, FunctionInfo, InstructionBuilder, Opcode, NUM_REGISTERS, decode_opcode, decode_reg_a, decode_reg_b, decode_reg_c, decode_imm16, decode_imm16_signed, decode_operand_signed};
 pub use compiler::*;
-pub use vm::*;
+pub use vm::{VM, VMResult, VMThread, RegisterFile, CallFrame, LoopInfo};
 
 /// Actions that need to be executed by JavaScript
 /// These are queued during WASM execution and consumed by JS after each tick
@@ -152,7 +152,9 @@ struct EngineInner {
     entities: Vec<Entity>,
     variables: HashMap<String, Value>,
     variables_snapshot: HashMap<String, Value>,
-    executors: Vec<Executor>,
+    executors: Vec<Executor>,  // Legacy executor system (fallback)
+    vmthreads: Vec<VMThread>,  // New VM-based execution threads
+    use_vm: bool,              // Whether to use VM-based execution
     tick_count: u64,
     fps: u32,
     project_data: Option<ProjectData>,
@@ -163,6 +165,7 @@ struct EngineInner {
     mouse_x: f64,
     mouse_y: f64,
     mouse_clicked: bool,
+    pressed_keys: Vec<u32>,
     
     project_timer_value: f64,
     
@@ -178,6 +181,8 @@ impl EngineInner {
             variables: HashMap::default(),
             variables_snapshot: HashMap::default(),
             executors: Vec::new(),
+            vmthreads: Vec::new(),
+            use_vm: true,  // Enable VM by default
             tick_count: 0,
             fps: 60,
             project_data: None,
@@ -186,6 +191,7 @@ impl EngineInner {
             mouse_x: 0.0,
             mouse_y: 0.0,
             mouse_clicked: false,
+            pressed_keys: Vec::new(),
             project_timer_value: 0.0,
             program: None,
             render_buffer: Vec::with_capacity(1024),
@@ -375,6 +381,7 @@ impl WasmEngine {
             Ok(mut inner) => {
                 inner.state = EngineState::Stopped;
                 inner.executors.clear();
+                inner.vmthreads.clear();
                 self.stop_requested.set(false);
             }
             Err(_) => {
@@ -398,6 +405,7 @@ impl WasmEngine {
         inner.state = EngineState::Stopped;
         inner.tick_count = 0;
         inner.executors.clear();
+        inner.vmthreads.clear();
         inner.pending_js_actions.clear();
         inner.pending_js_actions.push(JsAction::RestoreStartScene);
         self.stop_requested.set(false);
@@ -439,6 +447,247 @@ impl WasmEngine {
         
         inner.tick_count += 1;
         
+        // Ensure path continuity for brush drawing
+        for entity in &mut inner.entities {
+            if entity.brush_down && entity.frame_brush_path.is_empty() {
+                entity.frame_brush_path.push((entity.x, entity.y));
+            }
+            if entity.fill_down && entity.frame_fill_path.is_empty() {
+                entity.frame_fill_path.push((entity.x, entity.y));
+            }
+        }
+        
+        // Choose execution path based on whether we have a compiled program and VM mode
+        let use_vm = inner.use_vm && inner.program.is_some();
+        
+        if use_vm {
+            Self::tick_vm(&mut inner, self.stop_requested.get());
+        } else {
+            Self::tick_executor(&mut inner, self.stop_requested.get());
+        }
+        
+        if self.stop_requested.get() {
+            inner.state = EngineState::Stopped;
+            inner.executors.clear();
+            inner.vmthreads.clear();
+            self.stop_requested.set(false);
+        }
+        
+        // Update render buffer
+        let mut buffer = std::mem::take(&mut inner.render_buffer);
+        buffer.clear();
+        for entity in &inner.entities {
+            if entity.visible || entity.brush_down || entity.fill_down {
+                buffer.push(entity.id as f64);
+                buffer.push(entity.x);
+                buffer.push(entity.y);
+                buffer.push(entity.rotation);
+                buffer.push(entity.direction);
+                buffer.push(entity.scale_x);
+                buffer.push(entity.scale_y);
+                buffer.push(entity.width);
+                buffer.push(entity.height);
+                buffer.push(if entity.visible { 1.0 } else { 0.0 });
+                buffer.push(if entity.brush_down { 1.0 } else { 0.0 });
+                buffer.push(entity.brush_size);
+                buffer.push(entity.brush_transparency);
+                buffer.push(if entity.fill_down { 1.0 } else { 0.0 });
+                buffer.push(entity.fill_transparency);
+                let picture_index = entity.current_picture_id.as_ref()
+                    .and_then(|id| entity.pictures.iter().position(|p| p == id))
+                    .map(|idx| idx as f64)
+                    .unwrap_or(-1.0);
+                buffer.push(picture_index);
+            }
+        }
+        inner.render_buffer = buffer;
+    }
+    
+    /// VM-based tick execution
+    fn tick_vm(inner: &mut EngineInner, stop_requested: bool) {
+        let program = match &inner.program {
+            Some(p) => p,
+            None => return,
+        };
+        
+        let initial_action_count = inner.pending_js_actions.len();
+        
+        // Update input state for all threads
+        for thread in &mut inner.vmthreads {
+            thread.mouse_x = inner.mouse_x;
+            thread.mouse_y = inner.mouse_y;
+            thread.mouse_clicked = inner.mouse_clicked;
+            thread.pressed_keys = inner.pressed_keys.clone();
+            thread.timer_value = inner.project_timer_value;
+        }
+        
+        // Execute each thread
+        let mut vmthreads = std::mem::take(&mut inner.vmthreads);
+        
+        for thread in vmthreads.iter_mut() {
+            if thread.completed || stop_requested {
+                continue;
+            }
+            
+            // Create VM for this execution
+            let mut vm = VM::new(
+                program,
+                &mut inner.entities,
+                &mut inner.variables,
+                &mut inner.pending_js_actions,
+            );
+            
+            vm.execute_thread(thread);
+        }
+        
+        // Remove completed threads
+        vmthreads.retain(|t| !t.completed);
+        
+        // Handle new actions (clones, messages, etc.)
+        if inner.pending_js_actions.len() > initial_action_count {
+            let mut new_threads = Vec::new();
+            let mut clone_requests: Vec<(usize, String)> = Vec::new();
+            
+            for i in initial_action_count..inner.pending_js_actions.len() {
+                let action = &inner.pending_js_actions[i];
+                match action {
+                    JsAction::MessageCast { message_id } | JsAction::MessageCastWait { message_id } => {
+                        // Find scripts that respond to this message
+                        for script in &program.scripts {
+                            if script.trigger_type == crate::blocks::BlockTypeId::WhenMessageCast {
+                                if let Some(crate::bytecode::TriggerValue::MessageId(msg_id)) = &script.trigger_value {
+                                    if msg_id == message_id {
+                                        let mut thread = VMThread::new(script.entity_index, script.start_pc);
+                                        thread.mouse_x = inner.mouse_x;
+                                        thread.mouse_y = inner.mouse_y;
+                                        thread.mouse_clicked = inner.mouse_clicked;
+                                        thread.pressed_keys = inner.pressed_keys.clone();
+                                        thread.timer_value = inner.project_timer_value;
+                                        new_threads.push(thread);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    JsAction::CreateClone { entity_id, target } => {
+                        clone_requests.push((*entity_id, target.clone()));
+                    }
+                    _ => {}
+                }
+            }
+            
+            // Handle clone creation
+            for (source_entity_id, target) in clone_requests {
+                let target_entity_idx = if target == "self" {
+                    source_entity_id
+                } else {
+                    inner.entities.iter().position(|e| e.object_id == target).unwrap_or(source_entity_id)
+                };
+                
+                if let Some(source_entity) = inner.entities.get(target_entity_idx).cloned() {
+                    let new_id = inner.entities.len();
+                    let mut cloned_entity = source_entity;
+                    cloned_entity.id = new_id;
+                    cloned_entity.is_clone = true;
+                    cloned_entity.source_entity_idx = target_entity_idx;
+                    
+                    // Find when_clone_start scripts for this entity
+                    for script in &program.scripts {
+                        if script.entity_index == target_entity_idx && 
+                           script.trigger_type == crate::blocks::BlockTypeId::WhenCloneStart {
+                            let mut thread = VMThread::new(new_id, script.start_pc);
+                            thread.mouse_x = inner.mouse_x;
+                            thread.mouse_y = inner.mouse_y;
+                            thread.mouse_clicked = inner.mouse_clicked;
+                            thread.pressed_keys = inner.pressed_keys.clone();
+                            thread.timer_value = inner.project_timer_value;
+                            new_threads.push(thread);
+                        }
+                    }
+                    
+                    inner.entities.push(cloned_entity);
+                }
+            }
+            
+            vmthreads.append(&mut new_threads);
+        }
+        
+        // Handle stop actions
+        let mut entities_to_remove: Vec<usize> = Vec::new();
+        
+        for action in &inner.pending_js_actions {
+            match action {
+                JsAction::StopAll => {
+                    vmthreads.clear();
+                }
+                JsAction::StopEntity { entity_id } => {
+                    vmthreads.retain(|t| t.entity_idx != *entity_id);
+                }
+                JsAction::StopOtherEntities { entity_id } => {
+                    vmthreads.retain(|t| t.entity_idx == *entity_id);
+                }
+                JsAction::DeleteClone { entity_id } => {
+                    if let Some(entity) = inner.entities.get(*entity_id) {
+                        if entity.is_clone {
+                            entities_to_remove.push(*entity_id);
+                            vmthreads.retain(|t| t.entity_idx != *entity_id);
+                        }
+                    }
+                }
+                JsAction::RemoveAllClones => {
+                    for entity in inner.entities.iter() {
+                        if entity.is_clone {
+                            entities_to_remove.push(entity.id);
+                        }
+                    }
+                    vmthreads.retain(|t| {
+                        inner.entities.get(t.entity_idx).map(|ent| !ent.is_clone).unwrap_or(true)
+                    });
+                }
+                _ => {}
+            }
+        }
+        
+        for entity_id in &entities_to_remove {
+            if let Some(entity) = inner.entities.get_mut(*entity_id) {
+                entity.visible = false;
+            }
+        }
+        
+        // Flush brush and fill paths
+        for entity in &mut inner.entities {
+            if !entity.frame_brush_path.is_empty() {
+                let points = std::mem::take(&mut entity.frame_brush_path);
+                inner.pending_js_actions.push(JsAction::BrushPath {
+                    entity_id: entity.id,
+                    points,
+                });
+            }
+            if !entity.frame_fill_path.is_empty() {
+                inner.pending_js_actions.push(JsAction::FillPath {
+                    entity_id: entity.id,
+                    points: entity.frame_fill_path.clone(),
+                    color: entity.fill_color.clone(),
+                    transparency: entity.fill_transparency,
+                });
+            }
+        }
+        
+        // Remove internal actions
+        inner.pending_js_actions.retain(|action| !matches!(action, 
+            JsAction::CreateClone { .. } | 
+            JsAction::DeleteClone { .. } |
+            JsAction::RemoveAllClones |
+            JsAction::StopAll | 
+            JsAction::StopEntity { .. } | 
+            JsAction::StopOtherEntities { .. }
+        ));
+        
+        inner.vmthreads = vmthreads;
+    }
+    
+    /// Legacy executor-based tick execution
+    fn tick_executor(inner: &mut EngineInner, stop_requested: bool) {
         let mut completed = Vec::new();
         const MAX_EXECUTIONS_PER_TICK: u32 = 1_000_000;
         
@@ -448,38 +697,21 @@ impl WasmEngine {
         let mut pending_js_actions = std::mem::take(&mut inner.pending_js_actions);
         let functions_ref = &inner.functions;
         
-        // Ensure path continuity for brush drawing
-        // When brush is active, add current position at tick start if path is empty
-        // (brush path was cleared at end of previous tick)
-        for entity in &mut entities {
-            if entity.brush_down && entity.frame_brush_path.is_empty() {
-                entity.frame_brush_path.push((entity.x, entity.y));
-            }
-            // Note: fill path is NOT cleared at tick end (we use clone, not take)
-            // So we only need to add starting point if path is empty AND fill is active
-            // This happens when fill just started or was cleared by color change
-            if entity.fill_down && entity.frame_fill_path.is_empty() {
-                entity.frame_fill_path.push((entity.x, entity.y));
-            }
-        }
-        
         let initial_action_count = pending_js_actions.len();
         
         for (idx, executor) in executors.iter_mut().enumerate() {
             executor.cached_project_timer_value = inner.project_timer_value;
             
-            if inner.state != EngineState::Running || self.stop_requested.get() {
+            if inner.state != EngineState::Running || stop_requested {
                 break;
             }
             
             let mut execution_count = 0u32;
             
             loop {
-                if inner.state != EngineState::Running || self.stop_requested.get() {
+                if inner.state != EngineState::Running || stop_requested {
                     break;
                 }
-                
-
                 
                 let result = executor.execute(
                     &mut entities, 
@@ -518,7 +750,7 @@ impl WasmEngine {
                 let action = &pending_js_actions[i];
                 match action {
                     JsAction::MessageCast { message_id } | JsAction::MessageCastWait { message_id } => {
-                        let mut executors_for_msg = Self::find_executors_for_message(&inner, message_id);
+                        let mut executors_for_msg = Self::find_executors_for_message_with_inner(&inner, &entities, message_id);
                         new_executors.append(&mut executors_for_msg);
                     }
                     JsAction::CreateClone { entity_id, target } => {
@@ -611,7 +843,7 @@ impl WasmEngine {
             }
         }
         
-        // Flush brush and fill paths at end of each tick for incremental rendering
+        // Flush brush and fill paths
         for entity in &mut entities {
             if !entity.frame_brush_path.is_empty() {
                 let points = std::mem::take(&mut entity.frame_brush_path);
@@ -620,8 +852,6 @@ impl WasmEngine {
                     points,
                 });
             }
-            // Send fill path preview (don't clear - keep accumulating points)
-            // The path will be cleared by flush_drawing_paths when stop_fill or set_fill_color is called
             if !entity.frame_fill_path.is_empty() {
                 pending_js_actions.push(JsAction::FillPath {
                     entity_id: entity.id,
@@ -645,40 +875,39 @@ impl WasmEngine {
         inner.entities = entities;
         inner.variables = variables;
         inner.pending_js_actions = pending_js_actions;
+    }
+    
+    /// Helper for executor-based message lookup
+    fn find_executors_for_message_with_inner(inner: &EngineInner, _entities: &[Entity], message_id: &str) -> Vec<Executor> {
+        let mut executors = Vec::new();
         
-        if self.stop_requested.get() {
-            inner.state = EngineState::Stopped;
-            inner.executors.clear();
-            self.stop_requested.set(false);
-        }
-        
-        let mut buffer = std::mem::take(&mut inner.render_buffer);
-        buffer.clear();
-        for entity in &inner.entities {
-            if entity.visible || entity.brush_down || entity.fill_down {
-                buffer.push(entity.id as f64);
-                buffer.push(entity.x);
-                buffer.push(entity.y);
-                buffer.push(entity.rotation);
-                buffer.push(entity.direction);
-                buffer.push(entity.scale_x);
-                buffer.push(entity.scale_y);
-                buffer.push(entity.width);
-                buffer.push(entity.height);
-                buffer.push(if entity.visible { 1.0 } else { 0.0 });
-                buffer.push(if entity.brush_down { 1.0 } else { 0.0 });
-                buffer.push(entity.brush_size);
-                buffer.push(entity.brush_transparency);
-                buffer.push(if entity.fill_down { 1.0 } else { 0.0 });
-                buffer.push(entity.fill_transparency);
-                let picture_index = entity.current_picture_id.as_ref()
-                    .and_then(|id| entity.pictures.iter().position(|p| p == id))
-                    .map(|idx| idx as f64)
-                    .unwrap_or(-1.0);
-                buffer.push(picture_index);
+        if let Some(project) = &inner.project_data {
+            if let Some(objects) = &project.objects {
+                for (entity_idx, obj) in objects.iter().enumerate() {
+                    if let Some(scripts) = &obj.script {
+                        for thread in scripts.iter() {
+                            if let Some(first_block) = thread.first() {
+                                if first_block.block_type == "when_message_cast" {
+                                    if Self::check_message_match(first_block, message_id) {
+                                        let executor = Executor::new(
+                                            entity_idx,
+                                            thread.clone(),
+                                        );
+                                        let mut exec_with_state = executor;
+                                        exec_with_state.cached_mouse_x = inner.mouse_x;
+                                        exec_with_state.cached_mouse_y = inner.mouse_y;
+                                        exec_with_state.mouse_clicked = inner.mouse_clicked;
+                                        exec_with_state.cached_project_timer_value = inner.project_timer_value;
+                                        executors.push(exec_with_state);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
-        inner.render_buffer = buffer;
+        executors
     }
     
     #[wasm_bindgen]
@@ -748,6 +977,9 @@ impl WasmEngine {
                         Variables: {}\n\
                         String Pool: {}\n\
                         Entry Scripts: {}\n\
+                        Active VM Threads: {}\n\
+                        Legacy Executors: {}\n\
+                        Using VM: {}\n\
                         Render Buffer Cap: {}\n\
                         ==========================",
                         program.instructions.len(),
@@ -755,10 +987,20 @@ impl WasmEngine {
                         program.variable_map.len(),
                         program.string_pool.len(),
                         program.scripts.len(),
+                        inner.vmthreads.len(),
+                        inner.executors.len(),
+                        inner.use_vm,
                         inner.render_buffer.capacity()
                     )
                 } else {
-                    "No program compiled".to_string()
+                    format!(
+                        "=== WASM Debug Info (No VM) ===\n\
+                        Active Executors: {}\n\
+                        Entities: {}\n\
+                        ===============================",
+                        inner.executors.len(),
+                        inner.entities.len()
+                    )
                 }
             },
             Err(_) => "Failed to borrow engine".to_string(),
@@ -846,30 +1088,70 @@ impl WasmEngine {
         };
         
         let keys_vec: Vec<u32> = keys.to_vec();
+        inner.pressed_keys = keys_vec.clone();
+        
         for executor in &mut inner.executors {
             executor.pressed_keys = keys_vec.clone();
+        }
+        for thread in &mut inner.vmthreads {
+            thread.pressed_keys = keys_vec.clone();
         }
     }
 
     /// Fire an event to all entities (internal helper)
     fn fire_event_inner(inner: &mut EngineInner, event_name: &str) {
-        if let Some(project) = &inner.project_data.clone() {
-            if let Some(objects) = &project.objects {
-                for (entity_idx, obj) in objects.iter().enumerate() {
-                    if let Some(scripts) = &obj.script {
-                        for thread in scripts.iter() {
-                            if let Some(first_block) = thread.first() {
-                                if Self::is_event_block_inner(&first_block.block_type, event_name) {
-                                    let executor = Executor::new(
-                                        entity_idx,
-                                        thread.clone(),
-                                    );
-                                    let mut exec_with_state = executor;
-                                    exec_with_state.cached_mouse_x = inner.mouse_x;
-                                    exec_with_state.cached_mouse_y = inner.mouse_y;
-                                    exec_with_state.mouse_clicked = inner.mouse_clicked;
-                                    exec_with_state.cached_project_timer_value = inner.project_timer_value;
-                                    inner.executors.push(exec_with_state);
+        let use_vm = inner.use_vm && inner.program.is_some();
+        
+        if use_vm {
+            // Use VM-based execution with compiled program
+            // Collect script info first to avoid borrow conflicts
+            let scripts_to_add: Vec<(usize, usize)> = if let Some(program) = &inner.program {
+                let trigger_type = match event_name {
+                    "start" => crate::blocks::BlockTypeId::WhenRunButtonClick,
+                    "when_scene_start" => crate::blocks::BlockTypeId::WhenSceneStart,
+                    "mouse_clicked" => crate::blocks::BlockTypeId::MouseClicked,
+                    "mouse_click_cancled" => crate::blocks::BlockTypeId::MouseClickCancled,
+                    _ => return,
+                };
+                
+                program.scripts.iter()
+                    .filter(|script| script.trigger_type == trigger_type)
+                    .map(|script| (script.entity_index, script.start_pc))
+                    .collect()
+            } else {
+                return;
+            };
+            
+            // Now add VMThreads without conflicting borrows
+            for (entity_idx, start_pc) in scripts_to_add {
+                let mut thread = VMThread::new(entity_idx, start_pc);
+                thread.mouse_x = inner.mouse_x;
+                thread.mouse_y = inner.mouse_y;
+                thread.mouse_clicked = inner.mouse_clicked;
+                thread.pressed_keys = inner.pressed_keys.clone();
+                thread.timer_value = inner.project_timer_value;
+                inner.vmthreads.push(thread);
+            }
+        } else {
+            // Legacy executor-based execution
+            if let Some(project) = &inner.project_data.clone() {
+                if let Some(objects) = &project.objects {
+                    for (entity_idx, obj) in objects.iter().enumerate() {
+                        if let Some(scripts) = &obj.script {
+                            for thread in scripts.iter() {
+                                if let Some(first_block) = thread.first() {
+                                    if Self::is_event_block_inner(&first_block.block_type, event_name) {
+                                        let executor = Executor::new(
+                                            entity_idx,
+                                            thread.clone(),
+                                        );
+                                        let mut exec_with_state = executor;
+                                        exec_with_state.cached_mouse_x = inner.mouse_x;
+                                        exec_with_state.cached_mouse_y = inner.mouse_y;
+                                        exec_with_state.mouse_clicked = inner.mouse_clicked;
+                                        exec_with_state.cached_project_timer_value = inner.project_timer_value;
+                                        inner.executors.push(exec_with_state);
+                                    }
                                 }
                             }
                         }
@@ -902,32 +1184,59 @@ impl WasmEngine {
             return;
         }
         
-        if let Some(project) = &inner.project_data.clone() {
-            if let Some(objects) = &project.objects {
-                for (entity_idx, obj) in objects.iter().enumerate() {
-                    if let Some(scripts) = &obj.script {
-                        for thread in scripts.iter() {
-                            if let Some(first_block) = thread.first() {
-                                if first_block.block_type == "when_some_key_pressed" {
-                                    // Check if this block's key matches the pressed key
-                                    if let Some(params) = &first_block.params {
-                                        if let Some(key_param) = params.get(1) {
-                                            let block_key = key_param.as_str()
-                                                .and_then(|s| s.parse::<u32>().ok())
-                                                .or_else(|| key_param.as_f64().map(|n| n as u32))
-                                                .unwrap_or(0);
-                                            
-                                            if block_key == key_code {
-                                                let executor = Executor::new(
-                                                    entity_idx,
-                                                    thread.clone(),
-                                                );
-                                                let mut exec_with_state = executor;
-                                                exec_with_state.cached_mouse_x = inner.mouse_x;
-                                                exec_with_state.cached_mouse_y = inner.mouse_y;
-                                                exec_with_state.mouse_clicked = inner.mouse_clicked;
-                                                exec_with_state.cached_project_timer_value = inner.project_timer_value;
-                                                inner.executors.push(exec_with_state);
+        let use_vm = inner.use_vm && inner.program.is_some();
+        
+        if use_vm {
+            // Collect script info first to avoid borrow conflicts
+            let scripts_to_add: Vec<(usize, usize)> = if let Some(program) = &inner.program {
+                program.scripts.iter()
+                    .filter(|script| {
+                        script.trigger_type == crate::blocks::BlockTypeId::WhenSomeKeyPressed &&
+                        matches!(&script.trigger_value, Some(crate::bytecode::TriggerValue::KeyCode(k)) if *k == key_code)
+                    })
+                    .map(|script| (script.entity_index, script.start_pc))
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            
+            // Now add VMThreads without conflicting borrows
+            for (entity_idx, start_pc) in scripts_to_add {
+                let mut thread = VMThread::new(entity_idx, start_pc);
+                thread.mouse_x = inner.mouse_x;
+                thread.mouse_y = inner.mouse_y;
+                thread.mouse_clicked = inner.mouse_clicked;
+                thread.pressed_keys = inner.pressed_keys.clone();
+                thread.timer_value = inner.project_timer_value;
+                inner.vmthreads.push(thread);
+            }
+        } else {
+            if let Some(project) = &inner.project_data.clone() {
+                if let Some(objects) = &project.objects {
+                    for (entity_idx, obj) in objects.iter().enumerate() {
+                        if let Some(scripts) = &obj.script {
+                            for thread in scripts.iter() {
+                                if let Some(first_block) = thread.first() {
+                                    if first_block.block_type == "when_some_key_pressed" {
+                                        if let Some(params) = &first_block.params {
+                                            if let Some(key_param) = params.get(1) {
+                                                let block_key = key_param.as_str()
+                                                    .and_then(|s| s.parse::<u32>().ok())
+                                                    .or_else(|| key_param.as_f64().map(|n| n as u32))
+                                                    .unwrap_or(0);
+                                                
+                                                if block_key == key_code {
+                                                    let executor = Executor::new(
+                                                        entity_idx,
+                                                        thread.clone(),
+                                                    );
+                                                    let mut exec_with_state = executor;
+                                                    exec_with_state.cached_mouse_x = inner.mouse_x;
+                                                    exec_with_state.cached_mouse_y = inner.mouse_y;
+                                                    exec_with_state.mouse_clicked = inner.mouse_clicked;
+                                                    exec_with_state.cached_project_timer_value = inner.project_timer_value;
+                                                    inner.executors.push(exec_with_state);
+                                                }
                                             }
                                         }
                                     }
@@ -980,24 +1289,55 @@ impl WasmEngine {
             }
         }
         
-        if let Some(project) = &inner.project_data.clone() {
-            if let Some(objects) = &project.objects {
-                for entity_id in clicked_entities {
-                     if let Some(obj) = objects.get(entity_id) {
-                        if let Some(scripts) = &obj.script {
-                            for thread in scripts.iter() {
-                                if let Some(first_block) = thread.first() {
-                                    if first_block.block_type == "when_object_click" {
-                                        let executor = Executor::new(
-                                            entity_id,
-                                            thread.clone(),
-                                        );
-                                        let mut exec_with_state = executor;
-                                        exec_with_state.cached_mouse_x = mouse_x;
-                                        exec_with_state.cached_mouse_y = mouse_y;
-                                        exec_with_state.mouse_clicked = true;
-                                        exec_with_state.cached_project_timer_value = inner.project_timer_value;
-                                        inner.executors.push(exec_with_state);
+        let use_vm = inner.use_vm && inner.program.is_some();
+        
+        if use_vm {
+            // Collect script info first to avoid borrow conflicts
+            let scripts_to_add: Vec<(usize, usize)> = if let Some(program) = &inner.program {
+                let mut result = Vec::new();
+                for entity_id in &clicked_entities {
+                    for script in &program.scripts {
+                        if script.entity_index == *entity_id && 
+                           script.trigger_type == crate::blocks::BlockTypeId::WhenObjectClick {
+                            result.push((*entity_id, script.start_pc));
+                        }
+                    }
+                }
+                result
+            } else {
+                Vec::new()
+            };
+            
+            // Now add VMThreads without conflicting borrows
+            for (entity_idx, start_pc) in scripts_to_add {
+                let mut thread = VMThread::new(entity_idx, start_pc);
+                thread.mouse_x = mouse_x;
+                thread.mouse_y = mouse_y;
+                thread.mouse_clicked = true;
+                thread.pressed_keys = inner.pressed_keys.clone();
+                thread.timer_value = inner.project_timer_value;
+                inner.vmthreads.push(thread);
+            }
+        } else {
+            if let Some(project) = &inner.project_data.clone() {
+                if let Some(objects) = &project.objects {
+                    for entity_id in clicked_entities {
+                        if let Some(obj) = objects.get(entity_id) {
+                            if let Some(scripts) = &obj.script {
+                                for thread in scripts.iter() {
+                                    if let Some(first_block) = thread.first() {
+                                        if first_block.block_type == "when_object_click" {
+                                            let executor = Executor::new(
+                                                entity_id,
+                                                thread.clone(),
+                                            );
+                                            let mut exec_with_state = executor;
+                                            exec_with_state.cached_mouse_x = mouse_x;
+                                            exec_with_state.cached_mouse_y = mouse_y;
+                                            exec_with_state.mouse_clicked = true;
+                                            exec_with_state.cached_project_timer_value = inner.project_timer_value;
+                                            inner.executors.push(exec_with_state);
+                                        }
                                     }
                                 }
                             }
@@ -1034,8 +1374,36 @@ impl WasmEngine {
             return;
         }
         
-        let mut new_executors = Self::find_executors_for_message(&inner, message_id);
-        inner.executors.append(&mut new_executors);
+        let use_vm = inner.use_vm && inner.program.is_some();
+        
+        if use_vm {
+            // Collect script info first to avoid borrow conflicts
+            let scripts_to_add: Vec<(usize, usize)> = if let Some(program) = &inner.program {
+                program.scripts.iter()
+                    .filter(|script| {
+                        script.trigger_type == crate::blocks::BlockTypeId::WhenMessageCast &&
+                        matches!(&script.trigger_value, Some(crate::bytecode::TriggerValue::MessageId(msg_id)) if msg_id == message_id)
+                    })
+                    .map(|script| (script.entity_index, script.start_pc))
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            
+            // Now add VMThreads without conflicting borrows
+            for (entity_idx, start_pc) in scripts_to_add {
+                let mut thread = VMThread::new(entity_idx, start_pc);
+                thread.mouse_x = inner.mouse_x;
+                thread.mouse_y = inner.mouse_y;
+                thread.mouse_clicked = inner.mouse_clicked;
+                thread.pressed_keys = inner.pressed_keys.clone();
+                thread.timer_value = inner.project_timer_value;
+                inner.vmthreads.push(thread);
+            }
+        } else {
+            let mut new_executors = Self::find_executors_for_message(&inner, message_id);
+            inner.executors.append(&mut new_executors);
+        }
     }
 
     #[wasm_bindgen]
@@ -1049,23 +1417,51 @@ impl WasmEngine {
             return;
         }
         
-        if let Some(project) = &inner.project_data.clone() {
-            if let Some(objects) = &project.objects {
-                if let Some(obj) = objects.get(entity_id) {
-                    if let Some(scripts) = &obj.script {
-                        for thread in scripts.iter() {
-                            if let Some(first_block) = thread.first() {
-                                if first_block.block_type == "when_object_click" {
-                                    let executor = Executor::new(
-                                        entity_id,
-                                        thread.clone(),
-                                    );
-                                    let mut exec_with_state = executor;
-                                    exec_with_state.cached_mouse_x = inner.mouse_x;
-                                    exec_with_state.cached_mouse_y = inner.mouse_y;
-                                    exec_with_state.mouse_clicked = inner.mouse_clicked;
-                                    exec_with_state.cached_project_timer_value = inner.project_timer_value;
-                                    inner.executors.push(exec_with_state);
+        let use_vm = inner.use_vm && inner.program.is_some();
+        
+        if use_vm {
+            // Collect script info first to avoid borrow conflicts
+            let scripts_to_add: Vec<(usize, usize)> = if let Some(program) = &inner.program {
+                program.scripts.iter()
+                    .filter(|script| {
+                        script.entity_index == entity_id && 
+                        script.trigger_type == crate::blocks::BlockTypeId::WhenObjectClick
+                    })
+                    .map(|script| (script.entity_index, script.start_pc))
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            
+            // Now add VMThreads without conflicting borrows
+            for (entity_idx, start_pc) in scripts_to_add {
+                let mut thread = VMThread::new(entity_idx, start_pc);
+                thread.mouse_x = inner.mouse_x;
+                thread.mouse_y = inner.mouse_y;
+                thread.mouse_clicked = inner.mouse_clicked;
+                thread.pressed_keys = inner.pressed_keys.clone();
+                thread.timer_value = inner.project_timer_value;
+                inner.vmthreads.push(thread);
+            }
+        } else {
+            if let Some(project) = &inner.project_data.clone() {
+                if let Some(objects) = &project.objects {
+                    if let Some(obj) = objects.get(entity_id) {
+                        if let Some(scripts) = &obj.script {
+                            for thread in scripts.iter() {
+                                if let Some(first_block) = thread.first() {
+                                    if first_block.block_type == "when_object_click" {
+                                        let executor = Executor::new(
+                                            entity_id,
+                                            thread.clone(),
+                                        );
+                                        let mut exec_with_state = executor;
+                                        exec_with_state.cached_mouse_x = inner.mouse_x;
+                                        exec_with_state.cached_mouse_y = inner.mouse_y;
+                                        exec_with_state.mouse_clicked = inner.mouse_clicked;
+                                        exec_with_state.cached_project_timer_value = inner.project_timer_value;
+                                        inner.executors.push(exec_with_state);
+                                    }
                                 }
                             }
                         }
@@ -1086,23 +1482,51 @@ impl WasmEngine {
             return;
         }
         
-        if let Some(project) = &inner.project_data.clone() {
-            if let Some(objects) = &project.objects {
-                if let Some(obj) = objects.get(entity_id) {
-                    if let Some(scripts) = &obj.script {
-                        for thread in scripts.iter() {
-                            if let Some(first_block) = thread.first() {
-                                if first_block.block_type == "when_object_click_canceled" {
-                                    let executor = Executor::new(
-                                        entity_id,
-                                        thread.clone(),
-                                    );
-                                    let mut exec_with_state = executor;
-                                    exec_with_state.cached_mouse_x = inner.mouse_x;
-                                    exec_with_state.cached_mouse_y = inner.mouse_y;
-                                    exec_with_state.mouse_clicked = inner.mouse_clicked;
-                                    exec_with_state.cached_project_timer_value = inner.project_timer_value;
-                                    inner.executors.push(exec_with_state);
+        let use_vm = inner.use_vm && inner.program.is_some();
+        
+        if use_vm {
+            // Collect script info first to avoid borrow conflicts
+            let scripts_to_add: Vec<(usize, usize)> = if let Some(program) = &inner.program {
+                program.scripts.iter()
+                    .filter(|script| {
+                        script.entity_index == entity_id && 
+                        script.trigger_type == crate::blocks::BlockTypeId::WhenObjectClickCanceled
+                    })
+                    .map(|script| (script.entity_index, script.start_pc))
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            
+            // Now add VMThreads without conflicting borrows
+            for (entity_idx, start_pc) in scripts_to_add {
+                let mut thread = VMThread::new(entity_idx, start_pc);
+                thread.mouse_x = inner.mouse_x;
+                thread.mouse_y = inner.mouse_y;
+                thread.mouse_clicked = inner.mouse_clicked;
+                thread.pressed_keys = inner.pressed_keys.clone();
+                thread.timer_value = inner.project_timer_value;
+                inner.vmthreads.push(thread);
+            }
+        } else {
+            if let Some(project) = &inner.project_data.clone() {
+                if let Some(objects) = &project.objects {
+                    if let Some(obj) = objects.get(entity_id) {
+                        if let Some(scripts) = &obj.script {
+                            for thread in scripts.iter() {
+                                if let Some(first_block) = thread.first() {
+                                    if first_block.block_type == "when_object_click_canceled" {
+                                        let executor = Executor::new(
+                                            entity_id,
+                                            thread.clone(),
+                                        );
+                                        let mut exec_with_state = executor;
+                                        exec_with_state.cached_mouse_x = inner.mouse_x;
+                                        exec_with_state.cached_mouse_y = inner.mouse_y;
+                                        exec_with_state.mouse_clicked = inner.mouse_clicked;
+                                        exec_with_state.cached_project_timer_value = inner.project_timer_value;
+                                        inner.executors.push(exec_with_state);
+                                    }
                                 }
                             }
                         }
@@ -1126,9 +1550,21 @@ impl WasmEngine {
         
         Self::fire_event_inner(&mut inner, "when_scene_start");
     }
+    
+    /// Update pressed keys from JavaScript
+    #[wasm_bindgen]
+    pub fn update_pressed_keys(&self, keys: &[u32]) {
+        let mut inner = match self.inner.try_borrow_mut() {
+            Ok(inner) => inner,
+            Err(_) => return,
+        };
+        
+        inner.pressed_keys = keys.to_vec();
+    }
 
     fn initialize_executors_inner(inner: &mut EngineInner) {
         inner.executors.clear();
+        inner.vmthreads.clear();
         for entity in &mut inner.entities {
             entity.take_snapshot();
         }
