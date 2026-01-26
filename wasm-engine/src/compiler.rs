@@ -110,6 +110,10 @@ impl Compiler {
     
     /// Extract function definitions from project
     fn extract_functions(&mut self, project: &ProjectData) {
+        // First, extract functions from project.functions (main source of function definitions)
+        self.extract_functions_from_project_functions(project);
+        
+        // Also extract from objects[].script for backward compatibility
         if let Some(objects) = &project.objects {
             for obj in objects {
                 if let Some(scripts) = &obj.script {
@@ -118,7 +122,10 @@ impl Compiler {
                             if first_block.block_type == "function_create" || 
                                first_block.block_type == "function_create_value" {
                                 if let Some(func_def) = self.extract_function_def(first_block, thread) {
-                                    self.function_defs.insert(func_def.id.clone(), func_def);
+                                    // Only insert if not already found in project.functions
+                                    if !self.function_defs.contains_key(&func_def.id) {
+                                        self.function_defs.insert(func_def.id.clone(), func_def);
+                                    }
                                 }
                             }
                         }
@@ -126,6 +133,86 @@ impl Compiler {
                 }
             }
         }
+    }
+    
+    /// Extract function definitions from project.functions field
+    /// This is the main source of function definitions in Entry projects
+    fn extract_functions_from_project_functions(&mut self, project: &ProjectData) {
+        let functions_value = match &project.functions {
+            Some(v) => v,
+            None => return,
+        };
+        
+        // project.functions can be an array of function objects
+        if let Some(func_array) = functions_value.as_array() {
+            for func_value in func_array {
+                self.extract_function_from_value(func_value);
+            }
+        }
+        // Or it can be an object with function IDs as keys
+        else if let Some(func_map) = functions_value.as_object() {
+            for (_func_id, func_value) in func_map {
+                self.extract_function_from_value(func_value);
+            }
+        }
+    }
+    
+    /// Extract a single function from a JSON value (FunctionData structure)
+    fn extract_function_from_value(&mut self, func_value: &serde_json::Value) {
+        let func_obj = match func_value.as_object() {
+            Some(obj) => obj,
+            None => return,
+        };
+        
+        // Get function ID
+        let func_id = match func_obj.get("id").and_then(|v| v.as_str()) {
+            Some(id) => id.to_string(),
+            None => return,
+        };
+        
+        // Get content field (array of script threads)
+        let content = match func_obj.get("content") {
+            Some(v) => v,
+            None => return,
+        };
+        
+        // content can be a string (JSON) or an array
+        let threads: Vec<Vec<crate::Block>> = if let Some(content_str) = content.as_str() {
+            // Parse JSON string
+            match serde_json::from_str(content_str) {
+                Ok(t) => t,
+                Err(_) => return,
+            }
+        } else if let Some(content_arr) = content.as_array() {
+            // Already an array - parse each thread
+            match serde_json::from_value(serde_json::Value::Array(content_arr.clone())) {
+                Ok(t) => t,
+                Err(_) => return,
+            }
+        } else {
+            return;
+        };
+        
+        // Look for function_create or function_create_value block in threads
+        for thread in &threads {
+            if let Some(first_block) = thread.first() {
+                if first_block.block_type == "function_create" || 
+                   first_block.block_type == "function_create_value" {
+                    if let Some(mut func_def) = self.extract_function_def(first_block, thread) {
+                        // Use the function ID from the outer structure if the extracted one is different
+                        if func_def.id.is_empty() || func_def.id != func_id {
+                            func_def.id = func_id.clone();
+                        }
+                        self.function_defs.insert(func_def.id.clone(), func_def);
+                        return; // Found the function definition
+                    }
+                }
+            }
+        }
+        
+        // If no function_create block found, skip this function
+        // Functions without proper function_create blocks are likely malformed
+        // and we shouldn't try to compile them as it could cause incorrect behavior
     }
     
     /// Extract a function definition from a function_create block
