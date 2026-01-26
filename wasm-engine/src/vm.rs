@@ -755,14 +755,16 @@ impl<'a> VM<'a> {
                 (VMResult::Continue, pc + 1)
             }
             
-            // MOVE_DIR
+            // MOVE_DIR - matches Entry JS: angle = (rotation + direction - 90), y -= sin(angle)
             0x56 => {
                 let dist_reg = decode_reg_a(instr);
                 let distance = self.registers.get_number(dist_reg);
                 if let Some(e) = self.entities.get_mut(self.entity_idx) {
-                    let radians = e.direction.to_radians();
-                    e.x += distance * radians.cos();
-                    e.y += distance * radians.sin();
+                    // Use entity's move_direction which has the correct formula:
+                    // angle = (rotation + direction - 90).to_radians()
+                    // x += distance * cos(angle)
+                    // y -= distance * sin(angle)  <- note: SUBTRACTION for Y
+                    e.move_direction(distance);
                 }
                 (VMResult::Continue, pc + 1)
             }
