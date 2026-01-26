@@ -1032,42 +1032,13 @@ impl Executor {
                 };
                 
                 if count > 0 {
-                    if let Some(statements) = &block.statements {
-                        if let Some(inner_blocks) = statements.first() {
-                            if !inner_blocks.is_empty() {
-                                let frame = StackFrame {
-                                    blocks: Rc::clone(&self.blocks),
-                                    block_index: self.block_index,
-                                    iteration_count: count - 1,
-                                    is_loop: true,
-                                    func_params: None,
-                                    local_vars: None,
-                                    is_value_func: false,
-                                    return_value_json: None,
-                                };
-                                self.call_stack.push(frame);
-                                
-                                self.blocks = Rc::new(inner_blocks.clone());
-                                self.block_index = 0;
-                                self.iteration_count = 0; // Reset for inner blocks
-                                return ExecuteResult::JumpedToBlock;
-                            }
-                        }
-                    }
-                }
-                // Loop finished or no statements
-                self.iteration_count = 0;
-                ExecuteResult::Continue
-            }
-            
-            "repeat_inf" => {
-                if let Some(statements) = &block.statements {
+                    let statements = block.parse_statements();
                     if let Some(inner_blocks) = statements.first() {
                         if !inner_blocks.is_empty() {
                             let frame = StackFrame {
                                 blocks: Rc::clone(&self.blocks),
                                 block_index: self.block_index,
-                                iteration_count: u32::MAX,
+                                iteration_count: count - 1,
                                 is_loop: true,
                                 func_params: None,
                                 local_vars: None,
@@ -1078,9 +1049,36 @@ impl Executor {
                             
                             self.blocks = Rc::new(inner_blocks.clone());
                             self.block_index = 0;
-                            self.iteration_count = u32::MAX;
+                            self.iteration_count = 0; // Reset for inner blocks
                             return ExecuteResult::JumpedToBlock;
                         }
+                    }
+                }
+                // Loop finished or no statements
+                self.iteration_count = 0;
+                ExecuteResult::Continue
+            }
+            
+            "repeat_inf" => {
+                let statements = block.parse_statements();
+                if let Some(inner_blocks) = statements.first() {
+                    if !inner_blocks.is_empty() {
+                        let frame = StackFrame {
+                            blocks: Rc::clone(&self.blocks),
+                            block_index: self.block_index,
+                            iteration_count: u32::MAX,
+                            is_loop: true,
+                            func_params: None,
+                            local_vars: None,
+                            is_value_func: false,
+                            return_value_json: None,
+                        };
+                        self.call_stack.push(frame);
+                        
+                        self.blocks = Rc::new(inner_blocks.clone());
+                        self.block_index = 0;
+                        self.iteration_count = u32::MAX;
+                        return ExecuteResult::JumpedToBlock;
                     }
                 }
                 ExecuteResult::Continue
@@ -1089,36 +1087,8 @@ impl Executor {
             "_if" => {
                 let condition = self.get_param_bool(block, 0, variables);
                 if condition {
-                    if let Some(statements) = &block.statements {
-                        if let Some(inner_blocks) = statements.first() {
-                            if !inner_blocks.is_empty() {
-                                let frame = StackFrame {
-                                    blocks: Rc::clone(&self.blocks),
-                                    block_index: self.block_index,
-                                    iteration_count: 0,
-                                    is_loop: false,
-                                    func_params: None,
-                                    local_vars: None,
-                                    is_value_func: false,
-                                    return_value_json: None,
-                                };
-                                self.call_stack.push(frame);
-                                
-                                self.blocks = Rc::new(inner_blocks.clone());
-                                self.block_index = 0;
-                                return ExecuteResult::JumpedToBlock;
-                            }
-                        }
-                    }
-                }
-                ExecuteResult::Continue
-            }
-            
-            "if_else" => {
-                let condition = self.get_param_bool(block, 0, variables);
-                if let Some(statements) = &block.statements {
-                    let branch_idx = if condition { 0 } else { 1 };
-                    if let Some(inner_blocks) = statements.get(branch_idx) {
+                    let statements = block.parse_statements();
+                    if let Some(inner_blocks) = statements.first() {
                         if !inner_blocks.is_empty() {
                             let frame = StackFrame {
                                 blocks: Rc::clone(&self.blocks),
@@ -1136,6 +1106,32 @@ impl Executor {
                             self.block_index = 0;
                             return ExecuteResult::JumpedToBlock;
                         }
+                    }
+                }
+                ExecuteResult::Continue
+            }
+            
+            "if_else" => {
+                let condition = self.get_param_bool(block, 0, variables);
+                let statements = block.parse_statements();
+                let branch_idx = if condition { 0 } else { 1 };
+                if let Some(inner_blocks) = statements.get(branch_idx) {
+                    if !inner_blocks.is_empty() {
+                        let frame = StackFrame {
+                            blocks: Rc::clone(&self.blocks),
+                            block_index: self.block_index,
+                            iteration_count: 0,
+                            is_loop: false,
+                            func_params: None,
+                            local_vars: None,
+                            is_value_func: false,
+                            return_value_json: None,
+                        };
+                        self.call_stack.push(frame);
+                        
+                        self.blocks = Rc::new(inner_blocks.clone());
+                        self.block_index = 0;
+                        return ExecuteResult::JumpedToBlock;
                     }
                 }
                 ExecuteResult::Continue
@@ -1171,26 +1167,25 @@ impl Executor {
                 let should_loop = if option == "until" { !condition } else { condition };
                 
                 if should_loop {
-                    if let Some(statements) = &block.statements {
-                        if let Some(inner_blocks) = statements.first() {
-                            if !inner_blocks.is_empty() {
-                                let frame = StackFrame {
-                                    blocks: Rc::clone(&self.blocks),
-                                    block_index: self.block_index,
-                                    iteration_count: u32::MAX,
-                                    is_loop: true,
-                                    func_params: None,
-                                    local_vars: None,
-                                    is_value_func: false,
-                                    return_value_json: None,
-                                };
-                                self.call_stack.push(frame);
-                                
-                                self.blocks = Rc::new(inner_blocks.clone());
-                                self.block_index = 0;
-                                self.iteration_count = 0;
-                                return ExecuteResult::JumpedToBlock;
-                            }
+                    let statements = block.parse_statements();
+                    if let Some(inner_blocks) = statements.first() {
+                        if !inner_blocks.is_empty() {
+                            let frame = StackFrame {
+                                blocks: Rc::clone(&self.blocks),
+                                block_index: self.block_index,
+                                iteration_count: u32::MAX,
+                                is_loop: true,
+                                func_params: None,
+                                local_vars: None,
+                                is_value_func: false,
+                                return_value_json: None,
+                            };
+                            self.call_stack.push(frame);
+                            
+                            self.blocks = Rc::new(inner_blocks.clone());
+                            self.block_index = 0;
+                            self.iteration_count = 0;
+                            return ExecuteResult::JumpedToBlock;
                         }
                     }
                 }
@@ -2069,11 +2064,11 @@ impl Executor {
                     if let Some(func_create_block) = first_thread.first() {
                         let mut func_body: Option<Vec<Block>> = None;
                         
-                        if let Some(statements) = &func_create_block.statements {
-                            if let Some(body) = statements.first() {
-                                if !body.is_empty() {
-                                    func_body = Some(body.clone());
-                                }
+                        // Use parse_statements() to handle both array and object formats
+                        let statements = func_create_block.parse_statements();
+                        if let Some(body) = statements.first() {
+                            if !body.is_empty() {
+                                func_body = Some(body.clone());
                             }
                         }
                         

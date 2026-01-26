@@ -1844,7 +1844,77 @@ pub struct Block {
     pub x: Option<f64>,
     pub y: Option<f64>,
     pub params: Option<Vec<serde_json::Value>>,
-    pub statements: Option<Vec<Vec<Block>>>,
+    /// Statements can be either an array [[blocks...]] or an object {"0": [blocks...], "1": [blocks...]}
+    /// Entry JS stores statements as objects, so we use serde_json::Value to handle both formats
+    pub statements: Option<serde_json::Value>,
+}
+
+impl Block {
+    /// Parse statements into Vec<Vec<Block>>, handling both array and object formats
+    pub fn parse_statements(&self) -> Vec<Vec<Block>> {
+        match &self.statements {
+            None => Vec::new(),
+            Some(value) => parse_statements_value(value),
+        }
+    }
+}
+
+/// Helper function to parse statements from serde_json::Value
+/// Handles both array format [[blocks...]] and object format {"0": [blocks...], "1": [blocks...]}
+pub fn parse_statements_value(value: &serde_json::Value) -> Vec<Vec<Block>> {
+    // Try as array first: [[block1, block2], [block3, block4]]
+    if let Some(arr) = value.as_array() {
+        let mut result = Vec::new();
+        for item in arr {
+            if let Ok(blocks) = serde_json::from_value::<Vec<Block>>(item.clone()) {
+                result.push(blocks);
+            }
+        }
+        return result;
+    }
+    
+    // Try as object: {"0": [blocks...], "1": [blocks...]} or {"DO": [blocks...], "STACK": [blocks...]}
+    if let Some(obj) = value.as_object() {
+        let mut result = Vec::new();
+        
+        // Try numeric keys first (0, 1, 2, ...)
+        let mut i = 0;
+        loop {
+            let key = i.to_string();
+            if let Some(val) = obj.get(&key) {
+                if let Ok(blocks) = serde_json::from_value::<Vec<Block>>(val.clone()) {
+                    result.push(blocks);
+                }
+                i += 1;
+            } else {
+                break;
+            }
+        }
+        
+        // If no numeric keys found, try other common keys
+        if result.is_empty() {
+            for key in ["DO", "STACK", "SUBSTACK", "SUBSTACK2"] {
+                if let Some(val) = obj.get(key) {
+                    if let Ok(blocks) = serde_json::from_value::<Vec<Block>>(val.clone()) {
+                        result.push(blocks);
+                    }
+                }
+            }
+        }
+        
+        // If still empty, try all values in order
+        if result.is_empty() {
+            for (_key, val) in obj {
+                if let Ok(blocks) = serde_json::from_value::<Vec<Block>>(val.clone()) {
+                    result.push(blocks);
+                }
+            }
+        }
+        
+        return result;
+    }
+    
+    Vec::new()
 }
 
 /// Render entity for JavaScript

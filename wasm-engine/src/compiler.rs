@@ -233,12 +233,15 @@ impl Compiler {
         let param_types = self.extract_param_types_from_chain(first_param);
         
         // Get function body from statements or remaining thread blocks
-        let body = if let Some(stmts) = &create_block.statements {
-            stmts.first().cloned().unwrap_or_default()
-        } else if thread.len() > 1 {
-            thread[1..].to_vec()
-        } else {
-            Vec::new()
+        let body = {
+            let parsed = create_block.parse_statements();
+            if let Some(first) = parsed.into_iter().next() {
+                first
+            } else if thread.len() > 1 {
+                thread[1..].to_vec()
+            } else {
+                Vec::new()
+            }
         };
         
         // Get return expression for value functions
@@ -982,10 +985,9 @@ impl Compiler {
         });
         
         // Compile body
-        if let Some(stmts) = &block.statements {
-            if let Some(body) = stmts.first() {
-                self.compile_statements(body);
-            }
+        let stmts = block.parse_statements();
+        if let Some(body) = stmts.first() {
+            self.compile_statements(body);
         }
         
         // Yield after each iteration for cooperative multitasking
@@ -1016,10 +1018,9 @@ impl Compiler {
         });
         
         // Compile body
-        if let Some(stmts) = &block.statements {
-            if let Some(body) = stmts.first() {
-                self.compile_statements(body);
-            }
+        let stmts = block.parse_statements();
+        if let Some(body) = stmts.first() {
+            self.compile_statements(body);
         }
         
         // Yield for cooperative multitasking
@@ -1065,10 +1066,9 @@ impl Compiler {
         });
         
         // Compile body
-        if let Some(stmts) = &block.statements {
-            if let Some(body) = stmts.first() {
-                self.compile_statements(body);
-            }
+        let stmts = block.parse_statements();
+        if let Some(body) = stmts.first() {
+            self.compile_statements(body);
         }
         
         // Yield
@@ -1099,10 +1099,9 @@ impl Compiler {
         let jz_addr = self.program.emit(InstructionBuilder::jz(cond_reg, 0));
         
         // Compile body
-        if let Some(stmts) = &block.statements {
-            if let Some(body) = stmts.first() {
-                self.compile_statements(body);
-            }
+        let stmts = block.parse_statements();
+        if let Some(body) = stmts.first() {
+            self.compile_statements(body);
         }
         
         // Patch jump
@@ -1118,10 +1117,9 @@ impl Compiler {
         let jz_addr = self.program.emit(InstructionBuilder::jz(cond_reg, 0));
         
         // Compile then body
-        if let Some(stmts) = &block.statements {
-            if let Some(then_body) = stmts.first() {
-                self.compile_statements(then_body);
-            }
+        let stmts = block.parse_statements();
+        if let Some(then_body) = stmts.first() {
+            self.compile_statements(then_body);
         }
         
         // Jump over else
@@ -1131,10 +1129,8 @@ impl Compiler {
         self.program.patch_jump(jz_addr, self.program.current_pc());
         
         // Compile else body
-        if let Some(stmts) = &block.statements {
-            if let Some(else_body) = stmts.get(1) {
-                self.compile_statements(else_body);
-            }
+        if let Some(else_body) = stmts.get(1) {
+            self.compile_statements(else_body);
         }
         
         // Patch jump over else
