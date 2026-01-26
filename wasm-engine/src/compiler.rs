@@ -81,11 +81,13 @@ impl Compiler {
         // Phase 2: Extract function definitions from all objects
         self.extract_functions(project);
         
-        // Phase 3: Compile all scripts from all objects
-        self.compile_scripts(project);
-        
-        // Phase 4: Compile function definitions
+        // Phase 3: Compile function definitions FIRST
+        // This must happen before scripts so that function calls have valid start_pc
         self.compile_functions();
+        
+        // Phase 4: Compile all scripts from all objects
+        // Now function calls can look up FunctionInfo with correct start_pc
+        self.compile_scripts(project);
         
         self.program
     }

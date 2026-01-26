@@ -115,6 +115,9 @@ pub struct VM<'a> {
     func_locals: HashMap<String, Value>,
     /// Stack of saved func_locals for nested function calls
     func_locals_stack: Vec<HashMap<String, Value>>,
+    /// Stack of saved register files for function calls
+    /// This preserves caller's registers across function calls
+    register_stack: Vec<RegisterFile>,
     /// Current entity index
     entity_idx: usize,
     /// Cached mouse coordinates
@@ -184,6 +187,9 @@ pub struct VMThread {
     pub func_locals: HashMap<String, Value>,
     /// Stack of saved func_locals for nested function calls
     pub func_locals_stack: Vec<HashMap<String, Value>>,
+    /// Stack of saved register files for function calls
+    /// This preserves caller's registers across function calls
+    pub register_stack: Vec<RegisterFile>,
     
     // Input state (updated from engine each tick)
     pub mouse_x: f64,
@@ -211,6 +217,7 @@ impl VMThread {
             func_params_stack: Vec::with_capacity(16),
             func_locals: HashMap::default(),
             func_locals_stack: Vec::with_capacity(16),
+            register_stack: Vec::with_capacity(16),
             mouse_x: 0.0,
             mouse_y: 0.0,
             mouse_clicked: false,
@@ -253,6 +260,7 @@ impl<'a> VM<'a> {
             func_params_stack: Vec::with_capacity(16),
             func_locals: HashMap::default(),
             func_locals_stack: Vec::with_capacity(16),
+            register_stack: Vec::with_capacity(16),
             entity_idx: 0,
             mouse_x: 0.0,
             mouse_y: 0.0,
@@ -282,6 +290,7 @@ impl<'a> VM<'a> {
         self.func_params_stack = thread.func_params_stack.clone();
         self.func_locals = thread.func_locals.clone();
         self.func_locals_stack = thread.func_locals_stack.clone();
+        self.register_stack = thread.register_stack.clone();
         self.mouse_x = thread.mouse_x;
         self.mouse_y = thread.mouse_y;
         self.mouse_clicked = thread.mouse_clicked;
@@ -360,6 +369,7 @@ impl<'a> VM<'a> {
         thread.func_params_stack = self.func_params_stack.clone();
         thread.func_locals = self.func_locals.clone();
         thread.func_locals_stack = self.func_locals_stack.clone();
+        thread.register_stack = self.register_stack.clone();
         
         if matches!(result, VMResult::End) {
             thread.completed = true;
@@ -467,6 +477,10 @@ impl<'a> VM<'a> {
                     .and_then(|id| self.program.functions.get(id))
                     .cloned();
                 
+                // Save current registers for restoration on RET
+                // This preserves caller's registers across function calls
+                self.register_stack.push(self.registers.clone());
+                
                 // Save current func_params and func_locals for restoration on RET
                 self.func_params_stack.push(self.func_params.clone());
                 self.func_locals_stack.push(self.func_locals.clone());
@@ -491,8 +505,19 @@ impl<'a> VM<'a> {
                 (VMResult::Continue, func_pc)
             }
             
-            // RET - Return from function, restore previous func_params and func_locals
+            // RET - Return from function, restore previous state
             0x06 => {
+                // Save return value (r0) before restoring registers
+                let return_value = self.registers.get(0).clone();
+                
+                // Restore previous registers
+                if let Some(prev_regs) = self.register_stack.pop() {
+                    self.registers = prev_regs;
+                }
+                
+                // Put return value back in r0 so caller can access it
+                self.registers.set(0, return_value);
+                
                 // Restore previous func_params
                 if let Some(prev_params) = self.func_params_stack.pop() {
                     self.func_params = prev_params;
