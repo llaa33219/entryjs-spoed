@@ -847,6 +847,9 @@ pub struct Program {
     /// Mapping from function ID to function info
     pub functions: HashMap<String, FunctionInfo>,
     
+    /// Reverse mapping from start_pc to function ID for O(1) lookup
+    pub func_by_pc: HashMap<usize, String>,
+    
     /// Script entry points
     pub scripts: Vec<ScriptInfo>,
     
@@ -1000,6 +1003,10 @@ pub struct FunctionInfo {
     
     /// Whether function returns a value
     pub returns_value: bool,
+    
+    /// Parameter type names (stringParam_xxx, booleanParam_xxx)
+    /// Used to map register values to named parameters for JS-compatible lookup
+    pub param_types: Vec<String>,
 }
 
 // ============================================================================

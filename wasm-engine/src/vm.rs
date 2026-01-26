@@ -107,6 +107,14 @@ pub struct VM<'a> {
     loop_stack: Vec<LoopInfo>,
     /// Local variables stack (for function calls)
     local_vars: Vec<Value>,
+    /// Function parameters by type name (stringParam_xxx, booleanParam_xxx)
+    func_params: HashMap<String, Value>,
+    /// Stack of saved func_params for nested function calls
+    func_params_stack: Vec<HashMap<String, Value>>,
+    /// Function-local variables by variableId
+    func_locals: HashMap<String, Value>,
+    /// Stack of saved func_locals for nested function calls
+    func_locals_stack: Vec<HashMap<String, Value>>,
     /// Current entity index
     entity_idx: usize,
     /// Cached mouse coordinates
@@ -167,6 +175,16 @@ pub struct VMThread {
     /// Local variables
     pub local_vars: Vec<Value>,
     
+    /// Function parameters by type name (stringParam_xxx, booleanParam_xxx)
+    /// Used for JS-compatible parameter lookup within functions
+    pub func_params: HashMap<String, Value>,
+    /// Stack of saved func_params for nested function calls
+    pub func_params_stack: Vec<HashMap<String, Value>>,
+    /// Function-local variables by variableId
+    pub func_locals: HashMap<String, Value>,
+    /// Stack of saved func_locals for nested function calls
+    pub func_locals_stack: Vec<HashMap<String, Value>>,
+    
     // Input state (updated from engine each tick)
     pub mouse_x: f64,
     pub mouse_y: f64,
@@ -189,6 +207,10 @@ impl VMThread {
             call_stack: Vec::with_capacity(64),
             loop_stack: Vec::with_capacity(16),
             local_vars: Vec::with_capacity(64),
+            func_params: HashMap::default(),
+            func_params_stack: Vec::with_capacity(16),
+            func_locals: HashMap::default(),
+            func_locals_stack: Vec::with_capacity(16),
             mouse_x: 0.0,
             mouse_y: 0.0,
             mouse_clicked: false,
@@ -227,6 +249,10 @@ impl<'a> VM<'a> {
             call_stack: Vec::with_capacity(64),
             loop_stack: Vec::with_capacity(16),
             local_vars: Vec::with_capacity(64),
+            func_params: HashMap::default(),
+            func_params_stack: Vec::with_capacity(16),
+            func_locals: HashMap::default(),
+            func_locals_stack: Vec::with_capacity(16),
             entity_idx: 0,
             mouse_x: 0.0,
             mouse_y: 0.0,
@@ -252,6 +278,10 @@ impl<'a> VM<'a> {
         self.call_stack = thread.call_stack.clone();
         self.loop_stack = thread.loop_stack.clone();
         self.local_vars = thread.local_vars.clone();
+        self.func_params = thread.func_params.clone();
+        self.func_params_stack = thread.func_params_stack.clone();
+        self.func_locals = thread.func_locals.clone();
+        self.func_locals_stack = thread.func_locals_stack.clone();
         self.mouse_x = thread.mouse_x;
         self.mouse_y = thread.mouse_y;
         self.mouse_clicked = thread.mouse_clicked;
@@ -326,6 +356,10 @@ impl<'a> VM<'a> {
         thread.call_stack = self.call_stack.clone();
         thread.loop_stack = self.loop_stack.clone();
         thread.local_vars = self.local_vars.clone();
+        thread.func_params = self.func_params.clone();
+        thread.func_params_stack = self.func_params_stack.clone();
+        thread.func_locals = self.func_locals.clone();
+        thread.func_locals_stack = self.func_locals_stack.clone();
         
         if matches!(result, VMResult::End) {
             thread.completed = true;
@@ -424,19 +458,55 @@ impl<'a> VM<'a> {
                 }
             }
             
-            // CALL
+            // CALL - Function call with parameter passing
             0x05 => {
-                // Function call - save return address and jump
+                let func_pc = decode_operand_signed(instr) as usize;
+                
+                // O(1) lookup: first get func_id from func_by_pc, then get FunctionInfo
+                let func_info = self.program.func_by_pc.get(&func_pc)
+                    .and_then(|id| self.program.functions.get(id))
+                    .cloned();
+                
+                // Save current func_params and func_locals for restoration on RET
+                self.func_params_stack.push(self.func_params.clone());
+                self.func_locals_stack.push(self.func_locals.clone());
+                
+                // Create new func_params mapping register values to param type names
+                let mut new_params = HashMap::default();
+                if let Some(info) = func_info {
+                    for (i, param_type) in info.param_types.iter().enumerate() {
+                        let value = self.registers.get(i as u8).clone();
+                        new_params.insert(param_type.clone(), value);
+                    }
+                }
+                self.func_params = new_params;
+                self.func_locals = HashMap::default(); // Clear locals for new function scope
+                
+                // Push return address
                 self.call_stack.push(CallFrame {
                     return_pc: pc + 1,
                     base_reg: 0,
                 });
-                let func_idx = decode_operand_signed(instr) as usize;
-                (VMResult::Continue, func_idx)
+                
+                (VMResult::Continue, func_pc)
             }
             
-            // RET
+            // RET - Return from function, restore previous func_params and func_locals
             0x06 => {
+                // Restore previous func_params
+                if let Some(prev_params) = self.func_params_stack.pop() {
+                    self.func_params = prev_params;
+                } else {
+                    self.func_params.clear();
+                }
+                
+                // Restore previous func_locals
+                if let Some(prev_locals) = self.func_locals_stack.pop() {
+                    self.func_locals = prev_locals;
+                } else {
+                    self.func_locals.clear();
+                }
+                
                 if let Some(frame) = self.call_stack.pop() {
                     (VMResult::Continue, frame.return_pc)
                 } else {
@@ -581,24 +651,53 @@ impl<'a> VM<'a> {
                 (VMResult::Continue, pc + 1)
             }
             
-            // LOAD_LOCAL (0x24)
+            // LOAD_LOCAL (0x24) - Load local variable or function parameter
             0x24 => {
                 let dst = decode_reg_a(instr);
                 let idx = decode_imm16(instr) as usize;
-                let val = self.local_vars.get(idx).cloned().unwrap_or(Value::Null);
+                
+                // Check if this is a function parameter or local variable reference
+                let val = if let Some(name) = self.program.string_pool.get(idx) {
+                    if name.starts_with("stringParam_") || name.starts_with("booleanParam_") {
+                        // Look up in func_params by type name
+                        self.func_params.get(name).cloned().unwrap_or(Value::Null)
+                    } else {
+                        // Try func_locals first (for set_func_variable), then fall back to local_vars
+                        self.func_locals.get(name).cloned()
+                            .or_else(|| self.local_vars.get(idx).cloned())
+                            .unwrap_or(Value::Null)
+                    }
+                } else {
+                    // Fallback to local_vars
+                    self.local_vars.get(idx).cloned().unwrap_or(Value::Null)
+                };
+                
                 self.registers.set(dst, val);
                 (VMResult::Continue, pc + 1)
             }
             
-            // STORE_LOCAL (0x25)
+            // STORE_LOCAL (0x25) - Store to local variable or function parameter
             0x25 => {
                 let src = decode_reg_a(instr);
                 let idx = decode_imm16(instr) as usize;
                 let val = self.registers.get(src).clone();
-                while self.local_vars.len() <= idx {
-                    self.local_vars.push(Value::Null);
+                
+                // Check if this is a function parameter or local variable
+                if let Some(name) = self.program.string_pool.get(idx) {
+                    if name.starts_with("stringParam_") || name.starts_with("booleanParam_") {
+                        // Store to func_params by type name
+                        self.func_params.insert(name.clone(), val);
+                    } else {
+                        // Store to func_locals by variable name
+                        self.func_locals.insert(name.clone(), val);
+                    }
+                } else {
+                    // Fallback to local_vars vector
+                    while self.local_vars.len() <= idx {
+                        self.local_vars.push(Value::Null);
+                    }
+                    self.local_vars[idx] = val;
                 }
-                self.local_vars[idx] = val;
                 (VMResult::Continue, pc + 1)
             }
             

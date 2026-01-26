@@ -245,14 +245,18 @@ impl Compiler {
         // Emit return instruction
         self.program.emit(InstructionBuilder::ret());
         
-        // Register function info
+        // Register function info with param_types for parameter lookup
         self.program.functions.insert(func_def.id.clone(), FunctionInfo {
             id: func_def.id.clone(),
             start_pc,
             param_count,
             local_count: self.reg_alloc.current(),
             returns_value: func_def.returns_value,
+            param_types: func_def.param_types.clone(),
         });
+        
+        // Also add reverse mapping for O(1) lookup by start_pc
+        self.program.func_by_pc.insert(start_pc, func_def.id.clone());
     }
 
     /// Compile a single script (event handler + blocks)
