@@ -121,10 +121,15 @@ impl Compiler {
                         if let Some(first_block) = thread.first() {
                             if first_block.block_type == "function_create" || 
                                first_block.block_type == "function_create_value" {
-                                if let Some(func_def) = self.extract_function_def(first_block, thread) {
-                                    // Only insert if not already found in project.functions
-                                    if !self.function_defs.contains_key(&func_def.id) {
-                                        self.function_defs.insert(func_def.id.clone(), func_def);
+                                // Try to find func_id from nested params
+                                if let Some(params) = &first_block.params {
+                                    if let Some(func_id) = self.find_func_id_in_params(params) {
+                                        if let Some(func_def) = self.extract_function_def(first_block, thread, func_id) {
+                                            // Only insert if not already found in project.functions
+                                            if !self.function_defs.contains_key(&func_def.id) {
+                                                self.function_defs.insert(func_def.id.clone(), func_def);
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -198,11 +203,8 @@ impl Compiler {
             if let Some(first_block) = thread.first() {
                 if first_block.block_type == "function_create" || 
                    first_block.block_type == "function_create_value" {
-                    if let Some(mut func_def) = self.extract_function_def(first_block, thread) {
-                        // Use the function ID from the outer structure if the extracted one is different
-                        if func_def.id.is_empty() || func_def.id != func_id {
-                            func_def.id = func_id.clone();
-                        }
+                    // Pass the known func_id from project.functions to extract_function_def
+                    if let Some(func_def) = self.extract_function_def(first_block, thread, func_id.clone()) {
                         self.function_defs.insert(func_def.id.clone(), func_def);
                         return; // Found the function definition
                     }
@@ -216,21 +218,15 @@ impl Compiler {
     }
     
     /// Extract a function definition from a function_create block
-    fn extract_function_def(&self, create_block: &Block, thread: &[Block]) -> Option<FunctionDef> {
-        let params = create_block.params.as_ref()?;
-        let first_param = params.first()?;
-        let param_obj = first_param.as_object()?;
-        let param_type = param_obj.get("type")?.as_str()?;
-        
-        if !param_type.starts_with("func_") || param_type.len() <= 5 {
-            return None;
-        }
-        
-        let func_id = param_type[5..].to_string();
+    /// func_id is passed from the caller (either from project.functions or found in nested params)
+    fn extract_function_def(&self, create_block: &Block, thread: &[Block], func_id: String) -> Option<FunctionDef> {
         let returns_value = create_block.block_type == "function_create_value";
         
         // Extract parameter types from the definition chain
-        let param_types = self.extract_param_types_from_chain(first_param);
+        let param_types = create_block.params.as_ref()
+            .and_then(|params| params.first())
+            .map(|first_param| self.extract_param_types_from_chain(first_param))
+            .unwrap_or_default();
         
         // Get function body from statements or remaining thread blocks
         let body = {
@@ -246,7 +242,7 @@ impl Compiler {
         
         // Get return expression for value functions
         let return_expr = if returns_value {
-            params.get(3).cloned()
+            create_block.params.as_ref().and_then(|p| p.get(3).cloned())
         } else {
             None
         };
@@ -258,6 +254,38 @@ impl Compiler {
             returns_value,
             return_expr,
         })
+    }
+    
+    /// Find func_id by searching for a block type starting with "func_" in nested params
+    fn find_func_id_in_params(&self, params: &[serde_json::Value]) -> Option<String> {
+        for param in params {
+            if let Some(result) = self.find_func_id_in_value(param) {
+                return Some(result);
+            }
+        }
+        None
+    }
+    
+    /// Recursively search for func_id in a JSON value
+    fn find_func_id_in_value(&self, value: &serde_json::Value) -> Option<String> {
+        if let Some(obj) = value.as_object() {
+            // Check if this block's type starts with "func_"
+            if let Some(block_type) = obj.get("type").and_then(|v| v.as_str()) {
+                if block_type.starts_with("func_") && block_type.len() > 5 {
+                    return Some(block_type[5..].to_string());
+                }
+            }
+            
+            // Recursively search in params
+            if let Some(nested_params) = obj.get("params").and_then(|v| v.as_array()) {
+                for nested_param in nested_params {
+                    if let Some(result) = self.find_func_id_in_value(nested_param) {
+                        return Some(result);
+                    }
+                }
+            }
+        }
+        None
     }
     
     /// Extract parameter types from a function definition chain
