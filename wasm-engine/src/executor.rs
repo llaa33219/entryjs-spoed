@@ -101,6 +101,9 @@ struct StackFrame {
     local_vars: Option<HashMap<String, Value>>,
     is_value_func: bool,
     return_value_json: Option<serde_json::Value>,
+    /// Saved func_return_value from caller - needed for recursive function support
+    /// Each function call level needs its own func_return_value state
+    saved_func_return_value: Option<Value>,
 }
 
 impl Executor {
@@ -274,6 +277,7 @@ impl Executor {
                                         local_vars: frame.local_vars.clone(),
                                         is_value_func: true,
                                         return_value_json: frame.return_value_json.clone(),
+                                        saved_func_return_value: self.func_return_value.take(),
                                     });
                                     
                                     let inner_func_block = Block {
@@ -298,6 +302,15 @@ impl Executor {
                     }
                     if let Some(prev_locals) = frame.local_vars {
                         self.local_vars = prev_locals;
+                    }
+                    
+                    // Restore saved_func_return_value for non-value functions
+                    // Value functions set a new return value that the caller will use
+                    // Non-value functions should restore the caller's previous state
+                    if !frame.is_value_func {
+                        if let Some(saved_val) = frame.saved_func_return_value {
+                            self.func_return_value = Some(saved_val);
+                        }
                     }
                     
                     if frame.is_loop && frame.iteration_count > 0 {
@@ -1044,6 +1057,7 @@ impl Executor {
                                 local_vars: None,
                                 is_value_func: false,
                                 return_value_json: None,
+                                saved_func_return_value: None,
                             };
                             self.call_stack.push(frame);
                             
@@ -1072,6 +1086,7 @@ impl Executor {
                             local_vars: None,
                             is_value_func: false,
                             return_value_json: None,
+                            saved_func_return_value: None,
                         };
                         self.call_stack.push(frame);
                         
@@ -1099,6 +1114,7 @@ impl Executor {
                                 local_vars: None,
                                 is_value_func: false,
                                 return_value_json: None,
+                                saved_func_return_value: None,
                             };
                             self.call_stack.push(frame);
                             
@@ -1126,6 +1142,7 @@ impl Executor {
                             local_vars: None,
                             is_value_func: false,
                             return_value_json: None,
+                            saved_func_return_value: None,
                         };
                         self.call_stack.push(frame);
                         
@@ -1179,6 +1196,7 @@ impl Executor {
                                 local_vars: None,
                                 is_value_func: false,
                                 return_value_json: None,
+                                saved_func_return_value: None,
                             };
                             self.call_stack.push(frame);
                             
@@ -2118,6 +2136,9 @@ impl Executor {
                                 local_vars: Some(std::mem::replace(&mut self.local_vars, new_locals)),
                                 is_value_func,
                                 return_value_json,
+                                // Save caller's func_return_value and reset to None for this function
+                                // This ensures is_none() check works correctly for recursive calls
+                                saved_func_return_value: self.func_return_value.take(),
                             };
                             self.call_stack.push(frame);
                             
