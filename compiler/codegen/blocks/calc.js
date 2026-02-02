@@ -189,6 +189,20 @@ const valueBlocks = {
     'replace_string': (ctx, block, entityIndex) => {
         // String replace is complex in WASM, return placeholder
         return '(f64.const 0)';
+    },
+
+    // Color conversion - returns packed color as f64 (R*65536 + G*256 + B)
+    'change_rgb_to_hex': (ctx, block, entityIndex) => {
+        const r = ctx.transpileValue(block.params?.[0], entityIndex);
+        const g = ctx.transpileValue(block.params?.[1], entityIndex);
+        const b = ctx.transpileValue(block.params?.[2], entityIndex);
+        // Pack RGB into single f64: R*65536 + G*256 + B
+        // Using floor to ensure integer values
+        return `(f64.add
+          (f64.add
+            (f64.mul (call $floor ${r}) (f64.const 65536))
+            (f64.mul (call $floor ${g}) (f64.const 256)))
+          (call $floor ${b}))`;
     }
 };
 

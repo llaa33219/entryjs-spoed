@@ -46,6 +46,21 @@ const statementBlocks = {
           ;; (handled by renderer)`;
     },
 
+    // Function local variable operations
+    'set_func_variable': (ctx, block, entityIndex) => {
+        const varId = block.params?.[0];
+        const value = ctx.transpileValue(block.params?.[1], entityIndex);
+        const localVarMap = ctx.generator.currentFuncLocalVarMap;
+        
+        if (localVarMap && varId in localVarMap) {
+            const localIdx = localVarMap[varId];
+            return `
+          ;; set_func_variable
+          (local.set $local_${localIdx} ${value})`;
+        }
+        return `\n          ;; set_func_variable: variable not found (${varId})`;
+    },
+
     // List operations
     'add_value_to_list': (ctx, block, entityIndex) => {
         const listId = block.params?.[0];
@@ -96,6 +111,18 @@ const valueBlocks = {
             return `(call $getVariable (i32.const ${variable.memoryOffset}))`;
         }
         return '(f64.const 0)';
+    },
+
+    // Function local variable operations
+    'get_func_variable': (ctx, block, entityIndex) => {
+        const varId = block.params?.[0];
+        const localVarMap = ctx.generator.currentFuncLocalVarMap;
+        
+        if (localVarMap && varId in localVarMap) {
+            const localIdx = localVarMap[varId];
+            return `(local.get $local_${localIdx})`;
+        }
+        return `(f64.const 0) ;; func_variable not found: ${varId}`;
     },
 
     'value_of_index_from_list': (ctx, block, entityIndex) => {

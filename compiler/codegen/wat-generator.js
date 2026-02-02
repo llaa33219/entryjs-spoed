@@ -26,6 +26,7 @@ class WATGenerator {
         this.labelCounter = 0;
         this.localVars = new Map();
         this.currentFuncParamMap = null; // Map of param block types to indices
+        this.currentFuncLocalVarMap = null; // Map of local variable IDs to indices
     }
 
     generate() {
@@ -80,15 +81,15 @@ class WATGenerator {
   (import "brush" "stopDrawing" (func $stopDrawing (param i32)))
   (import "brush" "stamp" (func $stamp (param i32)))
   (import "brush" "clearBrush" (func $clearBrush))
-  (import "brush" "setBrushColor" (func $setBrushColor (param i32 i32 i32 i32)))
-  (import "brush" "setRandomBrushColor" (func $setRandomBrushColor (param i32)))
+  ;; Note: setBrushColor and setRandomBrushColor are now internal WASM functions
+  ;; Colors are stored in entity memory and read by JS renderer
   (import "brush" "changeBrushThickness" (func $changeBrushThickness (param i32 f64)))
   (import "brush" "setBrushThickness" (func $setBrushThickness (param i32 f64)))
   (import "brush" "changeBrushTransparency" (func $changeBrushTransparency (param i32 f64)))
   (import "brush" "setBrushTransparency" (func $setBrushTransparency (param i32 f64)))
   (import "brush" "startFill" (func $startFill (param i32)))
   (import "brush" "stopFill" (func $stopFill (param i32)))
-  (import "brush" "setFillColor" (func $setFillColor (param i32 i32 i32 i32)))
+  ;; Note: setFillColor is now internal - colors stored in entity memory
   (import "brush" "notifyPosition" (func $brushNotifyPosition (param i32 f64 f64)))`;
     }
 
@@ -134,7 +135,7 @@ class WATGenerator {
     }
 
     generateEntityFunctions() {
-        const ENTITY_SIZE = 72;
+        const ENTITY_SIZE = 120; // Expanded for brush state
         return `
   ;; ===== ENTITY ACCESSOR FUNCTIONS =====
   
@@ -214,6 +215,86 @@ class WATGenerator {
   
   (func $setSceneIndex (param $idx i32) (param $val i32)
     (i32.store (i32.add (call $getEntityOffset (local.get $idx)) (i32.const 64)) (local.get $val)))
+  
+  ;; ===== BRUSH COLOR STATE (stored in entity memory) =====
+  ;; BrushColorR (offset 68, f64)
+  (func $getBrushColorR (param $idx i32) (result f64)
+    (f64.load (i32.add (call $getEntityOffset (local.get $idx)) (i32.const 68))))
+  (func $setBrushColorR (param $idx i32) (param $val f64)
+    (f64.store (i32.add (call $getEntityOffset (local.get $idx)) (i32.const 68)) (local.get $val)))
+  
+  ;; BrushColorG (offset 76, f64)
+  (func $getBrushColorG (param $idx i32) (result f64)
+    (f64.load (i32.add (call $getEntityOffset (local.get $idx)) (i32.const 76))))
+  (func $setBrushColorG (param $idx i32) (param $val f64)
+    (f64.store (i32.add (call $getEntityOffset (local.get $idx)) (i32.const 76)) (local.get $val)))
+  
+  ;; BrushColorB (offset 84, f64)
+  (func $getBrushColorB (param $idx i32) (result f64)
+    (f64.load (i32.add (call $getEntityOffset (local.get $idx)) (i32.const 84))))
+  (func $setBrushColorB (param $idx i32) (param $val f64)
+    (f64.store (i32.add (call $getEntityOffset (local.get $idx)) (i32.const 84)) (local.get $val)))
+  
+  ;; FillColorR (offset 92, f64)
+  (func $getFillColorR (param $idx i32) (result f64)
+    (f64.load (i32.add (call $getEntityOffset (local.get $idx)) (i32.const 92))))
+  (func $setFillColorR (param $idx i32) (param $val f64)
+    (f64.store (i32.add (call $getEntityOffset (local.get $idx)) (i32.const 92)) (local.get $val)))
+  
+  ;; FillColorG (offset 100, f64)
+  (func $getFillColorG (param $idx i32) (result f64)
+    (f64.load (i32.add (call $getEntityOffset (local.get $idx)) (i32.const 100))))
+  (func $setFillColorG (param $idx i32) (param $val f64)
+    (f64.store (i32.add (call $getEntityOffset (local.get $idx)) (i32.const 100)) (local.get $val)))
+  
+  ;; FillColorB (offset 108, f64)
+  (func $getFillColorB (param $idx i32) (result f64)
+    (f64.load (i32.add (call $getEntityOffset (local.get $idx)) (i32.const 108))))
+  (func $setFillColorB (param $idx i32) (param $val f64)
+    (f64.store (i32.add (call $getEntityOffset (local.get $idx)) (i32.const 108)) (local.get $val)))
+  
+  ;; Set brush color RGB (convenience function)
+  (func $setBrushColorRGB (param $idx i32) (param $r f64) (param $g f64) (param $b f64)
+    (call $setBrushColorR (local.get $idx) (local.get $r))
+    (call $setBrushColorG (local.get $idx) (local.get $g))
+    (call $setBrushColorB (local.get $idx) (local.get $b)))
+  
+  ;; Set fill color RGB (convenience function)
+  (func $setFillColorRGB (param $idx i32) (param $r f64) (param $g f64) (param $b f64)
+    (call $setFillColorR (local.get $idx) (local.get $r))
+    (call $setFillColorG (local.get $idx) (local.get $g))
+    (call $setFillColorB (local.get $idx) (local.get $b)))
+  
+  ;; Unpack packed color (R*65536 + G*256 + B) and set brush color
+  (func $unpackAndSetBrushColor (param $idx i32) (param $packed f64)
+    (local $packedInt i32)
+    (local.set $packedInt (i32.trunc_f64_s (local.get $packed)))
+    (call $setBrushColorR (local.get $idx) 
+      (f64.convert_i32_s (i32.and (i32.shr_u (local.get $packedInt) (i32.const 16)) (i32.const 255))))
+    (call $setBrushColorG (local.get $idx)
+      (f64.convert_i32_s (i32.and (i32.shr_u (local.get $packedInt) (i32.const 8)) (i32.const 255))))
+    (call $setBrushColorB (local.get $idx)
+      (f64.convert_i32_s (i32.and (local.get $packedInt) (i32.const 255)))))
+  
+  ;; Unpack packed color and set fill color
+  (func $unpackAndSetFillColor (param $idx i32) (param $packed f64)
+    (local $packedInt i32)
+    (local.set $packedInt (i32.trunc_f64_s (local.get $packed)))
+    (call $setFillColorR (local.get $idx)
+      (f64.convert_i32_s (i32.and (i32.shr_u (local.get $packedInt) (i32.const 16)) (i32.const 255))))
+    (call $setFillColorG (local.get $idx)
+      (f64.convert_i32_s (i32.and (i32.shr_u (local.get $packedInt) (i32.const 8)) (i32.const 255))))
+    (call $setFillColorB (local.get $idx)
+      (f64.convert_i32_s (i32.and (local.get $packedInt) (i32.const 255)))))
+  
+  ;; Set random brush color (using WASM random)
+  (func $setRandomBrushColorInternal (param $idx i32)
+    (call $setBrushColorR (local.get $idx) (call $floor (f64.mul (call $random) (f64.const 256))))
+    (call $setBrushColorG (local.get $idx) (call $floor (f64.mul (call $random) (f64.const 256))))
+    (call $setBrushColorB (local.get $idx) (call $floor (f64.mul (call $random) (f64.const 256))))
+    (call $setFillColorR (local.get $idx) (call $floor (f64.mul (call $random) (f64.const 256))))
+    (call $setFillColorG (local.get $idx) (call $floor (f64.mul (call $random) (f64.const 256))))
+    (call $setFillColorB (local.get $idx) (call $floor (f64.mul (call $random) (f64.const 256)))))
   
   ;; Helper: Move in direction
   (func $moveInDirection (param $idx i32) (param $distance f64)
@@ -444,6 +525,13 @@ class WATGenerator {
             this.currentFuncParamMap[p.type] = idx;
         });
 
+        // Build local variable map for transpiling local variable blocks
+        this.currentFuncLocalVarMap = {};
+        const localVars = func.localVariables || [];
+        localVars.forEach((v, idx) => {
+            this.currentFuncLocalVarMap[v.id] = idx;
+        });
+
         // Generate parameter declarations
         const paramDecls = params.map((p, idx) => `(param $param_${idx} f64)`).join(' ');
         const resultDecl = isValueFunc ? '(result f64)' : '';
@@ -453,6 +541,11 @@ class WATGenerator {
     (local $temp f64)
     (local $iterCount i32)
     (local $condResult i32)`;
+
+        // Add local variable declarations for function local variables
+        localVars.forEach((v, idx) => {
+            localsDecl += `\n    (local $local_${idx} f64) ;; ${v.name}`;
+        });
 
         // Generate function body
         // Use a special entity index marker that will be replaced with the local $entityIdx
@@ -480,8 +573,9 @@ class WATGenerator {
             }
         }
 
-        // Clear param map
+        // Clear param map and local var map
         this.currentFuncParamMap = null;
+        this.currentFuncLocalVarMap = null;
 
         return `
   
@@ -785,7 +879,10 @@ class WATGenerator {
     (call $setSize (i32.const ${idx}) (f64.const ${size}))
     (call $setVisible (i32.const ${idx}) (i32.const ${initialVisible}))
     (call $setPictureIndex (i32.const ${idx}) (i32.const 0))
-    (call $setSceneIndex (i32.const ${idx}) (i32.const ${sceneIdx}))`;
+    (call $setSceneIndex (i32.const ${idx}) (i32.const ${sceneIdx}))
+    ;; Initialize brush colors to default red (255, 0, 0)
+    (call $setBrushColorRGB (i32.const ${idx}) (f64.const 255) (f64.const 0) (f64.const 0))
+    (call $setFillColorRGB (i32.const ${idx}) (f64.const 255) (f64.const 0) (f64.const 0))`;
         }
         return code;
     }
@@ -822,6 +919,13 @@ class WATGenerator {
   (export "getSceneCount" (func $getSceneCount))
   (export "startScene" (func $startScene))
   (export "startNeighborScene" (func $startNeighborScene))
+  ;; Brush color exports (for JS renderer to read)
+  (export "getBrushColorR" (func $getBrushColorR))
+  (export "getBrushColorG" (func $getBrushColorG))
+  (export "getBrushColorB" (func $getBrushColorB))
+  (export "getFillColorR" (func $getFillColorR))
+  (export "getFillColorG" (func $getFillColorG))
+  (export "getFillColorB" (func $getFillColorB))
 )`;
     }
 

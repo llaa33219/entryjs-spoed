@@ -58,15 +58,14 @@ const wasmImports = {
         stopDrawing: (entityIdx) => stopBrushDrawing(entityIdx),
         stamp: (entityIdx) => addStamp(entityIdx),
         clearBrush: () => clearAllBrush(),
-        setBrushColor: (entityIdx, r, g, b) => setBrushColor(entityIdx, r, g, b),
-        setRandomBrushColor: (entityIdx) => setRandomBrushColor(entityIdx),
+        // Note: setBrushColor, setRandomBrushColor, setFillColor are now handled in WASM
+        // Colors are stored in entity memory and read by JS when needed
         changeBrushThickness: (entityIdx, amount) => changeBrushThickness(entityIdx, amount),
         setBrushThickness: (entityIdx, thickness) => setBrushThickness(entityIdx, thickness),
         changeBrushTransparency: (entityIdx, amount) => changeBrushTransparency(entityIdx, amount),
         setBrushTransparency: (entityIdx, transparency) => setBrushTransparency(entityIdx, transparency),
         startFill: (entityIdx) => startFillMode(entityIdx),
         stopFill: (entityIdx) => stopFillMode(entityIdx),
-        setFillColor: (entityIdx, r, g, b) => setFillColor(entityIdx, r, g, b),
         notifyPosition: (entityIdx, x, y) => brushNotifyPosition(entityIdx, x, y)
     }
 };
@@ -588,11 +587,32 @@ function getOrCreateFillGraphics(entityIdx) {
     return fillGraphics[entityIdx];
 }
 
+// Read brush color from WASM memory and return as packed 0xRRGGBB
+function readBrushColorFromWasm(entityIdx) {
+    const r = Math.floor(wasm.getBrushColorR(entityIdx)) & 0xFF;
+    const g = Math.floor(wasm.getBrushColorG(entityIdx)) & 0xFF;
+    const b = Math.floor(wasm.getBrushColorB(entityIdx)) & 0xFF;
+    return (r << 16) | (g << 8) | b;
+}
+
+// Read fill color from WASM memory and return as packed 0xRRGGBB
+function readFillColorFromWasm(entityIdx) {
+    const r = Math.floor(wasm.getFillColorR(entityIdx)) & 0xFF;
+    const g = Math.floor(wasm.getFillColorG(entityIdx)) & 0xFF;
+    const b = Math.floor(wasm.getFillColorB(entityIdx)) & 0xFF;
+    return (r << 16) | (g << 8) | b;
+}
+
 // Apply line style only if changed (performance optimization)
+// Now reads color from WASM memory
 function applyBrushStyle(entityIdx) {
     const state = brushStates[entityIdx];
     const g = brushGraphics[entityIdx];
     if (!g) return;
+    
+    // Read current color from WASM memory
+    const currentColor = readBrushColorFromWasm(entityIdx);
+    state.color = currentColor;
     
     // Only call lineStyle if something changed
     if (state.color !== state._lastColor || 
@@ -654,38 +674,8 @@ function brushLineTo(entityIdx, x, y) {
     }
 }
 
-// Set brush color (r, g, b as 0-255)
-function setBrushColor(entityIdx, r, g, b) {
-    if (entityIdx < 0 || entityIdx >= brushStates.length) return;
-    
-    const state = brushStates[entityIdx];
-    state.color = ((r & 0xFF) << 16) | ((g & 0xFF) << 8) | (b & 0xFF);
-    
-    // If currently drawing, update position
-    if (state.isDrawing && brushGraphics[entityIdx]) {
-        const gfx = brushGraphics[entityIdx];
-        applyBrushStyle(entityIdx);
-        gfx.moveTo(state.brushLastX, state.brushLastY);
-    }
-}
-
-// Set random brush color
-// Note: In EntryJS, set_random_color sets BOTH brush AND fill colors (with different random values)
-function setRandomBrushColor(entityIdx) {
-    if (entityIdx < 0 || entityIdx >= brushStates.length) return;
-    
-    // Set brush color with random RGB
-    const r1 = Math.floor(Math.random() * 256);
-    const g1 = Math.floor(Math.random() * 256);
-    const b1 = Math.floor(Math.random() * 256);
-    setBrushColor(entityIdx, r1, g1, b1);
-    
-    // Set fill color with separate random RGB (matches EntryJS behavior)
-    const r2 = Math.floor(Math.random() * 256);
-    const g2 = Math.floor(Math.random() * 256);
-    const b2 = Math.floor(Math.random() * 256);
-    setFillColor(entityIdx, r2, g2, b2);
-}
+// Note: setBrushColor and setRandomBrushColor are now handled in WASM
+// Colors are stored in entity memory and read when drawing
 
 // Change brush thickness by amount
 function changeBrushThickness(entityIdx, amount) {
@@ -803,6 +793,9 @@ function startFillMode(entityIdx) {
     const state = brushStates[entityIdx];
     const g = getOrCreateFillGraphics(entityIdx);
     
+    // Read fill color from WASM memory
+    state.fillColor = readFillColorFromWasm(entityIdx);
+    
     const x = wasm.getX(entityIdx);
     const y = wasm.getY(entityIdx);
     
@@ -863,16 +856,16 @@ function stopFillMode(entityIdx) {
     state.fillSegments = [];  // Clear segments array
 }
 
-// Set fill color
-function setFillColor(entityIdx, r, g, b) {
+// Sync fill color from WASM memory
+// Call this when fill color might have changed
+function syncFillColorFromWasm(entityIdx) {
     if (entityIdx < 0 || entityIdx >= brushStates.length) return;
     
     const state = brushStates[entityIdx];
-    const newColor = ((r & 0xFF) << 16) | ((g & 0xFF) << 8) | (b & 0xFF);
+    const newColor = readFillColorFromWasm(entityIdx);
     
-    // If fill is active, save current path as a segment and start new path with new color
-    // This matches EntryJS behavior: existing fill keeps old color, new drawing uses new color
-    if (state.isFilling && state.fillPoints.length > 1) {
+    // If fill is active and color changed, save current path as a segment
+    if (state.isFilling && state.fillColor !== newColor && state.fillPoints.length > 1) {
         // Save current path as completed segment with OLD color
         state.fillSegments.push({
             points: state.fillPoints.slice(),
@@ -884,7 +877,7 @@ function setFillColor(entityIdx, r, g, b) {
         state.fillPoints = [{ x: lastPoint.x, y: lastPoint.y }];
     }
     
-    // Now update fill color for future drawing
+    // Update fill color
     state.fillColor = newColor;
     
     // Redraw all segments + current path
@@ -936,6 +929,9 @@ function fillLineTo(entityIdx, x, y) {
     
     const g = fillGraphics[entityIdx];
     if (!g) return;
+    
+    // Sync fill color from WASM (in case it changed)
+    syncFillColorFromWasm(entityIdx);
     
     const pixiX = entryToPixiX(x);
     const pixiY = entryToPixiY(y);

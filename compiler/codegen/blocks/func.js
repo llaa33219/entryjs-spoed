@@ -7,6 +7,30 @@
  */
 
 /**
+ * Parse a hex color string and return packed color value or null if not valid hex
+ * Supports #RGB (3 chars) and #RRGGBB (6 chars) formats
+ * Returns packed color as R*65536 + G*256 + B
+ */
+function parseHexToPackedColor(str) {
+    if (typeof str !== 'string') return null;
+    const match = str.match(/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/);
+    if (!match) return null;
+    
+    const hex = match[1];
+    let r, g, b;
+    if (hex.length === 3) {
+        r = parseInt(hex[0] + hex[0], 16);
+        g = parseInt(hex[1] + hex[1], 16);
+        b = parseInt(hex[2] + hex[2], 16);
+    } else {
+        r = parseInt(hex.slice(0, 2), 16);
+        g = parseInt(hex.slice(2, 4), 16);
+        b = parseInt(hex.slice(4, 6), 16);
+    }
+    return r * 65536 + g * 256 + b;
+}
+
+/**
  * Get statement handler for function-related blocks
  * This is called dynamically for func_<id> blocks
  */
@@ -91,13 +115,27 @@ function transpileFunctionCall(ctx, block, entityIndex, threadIndex) {
                 }
                 // Check if this is a value that should be transpiled
                 if (typeof param === 'object' && param.type) {
+                    // Special case: text block with hex color pattern - convert to packed color at compile time
+                    if (param.type === 'text' && param.params?.[0]) {
+                        const packedColor = parseHexToPackedColor(param.params[0]);
+                        if (packedColor !== null) {
+                            args.push(`(f64.const ${packedColor})`);
+                            continue;
+                        }
+                    }
                     args.push(ctx.transpileValue(param, entityIndex));
                 } else if (typeof param === 'number' || typeof param === 'string') {
                     const numVal = parseFloat(param);
                     if (!isNaN(numVal)) {
                         args.push(`(f64.const ${numVal})`);
                     } else {
-                        args.push('(f64.const 0)');
+                        // Check if string is hex color pattern
+                        const packedColor = parseHexToPackedColor(param);
+                        if (packedColor !== null) {
+                            args.push(`(f64.const ${packedColor})`);
+                        } else {
+                            args.push('(f64.const 0)');
+                        }
                     }
                 }
             }
@@ -147,13 +185,27 @@ function transpileFunctionValue(ctx, block, entityIndex) {
                     continue;
                 }
                 if (typeof param === 'object' && param.type) {
+                    // Special case: text block with hex color pattern - convert to packed color at compile time
+                    if (param.type === 'text' && param.params?.[0]) {
+                        const packedColor = parseHexToPackedColor(param.params[0]);
+                        if (packedColor !== null) {
+                            args.push(`(f64.const ${packedColor})`);
+                            continue;
+                        }
+                    }
                     args.push(ctx.transpileValue(param, entityIndex));
                 } else if (typeof param === 'number' || typeof param === 'string') {
                     const numVal = parseFloat(param);
                     if (!isNaN(numVal)) {
                         args.push(`(f64.const ${numVal})`);
                     } else {
-                        args.push('(f64.const 0)');
+                        // Check if string is hex color pattern
+                        const packedColor = parseHexToPackedColor(param);
+                        if (packedColor !== null) {
+                            args.push(`(f64.const ${packedColor})`);
+                        } else {
+                            args.push('(f64.const 0)');
+                        }
                     }
                 }
             }
