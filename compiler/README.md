@@ -150,7 +150,7 @@ EntryJS와 동일한 브러시/채우기 동작을 구현합니다:
 - 32-35: mouse clicked (i32)
 - 36-99: key states (64 bytes)
 
-### 엔티티 데이터 (1024+, 각 72 bytes)
+### 엔티티 데이터 (1024+, 각 120 bytes)
 - 0-7: x (f64)
 - 8-15: y (f64)
 - 16-23: rotation (f64)
@@ -161,7 +161,13 @@ EntryJS와 동일한 브러시/채우기 동작을 구현합니다:
 - 56-59: visible (i32)
 - 60-63: pictureIndex (i32)
 - 64-67: sceneIndex (i32)
-- 68-71: reserved (i32)
+- 68-75: brushColorR (f64)
+- 76-83: brushColorG (f64)
+- 84-91: brushColorB (f64)
+- 92-99: fillColorR (f64)
+- 100-107: fillColorG (f64)
+- 108-115: fillColorB (f64)
+- 116-119: initialVisible (i32) - 프로젝트 JSON의 원래 visible 상태 저장
 
 ### 변수 데이터 (엔티티 다음, 각 8 bytes)
 - 각 변수당 f64 값
