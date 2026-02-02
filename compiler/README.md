@@ -71,6 +71,21 @@ node compiler/output/server.js
 - `get_variable`, `set_variable`, `change_variable` - 변수 조작
 - `show_variable`, `hide_variable` - 변수 표시
 
+## 오브젝트 렌더링 순서 (Z-Order)
+
+EntryJS와 동일한 렌더링 순서를 유지합니다:
+- `objects` 배열의 첫 번째 오브젝트(`objects[0]`)가 **가장 위(앞)**에 렌더링됩니다
+- `objects` 배열의 마지막 오브젝트가 **가장 아래(뒤)**에 렌더링됩니다
+- PixiJS는 나중에 추가된 child가 위에 렌더링되므로, 컴파일러는 엔티티 컨테이너를 **역순으로** stage에 추가합니다
+
+## 브러시/채우기 (Brush/Fill) 처리
+
+EntryJS와 동일한 브러시/채우기 동작을 구현합니다:
+- **Brush**: 선 그리기 (`start_drawing`, `stop_drawing`)
+- **Fill**: 도형 채우기 (`start_fill`, `stop_fill`)
+- `set_random_color`: brush와 fill 모두 각각 다른 랜덤 색상으로 설정
+- `stop_fill`: `closePath()` 호출 후 `endFill()` 호출 (EntryJS PIXIPaintAdaptor와 동일)
+
 ## 장면(Scene) 기능
 
 ### 작동 방식

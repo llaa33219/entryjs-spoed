@@ -66,7 +66,7 @@ let fillGraphics = [];      // PIXI.Graphics per entity for fill drawing
 let stampContainer = null;  // Container for stamps (rendered above all entities)
 let stamps = [];            // Array of stamp sprites
 
-// Brush state per entity: { isDrawing, isFilling, color, thickness, opacity, fillColor, fillOpacity, lastX, lastY }
+// Brush state per entity: { isDrawing, isFilling, color, thickness, opacity, fillColor, fillOpacity, brushLastX, brushLastY, fillLastX, fillLastY }
 let brushStates = [];
 
 // ===== SCENE DATA =====
@@ -93,9 +93,9 @@ const ENTITY_DATA = [
         id: "ackl",
         name: "단색 배경",
         pictures: [
-            { id: "hx5w", url: "", width: 960, height: 540 },
-            { id: "qm1g", url: "", width: 960, height: 540 },
-            { id: "yl9y", url: "", width: 960, height: 540 },
+            { id: "hx5w", url: "/uploads/98/5d/image/985d8853e7e96e93ebd4989f0b15c462.png", width: 960, height: 540 },
+            { id: "qm1g", url: "/uploads/69/8b/image/698b8b1ed17dd319ab31efa9f63af8f6.png", width: 960, height: 540 },
+            { id: "yl9y", url: "/uploads/96/76/image/9676ccc72b6db97473afff7308d39394.png", width: 960, height: 540 },
         ],
         sounds: [
         ],
@@ -326,7 +326,11 @@ function createSprites() {
     // 1. Fill graphics (bottom)
     // 2. Brush graphics (middle)
     // 3. Sprite (top)
-    // This ensures entity N's brush is below entity N but above entity N-1
+    // 
+    // IMPORTANT: In EntryJS, objects[0] is rendered on TOP (front).
+    // In PixiJS, children added LATER are rendered on TOP.
+    // So we create all containers first, then add them to stage in REVERSE order.
+    // This ensures ENTITY_DATA[0] is on top, matching EntryJS behavior.
     
     for (let i = 0; i < ENTITY_DATA.length; i++) {
         const entityData = ENTITY_DATA[i];
@@ -336,7 +340,7 @@ function createSprites() {
         const container = new PIXI.Container();
         container.x = STAGE_WIDTH / 2;
         container.y = STAGE_HEIGHT / 2;
-        app.stage.addChild(container);
+        // Don't add to stage yet - will add in reverse order after loop
         entityContainers.push(container);
         
         // Initialize fill graphics (will be created on first use)
@@ -376,6 +380,7 @@ function createSprites() {
         });
         
         // Initialize brush state
+        // Note: brush and fill have independent position tracking to avoid interference
         brushStates.push({
             isDrawing: false,
             isFilling: false,
@@ -384,13 +389,27 @@ function createSprites() {
             opacity: 1.0,         // 0-1 (1 = fully opaque, matches EntryJS default transparency=0)
             fillColor: 0xFF0000,  // Default red (matches EntryJS)
             fillOpacity: 1.0,
-            lastX: 0,
-            lastY: 0,
+            // Separate position tracking for brush and fill
+            brushLastX: 0,
+            brushLastY: 0,
+            fillLastX: 0,
+            fillLastY: 0,
+            // Fill path points for real-time rendering (PixiJS requires endFill() to show fill)
+            fillPoints: [],
+            // Completed fill segments (each segment has its own color/opacity, preserved when style changes)
+            // Format: [{ points: [{x,y}...], color: 0xRRGGBB, opacity: 0-1 }, ...]
+            fillSegments: [],
             // Track last applied style to avoid redundant lineStyle calls
             _lastColor: -1,
             _lastThickness: -1,
             _lastOpacity: -1
         });
+    }
+    
+    // Add entity containers to stage in REVERSE order
+    // This ensures ENTITY_DATA[0] is rendered on top (matching EntryJS z-order)
+    for (let i = entityContainers.length - 1; i >= 0; i--) {
+        app.stage.addChild(entityContainers[i]);
     }
     
     // Create stamp container (rendered above all entities)
@@ -602,12 +621,12 @@ function startBrushDrawing(entityIdx) {
     const y = wasm.getY(entityIdx);
     
     state.isDrawing = true;
-    state.lastX = entryToPixiX(x);
-    state.lastY = entryToPixiY(y);
+    state.brushLastX = entryToPixiX(x);
+    state.brushLastY = entryToPixiY(y);
     
     // Apply current style and move to position
     applyBrushStyle(entityIdx);
-    g.moveTo(state.lastX, state.lastY);
+    g.moveTo(state.brushLastX, state.brushLastY);
 }
 
 // Stop drawing for entity
@@ -630,12 +649,12 @@ function brushLineTo(entityIdx, x, y) {
     const pixiY = entryToPixiY(y);
     
     // Only draw if position changed
-    if (pixiX !== state.lastX || pixiY !== state.lastY) {
+    if (pixiX !== state.brushLastX || pixiY !== state.brushLastY) {
         applyBrushStyle(entityIdx);
-        g.moveTo(state.lastX, state.lastY);
+        g.moveTo(state.brushLastX, state.brushLastY);
         g.lineTo(pixiX, pixiY);
-        state.lastX = pixiX;
-        state.lastY = pixiY;
+        state.brushLastX = pixiX;
+        state.brushLastY = pixiY;
     }
 }
 
@@ -650,18 +669,26 @@ function setBrushColor(entityIdx, r, g, b) {
     if (state.isDrawing && brushGraphics[entityIdx]) {
         const gfx = brushGraphics[entityIdx];
         applyBrushStyle(entityIdx);
-        gfx.moveTo(state.lastX, state.lastY);
+        gfx.moveTo(state.brushLastX, state.brushLastY);
     }
 }
 
 // Set random brush color
+// Note: In EntryJS, set_random_color sets BOTH brush AND fill colors (with different random values)
 function setRandomBrushColor(entityIdx) {
     if (entityIdx < 0 || entityIdx >= brushStates.length) return;
     
-    const r = Math.floor(Math.random() * 256);
-    const g = Math.floor(Math.random() * 256);
-    const b = Math.floor(Math.random() * 256);
-    setBrushColor(entityIdx, r, g, b);
+    // Set brush color with random RGB
+    const r1 = Math.floor(Math.random() * 256);
+    const g1 = Math.floor(Math.random() * 256);
+    const b1 = Math.floor(Math.random() * 256);
+    setBrushColor(entityIdx, r1, g1, b1);
+    
+    // Set fill color with separate random RGB (matches EntryJS behavior)
+    const r2 = Math.floor(Math.random() * 256);
+    const g2 = Math.floor(Math.random() * 256);
+    const b2 = Math.floor(Math.random() * 256);
+    setFillColor(entityIdx, r2, g2, b2);
 }
 
 // Change brush thickness by amount
@@ -674,7 +701,7 @@ function changeBrushThickness(entityIdx, amount) {
     if (state.isDrawing && brushGraphics[entityIdx]) {
         const gfx = brushGraphics[entityIdx];
         applyBrushStyle(entityIdx);
-        gfx.moveTo(state.lastX, state.lastY);
+        gfx.moveTo(state.brushLastX, state.brushLastY);
     }
 }
 
@@ -688,7 +715,7 @@ function setBrushThickness(entityIdx, thickness) {
     if (state.isDrawing && brushGraphics[entityIdx]) {
         const gfx = brushGraphics[entityIdx];
         applyBrushStyle(entityIdx);
-        gfx.moveTo(state.lastX, state.lastY);
+        gfx.moveTo(state.brushLastX, state.brushLastY);
     }
 }
 
@@ -703,20 +730,33 @@ function changeBrushTransparency(entityIdx, amount) {
     const currentTransparency = (1 - state.opacity) * 100;
     const newTransparency = Math.max(0, Math.min(100, currentTransparency + amount));
     state.opacity = 1 - (newTransparency / 100);
-    state.fillOpacity = state.opacity;  // Sync fill opacity (matches EntryJS behavior)
     
     if (state.isDrawing && brushGraphics[entityIdx]) {
         const gfx = brushGraphics[entityIdx];
         applyBrushStyle(entityIdx);
-        gfx.moveTo(state.lastX, state.lastY);
+        gfx.moveTo(state.brushLastX, state.brushLastY);
     }
     
-    // Also update fill if active
+    // If fill is active, save current path as a segment and start new path with new opacity
+    // This matches EntryJS behavior: existing fill keeps old style, new drawing uses new style
+    if (state.isFilling && state.fillPoints.length > 1) {
+        // Save current path as completed segment with OLD opacity
+        state.fillSegments.push({
+            points: state.fillPoints.slice(),
+            color: state.fillColor,
+            opacity: state.fillOpacity
+        });
+        // Start new path from current position with NEW opacity
+        const lastPoint = state.fillPoints[state.fillPoints.length - 1];
+        state.fillPoints = [{ x: lastPoint.x, y: lastPoint.y }];
+    }
+    
+    // Now update fill opacity for future drawing
+    state.fillOpacity = state.opacity;
+    
+    // Redraw all segments + current path
     if (state.isFilling && fillGraphics[entityIdx]) {
-        const gfx = fillGraphics[entityIdx];
-        gfx.endFill();
-        gfx.beginFill(state.fillColor, state.fillOpacity);
-        gfx.moveTo(state.lastX, state.lastY);
+        redrawAllFill(entityIdx);
     }
 }
 
@@ -726,21 +766,37 @@ function setBrushTransparency(entityIdx, transparency) {
     if (entityIdx < 0 || entityIdx >= brushStates.length) return;
     
     const state = brushStates[entityIdx];
-    state.opacity = 1 - (Math.max(0, Math.min(100, transparency)) / 100);
-    state.fillOpacity = state.opacity;  // Sync fill opacity (matches EntryJS behavior)
+    const newOpacity = 1 - (Math.max(0, Math.min(100, transparency)) / 100);
     
     if (state.isDrawing && brushGraphics[entityIdx]) {
         const gfx = brushGraphics[entityIdx];
+        state.opacity = newOpacity;
         applyBrushStyle(entityIdx);
-        gfx.moveTo(state.lastX, state.lastY);
+        gfx.moveTo(state.brushLastX, state.brushLastY);
+    } else {
+        state.opacity = newOpacity;
     }
     
-    // Also update fill if active
+    // If fill is active, save current path as a segment and start new path with new opacity
+    // This matches EntryJS behavior: existing fill keeps old style, new drawing uses new style
+    if (state.isFilling && state.fillPoints.length > 1) {
+        // Save current path as completed segment with OLD opacity
+        state.fillSegments.push({
+            points: state.fillPoints.slice(),
+            color: state.fillColor,
+            opacity: state.fillOpacity
+        });
+        // Start new path from current position with NEW opacity
+        const lastPoint = state.fillPoints[state.fillPoints.length - 1];
+        state.fillPoints = [{ x: lastPoint.x, y: lastPoint.y }];
+    }
+    
+    // Now update fill opacity for future drawing
+    state.fillOpacity = newOpacity;
+    
+    // Redraw all segments + current path
     if (state.isFilling && fillGraphics[entityIdx]) {
-        const gfx = fillGraphics[entityIdx];
-        gfx.endFill();
-        gfx.beginFill(state.fillColor, state.fillOpacity);
-        gfx.moveTo(state.lastX, state.lastY);
+        redrawAllFill(entityIdx);
     }
 }
 
@@ -755,11 +811,20 @@ function startFillMode(entityIdx) {
     const y = wasm.getY(entityIdx);
     
     state.isFilling = true;
-    state.lastX = entryToPixiX(x);
-    state.lastY = entryToPixiY(y);
+    state.fillLastX = entryToPixiX(x);
+    state.fillLastY = entryToPixiY(y);
     
+    // Initialize fillPoints with starting position
+    // We store all points to redraw the entire path on each update
+    // (PixiJS v7 requires endFill() to render fill, so we must redraw each time)
+    state.fillPoints = [{ x: state.fillLastX, y: state.fillLastY }];
+    state.fillSegments = [];  // Clear any previous segments
+    
+    // Draw initial point (single point won't show, but sets up the graphics)
+    g.clear();
     g.beginFill(state.fillColor, state.fillOpacity);
-    g.moveTo(state.lastX, state.lastY);
+    g.moveTo(state.fillLastX, state.fillLastY);
+    g.endFill();
 }
 
 // Stop fill mode
@@ -768,9 +833,38 @@ function stopFillMode(entityIdx) {
     
     const state = brushStates[entityIdx];
     if (state.isFilling && fillGraphics[entityIdx]) {
-        fillGraphics[entityIdx].endFill();
+        const g = fillGraphics[entityIdx];
+        
+        // Final redraw: all segments + current path with closePath on final segment
+        g.clear();
+        
+        // Draw all completed segments
+        for (const segment of state.fillSegments) {
+            if (segment.points.length > 1) {
+                g.beginFill(segment.color, segment.opacity);
+                g.moveTo(segment.points[0].x, segment.points[0].y);
+                for (let i = 1; i < segment.points.length; i++) {
+                    g.lineTo(segment.points[i].x, segment.points[i].y);
+                }
+                g.endFill();
+            }
+        }
+        
+        // Draw current path with closePath
+        const points = state.fillPoints;
+        if (points && points.length > 1) {
+            g.beginFill(state.fillColor, state.fillOpacity);
+            g.moveTo(points[0].x, points[0].y);
+            for (let i = 1; i < points.length; i++) {
+                g.lineTo(points[i].x, points[i].y);
+            }
+            g.closePath();
+            g.endFill();
+        }
     }
     state.isFilling = false;
+    state.fillPoints = [];  // Clear points array
+    state.fillSegments = [];  // Clear segments array
 }
 
 // Set fill color
@@ -778,17 +872,66 @@ function setFillColor(entityIdx, r, g, b) {
     if (entityIdx < 0 || entityIdx >= brushStates.length) return;
     
     const state = brushStates[entityIdx];
-    state.fillColor = ((r & 0xFF) << 16) | ((g & 0xFF) << 8) | (b & 0xFF);
+    const newColor = ((r & 0xFF) << 16) | ((g & 0xFF) << 8) | (b & 0xFF);
     
+    // If fill is active, save current path as a segment and start new path with new color
+    // This matches EntryJS behavior: existing fill keeps old color, new drawing uses new color
+    if (state.isFilling && state.fillPoints.length > 1) {
+        // Save current path as completed segment with OLD color
+        state.fillSegments.push({
+            points: state.fillPoints.slice(),
+            color: state.fillColor,
+            opacity: state.fillOpacity
+        });
+        // Start new path from current position
+        const lastPoint = state.fillPoints[state.fillPoints.length - 1];
+        state.fillPoints = [{ x: lastPoint.x, y: lastPoint.y }];
+    }
+    
+    // Now update fill color for future drawing
+    state.fillColor = newColor;
+    
+    // Redraw all segments + current path
     if (state.isFilling && fillGraphics[entityIdx]) {
-        const gfx = fillGraphics[entityIdx];
-        gfx.endFill();
-        gfx.beginFill(state.fillColor, state.fillOpacity);
-        gfx.moveTo(state.lastX, state.lastY);
+        redrawAllFill(entityIdx);
+    }
+}
+
+// Helper function to redraw all fill segments + current path
+function redrawAllFill(entityIdx) {
+    const state = brushStates[entityIdx];
+    const g = fillGraphics[entityIdx];
+    if (!g) return;
+    
+    g.clear();
+    
+    // Draw all completed segments (each with their own color/opacity)
+    for (const segment of state.fillSegments) {
+        if (segment.points.length > 1) {
+            g.beginFill(segment.color, segment.opacity);
+            g.moveTo(segment.points[0].x, segment.points[0].y);
+            for (let i = 1; i < segment.points.length; i++) {
+                g.lineTo(segment.points[i].x, segment.points[i].y);
+            }
+            g.endFill();
+        }
+    }
+    
+    // Draw current path with current color/opacity
+    const points = state.fillPoints;
+    if (points.length > 1) {
+        g.beginFill(state.fillColor, state.fillOpacity);
+        g.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length; i++) {
+            g.lineTo(points[i].x, points[i].y);
+        }
+        g.endFill();
     }
 }
 
 // Fill line to (called when filling)
+// In PixiJS v7, fill is only rendered after endFill() is called.
+// To show fill in real-time, we store all points and redraw the entire path each time.
 function fillLineTo(entityIdx, x, y) {
     if (entityIdx < 0 || entityIdx >= brushStates.length) return;
     
@@ -801,10 +944,15 @@ function fillLineTo(entityIdx, x, y) {
     const pixiX = entryToPixiX(x);
     const pixiY = entryToPixiY(y);
     
-    if (pixiX !== state.lastX || pixiY !== state.lastY) {
-        g.lineTo(pixiX, pixiY);
-        state.lastX = pixiX;
-        state.lastY = pixiY;
+    // Only add point if position changed
+    if (pixiX !== state.fillLastX || pixiY !== state.fillLastY) {
+        // Add new point to the path
+        state.fillPoints.push({ x: pixiX, y: pixiY });
+        state.fillLastX = pixiX;
+        state.fillLastY = pixiY;
+        
+        // Redraw all segments + current path
+        redrawAllFill(entityIdx);
     }
 }
 
@@ -841,6 +989,8 @@ function clearAllBrush() {
                 brushStates[i]._lastColor = -1;
                 brushStates[i]._lastThickness = -1;
                 brushStates[i]._lastOpacity = -1;
+                brushStates[i].fillPoints = [];  // Clear fill path
+                brushStates[i].fillSegments = [];  // Clear fill segments
             }
         }
         if (fillGraphics[i]) {
@@ -898,8 +1048,12 @@ function restart() {
         brushStates[i].opacity = 1.0;
         brushStates[i].fillColor = 0xFF0000;  // Default red (matches EntryJS)
         brushStates[i].fillOpacity = 1.0;
-        brushStates[i].lastX = 0;
-        brushStates[i].lastY = 0;
+        brushStates[i].brushLastX = 0;
+        brushStates[i].brushLastY = 0;
+        brushStates[i].fillLastX = 0;
+        brushStates[i].fillLastY = 0;
+        brushStates[i].fillPoints = [];  // Clear fill path points
+        brushStates[i].fillSegments = [];  // Clear fill segments
         brushStates[i]._lastColor = -1;
         brushStates[i]._lastThickness = -1;
         brushStates[i]._lastOpacity = -1;

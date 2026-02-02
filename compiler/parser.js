@@ -118,6 +118,8 @@ function parsePictures(pictures) {
         id: pic.id,
         name: pic.name,
         fileurl: pic.fileurl,
+        filename: pic.filename,
+        imageType: pic.imageType || 'png',
         dimension: pic.dimension || { width: 100, height: 100 },
         index
     }));
@@ -131,6 +133,8 @@ function parseSounds(sounds) {
         id: sound.id,
         name: sound.name,
         fileurl: sound.fileurl,
+        filename: sound.filename,
+        ext: sound.ext || '.mp3',
         duration: sound.duration || 1,
         index
     }));
