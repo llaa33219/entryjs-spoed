@@ -63,11 +63,43 @@ const statementBlocks = {
     },
 
     'change_to_some_shape': (ctx, block, entityIndex) => {
-        const pictureId = block.params?.[0];
-        // Find picture index by ID
+        // Extract picture value - can be get_pictures block or direct value
+        let pictureValue = block.params?.[0];
+        
+        // If it's a get_pictures block, extract the actual picture ID from its params
+        if (pictureValue && typeof pictureValue === 'object' && pictureValue.type === 'get_pictures') {
+            pictureValue = pictureValue.params?.[0];
+        }
+        
+        // Find picture index - support ID, name, or 1-based index (like EntryJS getPicture)
         const obj = ctx.generator.project.objects[entityIndex];
-        const idx = obj?.pictures?.findIndex(p => p.id === pictureId);
-        const pictureIndex = (idx === -1 || idx === undefined) ? 0 : idx;
+        const pictures = obj?.pictures || [];
+        let pictureIndex = 0;
+        
+        if (pictureValue !== null && pictureValue !== undefined) {
+            const valueStr = String(pictureValue).trim();
+            
+            // 1. Try to find by ID
+            let idx = pictures.findIndex(p => p.id === valueStr);
+            
+            // 2. Try to find by name
+            if (idx === -1) {
+                idx = pictures.findIndex(p => p.name === valueStr);
+            }
+            
+            // 3. Try as 1-based index (like EntryJS)
+            if (idx === -1) {
+                const numValue = parseFloat(valueStr);
+                if (!isNaN(numValue) && numValue > 0 && numValue <= pictures.length) {
+                    idx = Math.floor(numValue) - 1; // Convert 1-based to 0-based
+                }
+            }
+            
+            if (idx !== -1) {
+                pictureIndex = idx;
+            }
+        }
+        
         return `
           ;; change_to_some_shape
           (call $setPictureIndex (i32.const ${entityIndex}) (i32.const ${pictureIndex}))`;

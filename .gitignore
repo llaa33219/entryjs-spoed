@@ -1,3 +1,5 @@
+# wasm 컴파일러 아웃풋
+compiler/output
 # Logs
 logs
 *.log

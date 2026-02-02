@@ -12,13 +12,13 @@ EntryJS 작품을 WebAssembly로 컴파일하는 컴파일러입니다.
 
 ```bash
 # 컴파일
-node compiler/index.js project.json ./output
+node compiler/index.js project.json ./compiler/output
 
 # WAT → WASM 변환 (wat2wasm 필요)
-wat2wasm output/project.wat -o output/project.wasm
+wat2wasm compiler/output/project.wat -o compiler/output/project.wasm
 
 # 실행
-node output/server.js
+node compiler/output/server.js
 ```
 
 ## 출력 파일
