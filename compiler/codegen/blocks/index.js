@@ -15,6 +15,7 @@ const judgement = require('./judgement');
 const sound = require('./sound');
 const event = require('./event');
 const brush = require('./brush');
+const func = require('./func');
 
 // List of all block categories
 const categories = [
@@ -26,7 +27,8 @@ const categories = [
     judgement,
     sound,
     event,
-    brush
+    brush,
+    func
 ];
 
 /**
@@ -66,6 +68,10 @@ for (const category of categories) {
  * @returns {Function|undefined} The handler function
  */
 function getStatementHandler(blockType) {
+    // Check for dynamic function call blocks (func_<id>)
+    if (func.isFunctionCallBlock(blockType)) {
+        return func.transpileFunctionCall;
+    }
     return statementBlocks[blockType];
 }
 
@@ -75,6 +81,14 @@ function getStatementHandler(blockType) {
  * @returns {Function|undefined} The handler function
  */
 function getValueHandler(blockType) {
+    // Check for dynamic function call blocks (func_<id>) - value returning functions
+    if (func.isFunctionCallBlock(blockType)) {
+        return func.transpileFunctionValue;
+    }
+    // Check for function parameter blocks (stringParam_*, booleanParam_*)
+    if (func.isParamBlock(blockType)) {
+        return func.transpileParamValue;
+    }
     return valueBlocks[blockType];
 }
 
@@ -84,6 +98,10 @@ function getValueHandler(blockType) {
  * @returns {Function|undefined} The handler function
  */
 function getBooleanHandler(blockType) {
+    // Check for boolean parameter blocks (booleanParam_*)
+    if (blockType && blockType.startsWith('booleanParam_')) {
+        return func.transpileParamBoolean;
+    }
     return booleanBlocks[blockType];
 }
 

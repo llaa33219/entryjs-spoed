@@ -259,13 +259,41 @@ function parseMessages(messages) {
  * Parse functions (custom blocks)
  */
 function parseFunctions(functions) {
-    return functions.map((func, index) => ({
-        id: func.id,
-        name: func.name || `func_${index}`,
-        params: func.params || [],
-        content: func.content ? parseThread(func.content) : [],
-        index
-    }));
+    return functions.map((func, index) => {
+        // Parse the function content
+        let content = [];
+        if (func.content) {
+            // content can be a Code object, JSON string, or array
+            if (typeof func.content === 'string') {
+                try {
+                    const parsed = JSON.parse(func.content);
+                    // Content is usually an array of threads
+                    if (Array.isArray(parsed)) {
+                        content = parsed.flat().map(block => parseBlock(block)).filter(b => b !== null);
+                    }
+                } catch (e) {
+                    content = [];
+                }
+            } else if (Array.isArray(func.content)) {
+                // Could be array of threads or array of blocks
+                content = func.content.flat().map(block => parseBlock(block)).filter(b => b !== null);
+            } else if (func.content._data) {
+                // Code object format - extract threads
+                const threads = func.content._data || [];
+                content = threads.flat().map(block => parseBlock(block)).filter(b => b !== null);
+            }
+        }
+
+        return {
+            id: func.id,
+            name: func.name || `func_${index}`,
+            type: func.type || 'normal', // 'normal' or 'value'
+            params: func.params || [],
+            localVariables: func.localVariables || [],
+            content: content,
+            index
+        };
+    });
 }
 
 /**

@@ -25,6 +25,7 @@ class WATGenerator {
         this.blockTranspiler = new BlockTranspiler(this);
         this.labelCounter = 0;
         this.localVars = new Map();
+        this.currentFuncParamMap = null; // Map of param block types to indices
     }
 
     generate() {
@@ -35,6 +36,7 @@ class WATGenerator {
             this.generateGlobals(),
             this.generateEntityFunctions(),
             this.generateBlockFunctions(),
+            this.generateUserFunctions(),
             this.generateThreadFunctions(),
             this.generateMainLoop(),
             this.generateExports()
@@ -405,6 +407,170 @@ class WATGenerator {
   
   ;; Note: Brush/drawing functions are imported from JS for optimal performance
   ;; See imports section above`;
+    }
+
+    /**
+     * Generate WASM functions for user-defined functions (함수)
+     */
+    generateUserFunctions() {
+        const functions = this.project.functions || [];
+        if (functions.length === 0) {
+            return '\n  ;; ===== USER FUNCTIONS =====';
+        }
+
+        let code = '\n  ;; ===== USER FUNCTIONS =====';
+
+        for (const func of functions) {
+            code += this.generateUserFunction(func);
+        }
+
+        return code;
+    }
+
+    /**
+     * Generate a single user-defined function
+     */
+    generateUserFunction(func) {
+        const funcId = func.id;
+        const funcName = func.name || `func_${funcId}`;
+        const isValueFunc = func.type === 'value';
+
+        // Parse the function content to extract parameters and body
+        const { params, bodyBlocks, returnValueBlock } = this.parseFunctionContent(func);
+
+        // Build parameter map for transpiling param blocks
+        this.currentFuncParamMap = {};
+        params.forEach((p, idx) => {
+            this.currentFuncParamMap[p.type] = idx;
+        });
+
+        // Generate parameter declarations
+        const paramDecls = params.map((p, idx) => `(param $param_${idx} f64)`).join(' ');
+        const resultDecl = isValueFunc ? '(result f64)' : '';
+
+        // Generate local variable declarations
+        let localsDecl = `
+    (local $temp f64)
+    (local $iterCount i32)
+    (local $condResult i32)`;
+
+        // Generate function body
+        // Use a special entity index marker that will be replaced with the local $entityIdx
+        let bodyCode = '';
+        for (const block of bodyBlocks) {
+            if (block && block.type) {
+                // Use -1 as entityIndex to indicate dynamic (from param)
+                // Then replace the constant with the local variable
+                let blockCode = this.blockTranspiler.transpile(block, -1, -1);
+                // Replace (i32.const -1) with (local.get $entityIdx)
+                blockCode = blockCode.replace(/\(i32\.const -1\)/g, '(local.get $entityIdx)');
+                bodyCode += blockCode;
+            }
+        }
+
+        // Generate return value for value functions
+        let returnCode = '';
+        if (isValueFunc) {
+            if (returnValueBlock) {
+                let retVal = this.blockTranspiler.transpileValue(returnValueBlock, -1);
+                retVal = retVal.replace(/\(i32\.const -1\)/g, '(local.get $entityIdx)');
+                returnCode = `\n    ;; Return value\n    ${retVal}`;
+            } else {
+                returnCode = '\n    ;; Default return value\n    (f64.const 0)';
+            }
+        }
+
+        // Clear param map
+        this.currentFuncParamMap = null;
+
+        return `
+  
+  ;; User function: ${funcName}
+  (func $user_func_${funcId} (param $entityIdx i32) ${paramDecls} ${resultDecl}${localsDecl}
+    ${bodyCode}${returnCode}
+  )`;
+    }
+
+    /**
+     * Parse function content to extract parameters and body blocks
+     * @param {Object} func - Parsed function object
+     * @returns {{params: Array, bodyBlocks: Array, returnValueBlock: Object|null}}
+     */
+    parseFunctionContent(func) {
+        const result = {
+            params: [],
+            bodyBlocks: [],
+            returnValueBlock: null
+        };
+
+        const content = func.content || [];
+        if (content.length === 0) {
+            return result;
+        }
+
+        // Find the function definition block (function_create or function_create_value)
+        const defBlock = content.find(block => 
+            block && (block.type === 'function_create' || block.type === 'function_create_value')
+        );
+
+        if (!defBlock) {
+            // If no definition block, treat all content as body
+            result.bodyBlocks = content.filter(b => b && b.type);
+            return result;
+        }
+
+        // Extract parameters from the field chain in params[0]
+        if (defBlock.params && defBlock.params[0]) {
+            this.extractFunctionParams(defBlock.params[0], result.params);
+        }
+
+        // Extract body blocks from statements[0]
+        if (defBlock.statements && defBlock.statements[0]) {
+            result.bodyBlocks = defBlock.statements[0].filter(b => b && b.type);
+        }
+
+        // For value functions, extract return value from params[3] (VALUE param)
+        if (func.type === 'value' && defBlock.params && defBlock.params[3]) {
+            result.returnValueBlock = defBlock.params[3];
+        }
+
+        return result;
+    }
+
+    /**
+     * Extract function parameters from field chain
+     * @param {Object} fieldBlock - The field block (function_field_label, etc.)
+     * @param {Array} params - Array to collect parameters
+     */
+    extractFunctionParams(fieldBlock, params) {
+        if (!fieldBlock || !fieldBlock.type) {
+            return;
+        }
+
+        // Check if this field is a parameter
+        if (fieldBlock.type === 'function_field_string') {
+            // String parameter - params[0] contains the param block
+            if (fieldBlock.params && fieldBlock.params[0] && fieldBlock.params[0].type) {
+                params.push({
+                    type: fieldBlock.params[0].type,
+                    accept: 'string'
+                });
+            }
+        } else if (fieldBlock.type === 'function_field_boolean') {
+            // Boolean parameter - params[0] contains the param block
+            if (fieldBlock.params && fieldBlock.params[0] && fieldBlock.params[0].type) {
+                params.push({
+                    type: fieldBlock.params[0].type,
+                    accept: 'boolean'
+                });
+            }
+        }
+        // function_field_label is just a label, skip it
+
+        // Recursively process the next field (linked via params[1] or output)
+        if (fieldBlock.params && fieldBlock.params[1]) {
+            this.extractFunctionParams(fieldBlock.params[1], params);
+        }
     }
 
     generateThreadFunctions() {

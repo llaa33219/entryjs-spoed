@@ -71,6 +71,12 @@ node compiler/output/server.js
 - `get_variable`, `set_variable`, `change_variable` - 변수 조작
 - `show_variable`, `hide_variable` - 변수 표시
 
+### 함수
+- `func_<id>` - 사용자 정의 함수 호출
+- `function_create` - 일반 함수 정의 (반환값 없음)
+- `function_create_value` - 값 반환 함수 정의
+- `stringParam_*`, `booleanParam_*` - 함수 파라미터
+
 ## 오브젝트 렌더링 순서 (Z-Order)
 
 EntryJS와 동일한 렌더링 순서를 유지합니다:
@@ -160,6 +166,68 @@ EntryJS와 동일한 브러시/채우기 동작을 구현합니다:
 ### 변수 데이터 (엔티티 다음, 각 8 bytes)
 - 각 변수당 f64 값
 
+## 함수 (Function) 기능
+
+사용자 정의 함수를 WASM 함수로 컴파일합니다.
+
+### 지원 기능
+- **일반 함수**: 반환값이 없는 함수 (`function_create`)
+- **값 함수**: f64 값을 반환하는 함수 (`function_create_value`)
+- **파라미터**: 문자열/숫자 파라미터 (`stringParam_*`) 및 불리언 파라미터 (`booleanParam_*`)
+- **재귀 호출**: 함수 내에서 자신을 호출 가능
+
+### 작동 방식
+1. 각 사용자 함수는 `$user_func_<id>` 형태의 WASM 함수로 컴파일됩니다
+2. 함수 파라미터는 WASM 함수의 로컬 변수로 전달됩니다
+3. 함수 호출 블록 (`func_<id>`)은 해당 WASM 함수를 호출합니다
+4. 값 함수는 마지막 표현식의 값을 반환합니다
+
+### 예제
+
+```json
+{
+    "functions": [
+        {
+            "id": "moveForward",
+            "name": "앞으로 이동",
+            "type": "normal",
+            "content": [
+                [{
+                    "type": "function_create",
+                    "params": [
+                        {
+                            "type": "function_field_label",
+                            "params": ["앞으로", {
+                                "type": "function_field_string",
+                                "params": [
+                                    { "type": "stringParam_dist" },
+                                    null
+                                ]
+                            }]
+                        }
+                    ],
+                    "statements": [[
+                        {
+                            "type": "move_direction",
+                            "params": [{ "type": "stringParam_dist" }]
+                        }
+                    ]]
+                }]
+            ]
+        }
+    ]
+}
+```
+
+위 함수 정의는 다음과 같은 WASM 함수로 컴파일됩니다:
+
+```wat
+(func $user_func_moveForward (param $entityIdx i32) (param $param_0 f64)
+    ;; move_direction
+    (call $moveInDirection (local.get $entityIdx) (local.get $param_0))
+)
+```
+
 ## 파일 구조
 
 ```
@@ -180,7 +248,9 @@ compiler/
 │       ├── sound.js
 │       ├── event.js
 │       ├── brush.js
+│       ├── func.js       # 함수 블록 핸들러
 │       └── index.js
 └── examples/
-    └── sample-project.json
+    ├── sample-project.json
+    └── test-functions.json  # 함수 테스트 프로젝트
 ```

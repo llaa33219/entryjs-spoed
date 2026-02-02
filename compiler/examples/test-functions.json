@@ -1,0 +1,190 @@
+{
+    "scenes": [
+        {
+            "id": "scene1",
+            "name": "장면 1"
+        }
+    ],
+    "objects": [
+        {
+            "id": "obj1",
+            "name": "엔트리봇",
+            "scene": "scene1",
+            "objectType": "sprite",
+            "rotateMethod": "free",
+            "entity": {
+                "x": 0,
+                "y": 0,
+                "rotation": 0,
+                "direction": 90,
+                "scaleX": 1,
+                "scaleY": 1,
+                "visible": true
+            },
+            "sprite": {
+                "pictures": [
+                    {
+                        "id": "pic1",
+                        "name": "엔트리봇1",
+                        "fileurl": "/images/entrybot1.png",
+                        "dimension": {
+                            "width": 100,
+                            "height": 100
+                        }
+                    }
+                ],
+                "sounds": []
+            },
+            "script": [
+                [
+                    { "type": "when_run_button_click" },
+                    { 
+                        "type": "func_moveForward",
+                        "params": [
+                            { "type": "number", "params": [50] }
+                        ]
+                    },
+                    { "type": "wait_second", "params": [1] },
+                    { 
+                        "type": "func_moveForward",
+                        "params": [
+                            { "type": "number", "params": [100] }
+                        ]
+                    }
+                ],
+                [
+                    { "type": "when_some_key_pressed", "params": [null, 32] },
+                    {
+                        "type": "repeat_basic",
+                        "params": [{ "type": "number", "params": [5] }],
+                        "statements": [[
+                            {
+                                "type": "func_moveAndRotate",
+                                "params": [
+                                    { "type": "number", "params": [20] },
+                                    { "type": "number", "params": [15] }
+                                ]
+                            }
+                        ]]
+                    }
+                ]
+            ]
+        }
+    ],
+    "variables": [],
+    "messages": [],
+    "functions": [
+        {
+            "id": "moveForward",
+            "name": "앞으로 이동",
+            "type": "normal",
+            "content": [
+                [
+                    {
+                        "type": "function_create",
+                        "params": [
+                            {
+                                "type": "function_field_label",
+                                "params": ["앞으로 이동", {
+                                    "type": "function_field_string",
+                                    "params": [
+                                        { "type": "stringParam_distance" },
+                                        null
+                                    ]
+                                }]
+                            }
+                        ],
+                        "statements": [[
+                            {
+                                "type": "move_direction",
+                                "params": [
+                                    { "type": "stringParam_distance" }
+                                ]
+                            }
+                        ]]
+                    }
+                ]
+            ]
+        },
+        {
+            "id": "moveAndRotate",
+            "name": "이동하고 회전",
+            "type": "normal",
+            "content": [
+                [
+                    {
+                        "type": "function_create",
+                        "params": [
+                            {
+                                "type": "function_field_label",
+                                "params": ["이동하고 회전", {
+                                    "type": "function_field_string",
+                                    "params": [
+                                        { "type": "stringParam_dist" },
+                                        {
+                                            "type": "function_field_string",
+                                            "params": [
+                                                { "type": "stringParam_angle" },
+                                                null
+                                            ]
+                                        }
+                                    ]
+                                }]
+                            }
+                        ],
+                        "statements": [[
+                            {
+                                "type": "move_direction",
+                                "params": [
+                                    { "type": "stringParam_dist" }
+                                ]
+                            },
+                            {
+                                "type": "rotate_relative",
+                                "params": [
+                                    { "type": "stringParam_angle" }
+                                ]
+                            }
+                        ]]
+                    }
+                ]
+            ]
+        },
+        {
+            "id": "calcDouble",
+            "name": "두 배 계산",
+            "type": "value",
+            "content": [
+                [
+                    {
+                        "type": "function_create_value",
+                        "params": [
+                            {
+                                "type": "function_field_label",
+                                "params": ["두 배", {
+                                    "type": "function_field_string",
+                                    "params": [
+                                        { "type": "stringParam_num" },
+                                        null
+                                    ]
+                                }]
+                            },
+                            null,
+                            null,
+                            {
+                                "type": "calc_basic",
+                                "params": [
+                                    { "type": "stringParam_num" },
+                                    "MULTI",
+                                    { "type": "number", "params": [2] }
+                                ]
+                            }
+                        ],
+                        "statements": [[]]
+                    }
+                ]
+            ]
+        }
+    ],
+    "speed": 60
+}
