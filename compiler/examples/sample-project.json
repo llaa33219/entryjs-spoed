@@ -1,0 +1,111 @@
+{
+    "scenes": [
+        {
+            "id": "scene1",
+            "name": "장면 1"
+        },
+        {
+            "id": "scene2",
+            "name": "장면 2"
+        }
+    ],
+    "objects": [
+        {
+            "id": "obj1",
+            "name": "엔트리봇",
+            "scene": "scene1",
+            "objectType": "sprite",
+            "rotateMethod": "free",
+            "entity": {
+                "x": 0,
+                "y": 0,
+                "rotation": 0,
+                "direction": 90,
+                "scaleX": 1,
+                "scaleY": 1,
+                "visible": true
+            },
+            "sprite": {
+                "pictures": [
+                    {
+                        "id": "pic1",
+                        "name": "엔트리봇1",
+                        "fileurl": "/images/entrybot1.png",
+                        "dimension": {
+                            "width": 100,
+                            "height": 100
+                        }
+                    }
+                ],
+                "sounds": []
+            },
+            "script": [
+                [
+                    { "type": "when_run_button_click" },
+                    { "type": "move_direction", "params": [10] },
+                    { "type": "wait_second", "params": [1] },
+                    { "type": "start_scene", "params": ["scene2"] }
+                ],
+                [
+                    { "type": "when_some_key_pressed", "params": [null, 81] },
+                    { "type": "rotate_relative", "params": [15] }
+                ]
+            ]
+        },
+        {
+            "id": "obj2",
+            "name": "장면2 캐릭터",
+            "scene": "scene2",
+            "objectType": "sprite",
+            "rotateMethod": "free",
+            "entity": {
+                "x": 50,
+                "y": 50,
+                "rotation": 0,
+                "direction": 90,
+                "scaleX": 1,
+                "scaleY": 1,
+                "visible": true
+            },
+            "sprite": {
+                "pictures": [
+                    {
+                        "id": "pic2",
+                        "name": "캐릭터2",
+                        "fileurl": "/images/character2.png",
+                        "dimension": {
+                            "width": 80,
+                            "height": 80
+                        }
+                    }
+                ],
+                "sounds": []
+            },
+            "script": [
+                [
+                    { "type": "when_scene_start" },
+                    { "type": "repeat_basic", "params": [5], "statements": [[
+                        { "type": "move_direction", "params": [20] },
+                        { "type": "wait_second", "params": [0.5] }
+                    ]] }
+                ],
+                [
+                    { "type": "when_some_key_pressed", "params": [null, 32] },
+                    { "type": "start_neighbor_scene", "params": ["prev"] }
+                ]
+            ]
+        }
+    ],
+    "variables": [
+        {
+            "id": "var1",
+            "name": "점수",
+            "value": 0,
+            "variableType": "variable",
+            "visible": true
+        }
+    ],
+    "messages": [],
+    "functions": [],
+    "speed": 60
+}

@@ -1,0 +1,173 @@
+{
+  "objects": [
+    {
+      "id": "7y0y",
+      "name": "엔트리봇",
+      "script": "[[{\"id\":\"pbc3\",\"x\":50,\"y\":30,\"type\":\"when_run_button_click\",\"params\":[null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},{\"id\":\"1fi2\",\"x\":0,\"y\":0,\"type\":\"start_drawing\",\"params\":[null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},{\"id\":\"9h8i\",\"x\":0,\"y\":0,\"type\":\"repeat_basic\",\"params\":[{\"id\":\"8bcy\",\"x\":0,\"y\":0,\"type\":\"number\",\"params\":[10],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},null],\"statements\":[[{\"id\":\"dzps\",\"x\":0,\"y\":0,\"type\":\"move_direction\",\"params\":[{\"id\":\"qc9f\",\"x\":0,\"y\":0,\"type\":\"number\",\"params\":[10],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]}]],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},{\"id\":\"lkc7\",\"x\":0,\"y\":0,\"type\":\"start_fill\",\"params\":[null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},{\"id\":\"y9wu\",\"x\":0,\"y\":0,\"type\":\"move_y\",\"params\":[{\"id\":\"0yro\",\"x\":0,\"y\":0,\"type\":\"number\",\"params\":[\"-100\"],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},{\"id\":\"l3qu\",\"x\":0,\"y\":0,\"type\":\"move_x\",\"params\":[{\"id\":\"cdzd\",\"x\":0,\"y\":0,\"type\":\"number\",\"params\":[\"-100\"],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]}]]",
+      "objectType": "sprite",
+      "rotateMethod": "free",
+      "scene": "7dwq",
+      "sprite": {
+        "pictures": [
+          {
+            "id": "vx80",
+            "dimension": {
+              "width": 144,
+              "height": 246,
+              "scaleX": 0.5128205128205128,
+              "scaleY": 0.5128205128205128
+            },
+            "fileurl": "/lib/entry-js/images/media/entrybot1.svg",
+            "thumbUrl": "/lib/entry-js/images/media/entrybot1.svg",
+            "name": "엔트리봇_걷기1",
+            "imageType": "svg"
+          },
+          {
+            "id": "4t48",
+            "dimension": {
+              "width": 144,
+              "height": 246
+            },
+            "fileurl": "/lib/entry-js/images/media/entrybot2.svg",
+            "thumbUrl": "/lib/entry-js/images/media/entrybot2.svg",
+            "name": "엔트리봇_걷기2",
+            "imageType": "svg"
+          }
+        ],
+        "sounds": [
+          {
+            "duration": 1.3,
+            "ext": ".mp3",
+            "id": "8el5",
+            "fileurl": "/lib/entry-js/images/media/bark.mp3",
+            "name": "강아지 짖는 소리"
+          }
+        ]
+      },
+      "selectedPictureId": "vx80",
+      "lock": false,
+      "entity": {
+        "x": 0,
+        "y": 0,
+        "regX": 72,
+        "regY": 123,
+        "scaleX": 0.5128205128205128,
+        "scaleY": 0.5128205128205128,
+        "rotation": 0,
+        "direction": 90,
+        "width": 144,
+        "height": 246,
+        "font": "undefinedpx ",
+        "visible": true
+      }
+    },
+    {
+      "id": "ackl",
+      "name": "단색 배경",
+      "script": "[]",
+      "objectType": "sprite",
+      "rotateMethod": "free",
+      "scene": "7dwq",
+      "sprite": {
+        "pictures": [
+          {
+            "id": "hx5w",
+            "dimension": {
+              "width": 960,
+              "height": 540,
+              "scaleX": 0.5,
+              "scaleY": 0.5
+            },
+            "filename": "985d8853e7e96e93ebd4989f0b15c462",
+            "name": "녹색배경_1",
+            "imageType": "png"
+          },
+          {
+            "id": "qm1g",
+            "dimension": {
+              "width": 960,
+              "height": 540
+            },
+            "filename": "698b8b1ed17dd319ab31efa9f63af8f6",
+            "name": "분홍색배경_1",
+            "imageType": "png"
+          },
+          {
+            "id": "yl9y",
+            "dimension": {
+              "width": 960,
+              "height": 540
+            },
+            "filename": "9676ccc72b6db97473afff7308d39394",
+            "name": "연두색배경_1",
+            "imageType": "png"
+          }
+        ],
+        "sounds": []
+      },
+      "selectedPictureId": "hx5w",
+      "lock": true,
+      "entity": {
+        "x": 0,
+        "y": 0,
+        "regX": 480,
+        "regY": 270,
+        "scaleX": 0.5,
+        "scaleY": 0.5,
+        "rotation": 0,
+        "direction": 90,
+        "width": 960,
+        "height": 540,
+        "font": "undefinedpx ",
+        "visible": true
+      }
+    }
+  ],
+  "scenes": [
+    {
+      "id": "7dwq",
+      "name": "장면 1"
+    }
+  ],
+  "variables": [
+    {
+      "name": "초시계",
+      "id": "brih",
+      "visible": false,
+      "value": 0,
+      "variableType": "timer",
+      "isCloud": false,
+      "isRealTime": false,
+      "cloudDate": false,
+      "object": null,
+      "x": 134,
+      "y": -70
+    },
+    {
+      "name": "대답",
+      "id": "1vu8",
+      "visible": false,
+      "value": "0",
+      "variableType": "answer",
+      "isCloud": false,
+      "isRealTime": false,
+      "cloudDate": false,
+      "object": null,
+      "x": 150,
+      "y": -100
+    }
+  ],
+  "messages": [],
+  "functions": [],
+  "tables": [],
+  "speed": 60,
+  "interface": {
+    "canvasWidth": 640,
+    "object": "7y0y"
+  },
+  "expansionBlocks": [],
+  "aiUtilizeBlocks": [],
+  "hardwareLiteBlocks": [],
+  "externalModules": [],
+  "externalModulesLite": []
+}
