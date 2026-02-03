@@ -42,6 +42,21 @@ const statementBlocks = {
           ;; Event: when_clone_start`;
     },
 
+    'mouse_clicked': (ctx, block, entityIndex, threadIndex) => {
+        return `
+          ;; Event: mouse_clicked (handled by activation logic)`;
+    },
+
+    'mouse_click_cancled': (ctx, block, entityIndex, threadIndex) => {
+        return `
+          ;; Event: mouse_click_cancled (handled by activation logic)`;
+    },
+
+    'when_object_click_canceled': (ctx, block, entityIndex, threadIndex) => {
+        return `
+          ;; Event: when_object_click_canceled (handled by activation logic)`;
+    },
+
     // Clone operations
     'create_clone': (ctx, block, entityIndex) => {
         const targetId = block.params?.[0];

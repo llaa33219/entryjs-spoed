@@ -168,6 +168,35 @@ const booleanBlocks = {
     'boolean_start_with': (ctx, block, entityIndex) => {
         // String starts with - complex in WASM
         return '(i32.const 0)';
+    },
+
+    'is_boost_mode': (ctx, block, entityIndex) => {
+        // Check if in boost mode - always return true for compiled WASM
+        return '(i32.const 1)';
+    },
+
+    'boolean_shell': (ctx, block, entityIndex) => {
+        // Boolean wrapper - just return the inner boolean value
+        return ctx.transpileBoolean(block.params?.[0], entityIndex);
+    },
+
+    'is_clicked_mouse': (ctx, block, entityIndex) => {
+        // Check if mouse button is clicked (left/right/both)
+        const button = block.params?.[0];
+        // For simplicity, just check if any mouse button is clicked
+        // In WASM we only track general mouse click state
+        return '(call $isMouseClicked)';
+    },
+
+    'object_is_visible': (ctx, block, entityIndex) => {
+        // Check if object is visible
+        const targetId = block.params?.[0];
+        let targetIndex = entityIndex;
+        if (targetId && targetId !== 'self') {
+            const idx = ctx.generator.project.objects.findIndex(o => o.id === targetId);
+            if (idx >= 0) targetIndex = idx;
+        }
+        return `(call $getVisible (i32.const ${targetIndex}))`;
     }
 };
 

@@ -76,6 +76,42 @@ class WATGenerator {
   (import "system" "playSound" (func $playSound (param i32 i32)))
   (import "system" "sendMessage" (func $sendMessage (param i32)))
   
+  ;; Timer functions
+  (import "timer" "getProjectTimer" (func $getProjectTimer (result f64)))
+  (import "timer" "startProjectTimer" (func $startProjectTimer))
+  (import "timer" "stopProjectTimer" (func $stopProjectTimer))
+  (import "timer" "resetProjectTimer" (func $resetProjectTimer))
+  (import "timer" "setProjectTimerVisible" (func $setProjectTimerVisible (param i32)))
+  
+  ;; Answer/Input functions
+  (import "input" "askAndWait" (func $askAndWait (param i32)))
+  (import "input" "getAnswer" (func $getAnswer (result f64)))
+  (import "input" "setAnswerVisible" (func $setAnswerVisible (param i32)))
+  
+  ;; Clone functions
+  (import "clone" "createClone" (func $createClone (param i32)))
+  (import "clone" "deleteClone" (func $deleteClone (param i32)))
+  (import "clone" "removeAllClones" (func $removeAllClones))
+  
+  ;; Sound functions
+  (import "sound" "playSoundAndWait" (func $playSoundAndWait (param i32 i32)))
+  (import "sound" "playSoundForSeconds" (func $playSoundForSeconds (param i32 i32 f64)))
+  (import "sound" "playSoundFromTo" (func $playSoundFromTo (param i32 i32 f64 f64)))
+  (import "sound" "changeSoundVolume" (func $changeSoundVolume (param i32 f64)))
+  (import "sound" "setSoundVolume" (func $setSoundVolume (param i32 f64)))
+  (import "sound" "getSoundVolume" (func $getSoundVolume (param i32) (result f64)))
+  (import "sound" "changeSoundSpeed" (func $changeSoundSpeed (param i32 f64)))
+  (import "sound" "setSoundSpeed" (func $setSoundSpeed (param i32 f64)))
+  (import "sound" "getSoundSpeed" (func $getSoundSpeed (param i32) (result f64)))
+  (import "sound" "playBGM" (func $playBGM (param i32 i32)))
+  (import "sound" "stopBGM" (func $stopBGM))
+  (import "sound" "stopAllSounds" (func $stopAllSounds))
+  
+  ;; Dialog functions
+  (import "dialog" "showDialog" (func $showDialog (param i32 i32)))
+  (import "dialog" "hideDialog" (func $hideDialog (param i32)))
+  (import "dialog" "sendMessageAndWait" (func $sendMessageAndWait (param i32)))
+  
   ;; Brush/Drawing functions (implemented in JS renderer for performance)
   (import "brush" "startDrawing" (func $startDrawing (param i32)))
   (import "brush" "stopDrawing" (func $stopDrawing (param i32)))

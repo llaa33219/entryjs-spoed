@@ -146,6 +146,20 @@ const statementBlocks = {
         return `
           ;; stop_run (stop all)
           (call $stop)`;
+    },
+
+    'continue_repeat': (ctx, block, entityIndex, threadIndex) => {
+        // Continue to next iteration of the loop
+        // This branches back to the loop start
+        return `
+          ;; continue_repeat
+          (br $loop)`;
+    },
+
+    'remove_all_clones': (ctx, block, entityIndex, threadIndex) => {
+        return `
+          ;; remove_all_clones
+          (call $removeAllClones)`;
     }
 };
 

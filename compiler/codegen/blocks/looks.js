@@ -162,12 +162,85 @@ const statementBlocks = {
           ;; add_effect_amount: ${effectType}
           ;; TODO: Implement effect system
           (drop ${value})`;
+    },
+
+    'erase_all_effects': (ctx, block, entityIndex) => {
+        return `
+          ;; erase_all_effects
+          ;; TODO: Reset all effects to default`;
+    },
+
+    'flip_x': (ctx, block, entityIndex) => {
+        return `
+          ;; flip_x - flip horizontally
+          (call $setScaleX (i32.const ${entityIndex})
+            (f64.mul (call $getScaleX (i32.const ${entityIndex})) (f64.const -1)))`;
+    },
+
+    'flip_y': (ctx, block, entityIndex) => {
+        return `
+          ;; flip_y - flip vertically
+          (call $setScaleY (i32.const ${entityIndex})
+            (f64.mul (call $getScaleY (i32.const ${entityIndex})) (f64.const -1)))`;
+    },
+
+    'change_object_index': (ctx, block, entityIndex) => {
+        // Change layer order: front, back, prev (forward), next (backward)
+        const direction = block.params?.[0];
+        // Layer ordering is handled by renderer, just log for now
+        return `
+          ;; change_object_index: ${direction}
+          ;; (handled by renderer - layer ordering)`;
+    },
+
+    'change_object_index_to': (ctx, block, entityIndex) => {
+        // Change to specific layer index
+        const targetIndex = ctx.transpileValue(block.params?.[0], entityIndex);
+        return `
+          ;; change_object_index_to
+          ;; (handled by renderer - layer ordering)
+          (drop ${targetIndex})`;
+    },
+
+    'set_effect': (ctx, block, entityIndex) => {
+        const effectType = block.params?.[0];
+        const value = ctx.transpileValue(block.params?.[1], entityIndex);
+        return `
+          ;; set_effect: ${effectType}
+          ;; TODO: Implement effect system
+          (drop ${value})`;
+    },
+
+    'change_effect': (ctx, block, entityIndex) => {
+        const effectType = block.params?.[0];
+        const value = ctx.transpileValue(block.params?.[1], entityIndex);
+        return `
+          ;; change_effect: ${effectType}
+          ;; TODO: Implement effect system
+          (drop ${value})`;
     }
 };
 
 const valueBlocks = {
     'get_size': (ctx, block, entityIndex) => {
         return `(call $getSize (i32.const ${entityIndex}))`;
+    },
+
+    'get_pictures': (ctx, block, entityIndex) => {
+        // Returns current picture index (or picture data, simplified to index)
+        return `(f64.convert_i32_s (call $getPictureIndex (i32.const ${entityIndex})))`;
+    },
+
+    'get_effect_value': (ctx, block, entityIndex) => {
+        const effectType = block.params?.[0];
+        // Effect values would need to be stored in entity memory
+        // For now return 0 as placeholder
+        return `(f64.const 0) ;; get_effect_value: ${effectType}`;
+    },
+
+    'current_picture_name': (ctx, block, entityIndex) => {
+        // String operations not supported, return picture index as number
+        return `(f64.convert_i32_s (call $getPictureIndex (i32.const ${entityIndex})))`;
     }
 };
 

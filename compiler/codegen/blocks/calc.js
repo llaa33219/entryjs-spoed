@@ -4,7 +4,43 @@
  * Handles blocks related to math operations, values, and coordinates.
  */
 
-const statementBlocks = {};
+const statementBlocks = {
+    'choose_project_timer_action': (ctx, block, entityIndex) => {
+        const action = block.params?.[0];
+        switch (action) {
+            case 'start':
+                return `
+          ;; choose_project_timer_action: start
+          (call $startProjectTimer)`;
+            case 'stop':
+                return `
+          ;; choose_project_timer_action: stop
+          (call $stopProjectTimer)`;
+            case 'reset':
+                return `
+          ;; choose_project_timer_action: reset
+          (call $resetProjectTimer)`;
+            default:
+                return `
+          ;; choose_project_timer_action: ${action}
+          (call $startProjectTimer)`;
+        }
+    },
+
+    'reset_project_timer': (ctx, block, entityIndex) => {
+        return `
+          ;; reset_project_timer
+          (call $resetProjectTimer)`;
+    },
+
+    'set_visible_project_timer': (ctx, block, entityIndex) => {
+        const visibility = block.params?.[0];
+        const isVisible = visibility === 'SHOW' || visibility === 'show' ? 1 : 0;
+        return `
+          ;; set_visible_project_timer: ${visibility}
+          (call $setProjectTimerVisible (i32.const ${isVisible}))`;
+    }
+};
 
 const valueBlocks = {
     'number': (ctx, block, entityIndex) => {
@@ -189,6 +225,52 @@ const valueBlocks = {
     'replace_string': (ctx, block, entityIndex) => {
         // String replace is complex in WASM, return placeholder
         return '(f64.const 0)';
+    },
+
+    'get_project_timer_value': (ctx, block, entityIndex) => {
+        return `(call $getProjectTimer)`;
+    },
+
+    'distance_something': (ctx, block, entityIndex) => {
+        const targetType = block.params?.[0];
+        
+        if (targetType === 'mouse' || targetType === 'mouse_pointer') {
+            // Distance to mouse: sqrt((mx - x)^2 + (my - y)^2)
+            return `(call $sqrt
+              (f64.add
+                (f64.mul
+                  (f64.sub (call $getMouseX) (call $getX (i32.const ${entityIndex})))
+                  (f64.sub (call $getMouseX) (call $getX (i32.const ${entityIndex}))))
+                (f64.mul
+                  (f64.sub (call $getMouseY) (call $getY (i32.const ${entityIndex})))
+                  (f64.sub (call $getMouseY) (call $getY (i32.const ${entityIndex}))))))`;
+        }
+        
+        // Distance to another object
+        let targetIndex = entityIndex;
+        if (targetType) {
+            const idx = ctx.generator.project.objects.findIndex(o => o.id === targetType);
+            if (idx >= 0) targetIndex = idx;
+        }
+        return `(call $sqrt
+              (f64.add
+                (f64.mul
+                  (f64.sub (call $getX (i32.const ${targetIndex})) (call $getX (i32.const ${entityIndex})))
+                  (f64.sub (call $getX (i32.const ${targetIndex})) (call $getX (i32.const ${entityIndex}))))
+                (f64.mul
+                  (f64.sub (call $getY (i32.const ${targetIndex})) (call $getY (i32.const ${entityIndex})))
+                  (f64.sub (call $getY (i32.const ${targetIndex})) (call $getY (i32.const ${entityIndex}))))))`;
+    },
+
+    'get_boolean_value': (ctx, block, entityIndex) => {
+        // Boolean value - returns 0 or 1 as f64
+        const value = ctx.transpileBoolean(block.params?.[0], entityIndex);
+        return `(f64.convert_i32_s ${value})`;
+    },
+
+    'current_date_time_format': (ctx, block, entityIndex) => {
+        // Date/time format - complex string operation, return timestamp
+        return '(f64.const 0) ;; current_date_time_format - string not supported';
     },
 
     // Color conversion - returns packed color as f64 (R*65536 + G*256 + B)

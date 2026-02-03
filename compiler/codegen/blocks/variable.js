@@ -100,6 +100,36 @@ const statementBlocks = {
           ;; TODO: Implement list operations
           (drop ${index})
           (drop ${value})`;
+    },
+
+    'ask_and_wait': (ctx, block, entityIndex, threadIndex) => {
+        const question = block.params?.[0];
+        return `
+          ;; ask_and_wait
+          (call $askAndWait (i32.const ${entityIndex}))
+          (global.set $thread_${threadIndex}_waiting (f64.const 0.1))`;
+    },
+
+    'set_visible_answer': (ctx, block, entityIndex) => {
+        const visible = block.params?.[0];
+        const visibleCode = (visible === 'SHOW' || visible === true || visible === 'show') ? 1 : 0;
+        return `
+          ;; set_visible_answer
+          (call $setAnswerVisible (i32.const ${visibleCode}))`;
+    },
+
+    'show_list': (ctx, block, entityIndex) => {
+        const listId = block.params?.[0];
+        return `
+          ;; show_list: ${listId}
+          ;; (handled by renderer)`;
+    },
+
+    'hide_list': (ctx, block, entityIndex) => {
+        const listId = block.params?.[0];
+        return `
+          ;; hide_list: ${listId}
+          ;; (handled by renderer)`;
     }
 };
 
@@ -146,6 +176,10 @@ const valueBlocks = {
         return `
           ;; is_included_in_list - TODO: Implement
           (i32.const 0)`;
+    },
+
+    'get_canvas_input_value': (ctx, block, entityIndex) => {
+        return `(call $getAnswer)`;
     }
 };
 
