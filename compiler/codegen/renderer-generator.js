@@ -53,6 +53,64 @@ const wasmImports = {
         playSound: (entityIdx, soundIdx) => playSound(entityIdx, soundIdx),
         sendMessage: (msgIdx) => handleMessage(msgIdx)
     },
+    timer: {
+        getProjectTimer: () => getProjectTimerValue(),
+        startProjectTimer: () => {
+            // Match EntryJS startProjectTimer behavior
+            projectTimerStart = performance.now();
+            projectTimerIsInit = true;
+            projectTimerPausedTime = 0;
+            projectTimerPauseStart = 0;
+        },
+        stopProjectTimer: () => {
+            // Match EntryJS stopProjectTimer behavior - stops and resets to 0
+            projectTimerIsInit = false;
+            projectTimerPausedTime = 0;
+            projectTimerPauseStart = 0;
+            projectTimerStart = 0;
+        },
+        resetProjectTimer: () => {
+            // Match EntryJS resetTimer behavior - resets value but keeps running if it was running
+            if (!projectTimerIsInit) return;
+            const current = performance.now();
+            projectTimerStart = current;
+            projectTimerPausedTime = 0;
+            // If paused, update pause start to current time so timer shows 0
+            if (projectTimerPauseStart > 0) {
+                projectTimerPauseStart = current;
+            }
+        },
+        setProjectTimerVisible: (visible) => { /* TODO: implement timer visibility */ }
+    },
+    input: {
+        askAndWait: (entityIdx) => { /* TODO: implement ask and wait */ },
+        getAnswer: () => answerValue,
+        setAnswerVisible: (visible) => { /* TODO: implement answer visibility */ }
+    },
+    clone: {
+        createClone: (entityIdx) => { /* TODO: implement clone creation */ },
+        deleteClone: (entityIdx) => { /* TODO: implement clone deletion */ },
+        removeAllClones: () => { /* TODO: implement remove all clones */ }
+    },
+    sound: {
+        playSoundAndWait: (entityIdx, soundIdx) => playSound(entityIdx, soundIdx),
+        playSoundForSeconds: (entityIdx, soundIdx, seconds) => playSound(entityIdx, soundIdx),
+        playSoundFromTo: (entityIdx, soundIdx, from, to) => playSound(entityIdx, soundIdx),
+        changeSoundVolume: (entityIdx, amount) => { /* TODO: implement */ },
+        setSoundVolume: (entityIdx, volume) => { /* TODO: implement */ },
+        getSoundVolume: (entityIdx) => 100,
+        changeSoundSpeed: (entityIdx, amount) => { /* TODO: implement */ },
+        setSoundSpeed: (entityIdx, speed) => { /* TODO: implement */ },
+        getSoundSpeed: (entityIdx) => 1,
+        playBGM: (entityIdx, soundIdx) => playSound(entityIdx, soundIdx),
+        stopBGM: () => { /* TODO: implement */ },
+        stopAllSounds: () => { /* TODO: implement */ }
+    },
+    dialog: {
+        showDialog: (entityIdx, type) => { /* TODO: implement dialog */ },
+        hideDialog: (entityIdx) => { /* TODO: implement */ },
+        sendMessageAndWait: (msgIdx) => handleMessage(msgIdx)
+    },
     brush: {
         startDrawing: (entityIdx) => startBrushDrawing(entityIdx),
         stopDrawing: (entityIdx) => stopBrushDrawing(entityIdx),
@@ -80,6 +138,26 @@ let sounds = [];
 let running = false;
 let lastTime = 0;
 let currentScene = 0;
+
+// Timer and input state (matching EntryJS engine.js implementation)
+// projectTimer uses real system time for accuracy, not deltaTime accumulation
+let projectTimerStart = 0;        // timestamp when timer started
+let projectTimerPausedTime = 0;   // total accumulated paused time
+let projectTimerPauseStart = 0;   // timestamp when pause started (0 if not paused)
+let projectTimerIsInit = false;   // whether timer has been started
+let answerValue = 0;
+
+// Get current project timer value (calculated on-demand for accuracy)
+// Formula matches EntryJS: Math.max((current - start - pausedTime) / 1000, 0)
+function getProjectTimerValue() {
+    if (!projectTimerIsInit) {
+        return 0;
+    }
+    const current = performance.now();
+    // If paused, use pause start time instead of current time
+    const effectiveTime = projectTimerPauseStart > 0 ? projectTimerPauseStart : current;
+    return Math.max((effectiveTime - projectTimerStart - projectTimerPausedTime) / 1000, 0);
+}
 
 // ===== BRUSH/DRAWING STATE =====
 // Entity containers hold: fillGraphics (bottom) → brushGraphics (middle) → sprite (top)
@@ -487,6 +565,9 @@ function gameLoop(currentTime) {
     
     const deltaTime = (currentTime - lastTime) / 1000;
     lastTime = currentTime;
+    
+    // Note: Project timer is now calculated on-demand in getProjectTimerValue()
+    // No need to update it here - this matches EntryJS behavior for accuracy
     
     // Call WASM tick
     wasm.tick(deltaTime);
@@ -1059,6 +1140,12 @@ function restart() {
         brushStates[i]._lastThickness = -1;
         brushStates[i]._lastOpacity = -1;
     }
+    
+    // Reset project timer state
+    projectTimerStart = 0;
+    projectTimerPausedTime = 0;
+    projectTimerPauseStart = 0;
+    projectTimerIsInit = false;
     
     wasm.init();
     currentScene = 0;

@@ -102,7 +102,9 @@ class BlockTranspiler {
         }
 
         // Default: return 0
-        return `(f64.const 0) ;; Unsupported value block: ${block.type}`;
+        // Note: Don't use inline comments here as they can break WAT syntax when
+        // this value is used as a function argument
+        return `(f64.const 0)`;
     }
 
     /**

@@ -74,7 +74,8 @@ const valueBlocks = {
             case 'MULTI':
                 return `(f64.mul ${left} ${right})`;
             case 'DIVIDE':
-                return `(f64.div ${left} ${right})`;
+                // Protect against division by zero - return 0 if divisor is 0
+                return `(if (result f64) (f64.eq ${right} (f64.const 0)) (then (f64.const 0)) (else (f64.div ${left} ${right})))`;
             default:
                 return `(f64.add ${left} ${right})`;
         }
@@ -168,7 +169,8 @@ const valueBlocks = {
         const left = ctx.transpileValue(block.params?.[0], entityIndex);
         const right = ctx.transpileValue(block.params?.[2], entityIndex);
         // WASM doesn't have f64 modulo, so we use: a - floor(a/b) * b
-        return `(f64.sub ${left} (f64.mul (call $floor (f64.div ${left} ${right})) ${right}))`;
+        // Protect against division by zero - return 0 if divisor is 0
+        return `(if (result f64) (f64.eq ${right} (f64.const 0)) (then (f64.const 0)) (else (f64.sub ${left} (f64.mul (call $floor (f64.div ${left} ${right})) ${right}))))`;
     },
 
     'quotient_and_mod': (ctx, block, entityIndex) => {
@@ -176,11 +178,12 @@ const valueBlocks = {
         const operator = block.params?.[1];
         const right = ctx.transpileValue(block.params?.[2], entityIndex);
 
+        // Protect against division by zero - return 0 if divisor is 0
         if (operator === 'QUOTIENT') {
-            return `(call $floor (f64.div ${left} ${right}))`;
+            return `(if (result f64) (f64.eq ${right} (f64.const 0)) (then (f64.const 0)) (else (call $floor (f64.div ${left} ${right}))))`;
         } else {
             // MOD
-            return `(f64.sub ${left} (f64.mul (call $floor (f64.div ${left} ${right})) ${right}))`;
+            return `(if (result f64) (f64.eq ${right} (f64.const 0)) (then (f64.const 0)) (else (f64.sub ${left} (f64.mul (call $floor (f64.div ${left} ${right})) ${right}))))`;
         }
     },
 

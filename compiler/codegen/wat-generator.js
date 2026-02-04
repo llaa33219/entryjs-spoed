@@ -528,12 +528,7 @@ class WATGenerator {
       (call $isMouseClicked)
       (call $isTouchingMouse (local.get $idx))))
   
-  ;; ===== DIALOG FUNCTIONS =====
-  
-  ;; Show dialog (calls JS import)
-  (func $showDialog (param $idx i32) (param $type i32))
-  
-  ;; Note: Brush/drawing functions are imported from JS for optimal performance
+  ;; Note: Brush/drawing functions and dialog functions are imported from JS
   ;; See imports section above`;
     }
 
