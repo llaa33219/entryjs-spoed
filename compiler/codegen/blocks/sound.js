@@ -155,19 +155,31 @@ const statementBlocks = {
     'message_cast': (ctx, block, entityIndex) => {
         const messageId = block.params?.[0];
         const message = ctx.generator.project.messages.find(m => m.id === messageId);
-        const msgIndex = message?.index || 0;
+        if (!message) {
+            return `
+          ;; message_cast: unknown message ${messageId} (skipped)`;
+        }
+        const msgIndex = message.index;
         return `
-          ;; message_cast
-          (call $sendMessage (i32.const ${msgIndex}))`;
+          ;; message_cast (send signal: ${message.name})
+          (call $setMessageFlag (i32.const ${msgIndex}))`;
     },
 
     'message_cast_wait': (ctx, block, entityIndex, threadIndex) => {
         const messageId = block.params?.[0];
         const message = ctx.generator.project.messages.find(m => m.id === messageId);
-        const msgIndex = message?.index || 0;
+        if (!message) {
+            return `
+          ;; message_cast_wait: unknown message ${messageId} (skipped)`;
+        }
+        const msgIndex = message.index;
+        // Set the message flag to trigger handlers
+        // Note: Full "wait for completion" semantics would require tracking all activated handlers
+        // For now, we set the flag and wait one frame (0.017s at 60fps) to allow handlers to start
         return `
-          ;; message_cast_and_wait
-          (call $sendMessageAndWait (i32.const ${msgIndex}))`;
+          ;; message_cast_wait (send signal and wait: ${message.name})
+          (call $setMessageFlag (i32.const ${msgIndex}))
+          (global.set $thread_${threadIndex}_waiting (f64.const 0.017))`;
     },
 
     // Note: dialog, dialog_time, remove_dialog are now handled by looks.js
