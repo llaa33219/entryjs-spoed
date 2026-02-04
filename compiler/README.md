@@ -50,10 +50,12 @@ node compiler/output/server.js
 
 ### 흐름제어
 - `wait_second` - 초 기다리기
-- `repeat_basic` - 반복하기
-- `repeat_inf` - 계속 반복하기
+- `repeat_basic` - 반복하기 (EntryJS와 동일하게 한 번 반복당 한 틱 대기)
+- `repeat_inf` - 계속 반복하기 (EntryJS와 동일하게 한 번 반복당 한 틱 대기)
+- `repeat_while_true` - 조건 만족할 때까지 반복 (EntryJS와 동일하게 한 번 반복당 한 틱 대기)
 - `_if`, `if_else` - 조건문
 - `stop_repeat` - 반복 중단하기
+- `continue_repeat` - 다음 반복으로 건너뛰기
 
 ### 판단
 - `boolean_basic_operator` - 비교 연산
@@ -76,6 +78,30 @@ node compiler/output/server.js
 - `function_create` - 일반 함수 정의 (반환값 없음)
 - `function_create_value` - 값 반환 함수 정의
 - `stringParam_*`, `booleanParam_*` - 함수 파라미터
+
+## 반복문 딜레이 처리 (Loop Tick Delay)
+
+EntryJS와 동일한 실행 동작을 위해, 반복문은 **한 번 반복할 때마다 의도적인 딜레이(0.001초)**를 추가합니다.
+
+### 작동 방식
+1. **`repeat_basic` (N번 반복)**: 각 반복마다 내부 블록 실행 후 다음 틱으로 넘어감
+2. **`repeat_inf` (무한 반복)**: 내부 블록 실행 후 다음 틱에서 다시 실행
+3. **`repeat_while_true` (조건 반복)**: 조건이 참이면 내부 블록 실행 후 다음 틱에서 다시 확인
+4. **`wait_until_true` (조건 대기)**: 조건이 거짓이면 다음 틱에서 다시 확인
+
+### 이점
+- 무한 루프가 브라우저를 멈추지 않음
+- 애니메이션이 매끄럽게 보임 (EntryJS와 동일한 속도)
+- 사용자가 실행 과정을 볼 수 있음
+
+### 기술적 구현
+- 각 쓰레드는 `$thread_N_loopCounter` 글로벌 변수로 반복 횟수를 추적
+- 반복문은 `waiting`에 0.001초를 설정하고 PC를 유지하여 같은 블록에서 계속 실행
+- 반복이 끝나면 `loopCounter`를 -1로 리셋하고 다음 블록으로 진행
+
+### 제한사항
+- **중첩 반복문 미지원**: 현재 각 쓰레드당 하나의 `loopCounter`만 사용하므로, `repeat_basic` 블록을 중첩하면 올바르게 동작하지 않습니다. (향후 스택 기반 카운터로 개선 예정)
+- **음수 반복 횟수**: EntryJS는 에러를 발생시키지만, WASM 컴파일러는 0회 반복으로 처리합니다.
 
 ## 오브젝트 렌더링 순서 (Z-Order)
 

@@ -163,6 +163,9 @@ class WATGenerator {
                 code += `\n  (global $thread_${threadIndex}_pc (mut i32) (i32.const 0))`;
                 code += `\n  (global $thread_${threadIndex}_waiting (mut f64) (f64.const 0))`;
                 code += `\n  (global $thread_${threadIndex}_active (mut i32) (i32.const 0))`;
+                // Loop counter for repeat_basic blocks (-1 = uninitialized, >= 0 = iterations remaining)
+                // This enables EntryJS-compatible tick-based iteration
+                code += `\n  (global $thread_${threadIndex}_loopCounter (mut i32) (i32.const -1))`;
                 threadIndex++;
             }
         }
@@ -821,7 +824,9 @@ class WATGenerator {
     (if (i32.and
           (i32.eqz (global.get $frameCount))
           (i32.eq (i32.const ${objSceneIndex}) (global.get $currentScene)))
-      (then (global.set $thread_${threadIndex}_active (i32.const 1))))`;
+      (then
+        (global.set $thread_${threadIndex}_loopCounter (i32.const -1))
+        (global.set $thread_${threadIndex}_active (i32.const 1))))`;
                 } else if (eventType === 'when_some_key_pressed') {
                     const keycode = eventBlock.params?.[1] || 81;
                     // Only activate if entity is in current scene
@@ -830,7 +835,9 @@ class WATGenerator {
     (if (i32.and
           (call $isKeyPressed (i32.const ${keycode}))
           (i32.eq (i32.const ${objSceneIndex}) (global.get $currentScene)))
-      (then (global.set $thread_${threadIndex}_active (i32.const 1))))`;
+      (then
+        (global.set $thread_${threadIndex}_loopCounter (i32.const -1))
+        (global.set $thread_${threadIndex}_active (i32.const 1))))`;
                 } else if (eventType === 'when_scene_start') {
                     // Activate when scene changes to this entity's scene
                     sceneStartHandlers += `
@@ -841,6 +848,7 @@ class WATGenerator {
       (then
         (global.set $thread_${threadIndex}_pc (i32.const 0))
         (global.set $thread_${threadIndex}_waiting (f64.const 0))
+        (global.set $thread_${threadIndex}_loopCounter (i32.const -1))
         (global.set $thread_${threadIndex}_active (i32.const 1))))`;
                 }
 
