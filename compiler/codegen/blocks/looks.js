@@ -180,6 +180,14 @@ const statementBlocks = {
             textCode = generateStringAllocation('');
         }
         
+        // Use dynamic dispatcher when entityIndex is -1 (inside user function)
+        if (entityIndex === -1) {
+            return `
+          ;; dialog: ${dialogType} (dynamic entity)
+          (call $setDialogTextPtrDyn (local.get $entityIdx) ${textCode})
+          (call $setDialogTypeDyn (local.get $entityIdx) (i32.const ${typeCode}))`;
+        }
+        
         return `
           ;; dialog: ${dialogType}
           (call $setDialogTextPtr_${entityIndex} ${textCode})
@@ -208,6 +216,16 @@ const statementBlocks = {
             textCode = generateStringAllocation('');
         }
         
+        // Use dynamic dispatcher when entityIndex is -1 (inside user function)
+        // Note: dialog_time with waiting doesn't work well in user functions since
+        // user functions don't have their own thread context, but we still handle it
+        if (entityIndex === -1) {
+            return `
+          ;; dialog_time: ${dialogType} (dynamic entity, waiting not supported in user functions)
+          (call $setDialogTextPtrDyn (local.get $entityIdx) ${textCode})
+          (call $setDialogTypeDyn (local.get $entityIdx) (i32.const ${typeCode}))`;
+        }
+        
         return `
           ;; dialog_time: ${dialogType} for ${seconds} seconds
           (call $setDialogTextPtr_${entityIndex} ${textCode})
@@ -217,6 +235,14 @@ const statementBlocks = {
     },
 
     'remove_dialog': (ctx, block, entityIndex) => {
+        // Use dynamic dispatcher when entityIndex is -1 (inside user function)
+        if (entityIndex === -1) {
+            return `
+          ;; remove_dialog (dynamic entity)
+          (call $setDialogTypeDyn (local.get $entityIdx) (i32.const 0))
+          (call $setDialogTextPtrDyn (local.get $entityIdx) (i32.const 0))`;
+        }
+        
         return `
           ;; remove_dialog
           (call $setDialogType_${entityIndex} (i32.const 0))

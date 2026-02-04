@@ -241,6 +241,33 @@ class WATGenerator {
   (func $setDialogTextPtr_${i} (param $v i32) (global.set $dialog_text_ptr_${i} (local.get $v)))`;
         }
         
+        // Dynamic dialog dispatcher functions (for use in user functions where entity index is dynamic)
+        if (entityCount > 0) {
+            // setDialogTypeDyn - dispatches to correct setDialogType_N based on entity index
+            code += `
+  
+  ;; Dynamic dialog type setter (for user functions)
+  (func $setDialogTypeDyn (param $idx i32) (param $v i32)`;
+            for (let i = 0; i < entityCount; i++) {
+                code += `
+    (if (i32.eq (local.get $idx) (i32.const ${i}))
+      (then (call $setDialogType_${i} (local.get $v))))`;
+            }
+            code += `)`;
+            
+            // setDialogTextPtrDyn - dispatches to correct setDialogTextPtr_N based on entity index
+            code += `
+  
+  ;; Dynamic dialog text pointer setter (for user functions)
+  (func $setDialogTextPtrDyn (param $idx i32) (param $v i32)`;
+            for (let i = 0; i < entityCount; i++) {
+                code += `
+    (if (i32.eq (local.get $idx) (i32.const ${i}))
+      (then (call $setDialogTextPtr_${i} (local.get $v))))`;
+            }
+            code += `)`;
+        }
+        
         return code;
     }
 

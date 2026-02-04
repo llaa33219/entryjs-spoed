@@ -170,30 +170,8 @@ const statementBlocks = {
           (call $sendMessageAndWait (i32.const ${msgIndex}))`;
     },
 
-    // Say/think blocks (dialog)
-    'dialog_time': (ctx, block, entityIndex, threadIndex) => {
-        const text = block.params?.[0];
-        const seconds = ctx.transpileValue(block.params?.[1], entityIndex);
-        const type = block.params?.[2] || 'speak';
-        return `
-          ;; dialog_time: ${type}
-          (call $showDialog (i32.const ${entityIndex}) (i32.const ${type === 'think' ? 1 : 0}))
-          (global.set $thread_${threadIndex}_waiting ${seconds})`;
-    },
-
-    'dialog': (ctx, block, entityIndex) => {
-        const text = block.params?.[0];
-        const type = block.params?.[1] || 'speak';
-        return `
-          ;; dialog: ${type}
-          (call $showDialog (i32.const ${entityIndex}) (i32.const ${type === 'think' ? 1 : 0}))`;
-    },
-
-    'remove_dialog': (ctx, block, entityIndex) => {
-        return `
-          ;; remove_dialog
-          (call $hideDialog (i32.const ${entityIndex}))`;
-    }
+    // Note: dialog, dialog_time, remove_dialog are now handled by looks.js
+    // They were moved there to support proper string handling with WASM memory
 };
 
 const valueBlocks = {
