@@ -1263,11 +1263,11 @@
           ;; set_func_variable
           (local.set $local_0 (local.get $param_0))
           ;; if_else
-          (if (f64.ne (local.get $local_0) (f64.add (f64.const 0) (f64.const 1)))
+          (if (f64.ne (local.get $local_0) (f64.add (f64.convert_i32_s (call $list_length (i32.const 0))) (f64.const 1)))
             (then 
           ;; locate_xy
-          (call $setX (local.get $entityIdx) (call $list_get (i32.const 0) (i32.trunc_f64_s (f64.sub (f64.const 0) (f64.const 1)))))
-          (call $setY (local.get $entityIdx) (call $list_get (i32.const 0) (i32.trunc_f64_s (f64.sub (f64.const 0) (f64.const 1)))))
+          (call $setX (local.get $entityIdx) (call $list_get (i32.const 0) (i32.trunc_f64_s (f64.sub (local.get $local_0) (f64.const 1)))))
+          (call $setY (local.get $entityIdx) (call $list_get (i32.const 0) (i32.trunc_f64_s (f64.sub (local.get $local_0) (f64.const 1)))))
           (call $brushNotifyPosition (local.get $entityIdx) (call $getX (local.get $entityIdx)) (call $getY (local.get $entityIdx)))
           ;; dialog: speak (dynamic entity)
           (call $setDialogTextPtrDyn (local.get $entityIdx) (call $f64_to_str (local.get $local_0)))
@@ -1278,7 +1278,7 @@
           (call $user_func_t98t (local.get $entityIdx) (local.get $local_0)))
             (else 
           ;; add_value_to_list: 리스트
-          (call $list_push (i32.const 0) (f64.add (call $list_get (i32.const 0) (i32.trunc_f64_s (f64.sub (f64.const 0) (f64.const 1)))) (f64.const 1)))))
+          (call $list_push (i32.const 0) (f64.add (call $list_get (i32.const 0) (i32.trunc_f64_s (f64.sub (f64.convert_i32_s (call $list_length (i32.const 0))) (f64.const 1)))) (f64.const 1)))))
   )
   
   ;; User function: func_1

@@ -389,8 +389,9 @@ const valueBlocks = {
     },
 
     'value_of_index_from_list': (ctx, block, entityIndex) => {
-        const indexParam = block.params?.[0];
+        // EntryJS params: [null, listId, null, indexParam]
         const listId = block.params?.[1];
+        const indexParam = block.params?.[3];
         const list = ctx.findList(listId);
         if (!list) {
             return '(f64.const 0)';
@@ -419,7 +420,8 @@ const valueBlocks = {
     },
 
     'length_of_list': (ctx, block, entityIndex) => {
-        const listId = block.params?.[0];
+        // EntryJS params: [null, listId, null]
+        const listId = block.params?.[1];
         const list = ctx.findList(listId);
         if (list) {
             return `(f64.convert_i32_s (call $list_length (i32.const ${list.memoryIndex})))`;
