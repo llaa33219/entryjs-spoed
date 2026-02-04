@@ -69,9 +69,28 @@ node compiler/output/server.js
 - `calc_operation` - 수학 함수
 - `coordinate_object` - 오브젝트 좌표
 
+### 문자열
+- `combine_something` - 문자열 결합
+- `char_at` - 특정 위치 문자 (1-based)
+- `substring` - 부분 문자열 (1-based start, end)
+- `index_of_string` - 문자열 검색 (발견시 1-based 인덱스, 없으면 0)
+- `replace_string` - 문자열 치환 (첫 번째만)
+- `length_of_string` - 문자열 길이
+- `change_string_case` - 대소문자 변환 (upper/lower)
+
 ### 변수
 - `get_variable`, `set_variable`, `change_variable` - 변수 조작
 - `show_variable`, `hide_variable` - 변수 표시
+
+### 리스트
+- `add_value_to_list` - 리스트에 값 추가
+- `value_of_index_from_list` - 리스트에서 값 가져오기 (FIRST/LAST/RANDOM 지원)
+- `length_of_list` - 리스트 길이
+- `remove_value_from_list` - 리스트에서 값 제거 (FIRST/LAST/RANDOM 지원)
+- `insert_value_to_list` - 리스트에 값 삽입 (FIRST/LAST/RANDOM 지원)
+- `change_value_list_index` - 리스트 값 변경 (FIRST/LAST/RANDOM 지원)
+- `is_included_in_list` - 리스트에 값 포함 여부
+- `delete_all_list` - 리스트 비우기
 
 ### 함수
 - `func_<id>` - 사용자 정의 함수 호출
@@ -102,6 +121,10 @@ EntryJS와 동일한 실행 동작을 위해, 반복문은 **한 번 반복할 �
 ### 제한사항
 - **중첩 반복문 미지원**: 현재 각 쓰레드당 하나의 `loopCounter`만 사용하므로, `repeat_basic` 블록을 중첩하면 올바르게 동작하지 않습니다. (향후 스택 기반 카운터로 개선 예정)
 - **음수 반복 횟수**: EntryJS는 에러를 발생시키지만, WASM 컴파일러는 0회 반복으로 처리합니다.
+- **리스트 최대 용량**: 각 리스트당 최대 1,000,000개 요소 지원 (약 8MB/리스트)
+- **리스트 값 타입**: 숫자와 문자열 값 모두 지원 (타입 태깅으로 구분)
+- **문자열 풀**: 256KB 문자열 풀 (bump allocator, 가비지 컬렉션 없음)
+- **숫자→문자열 변환**: 정수만 지원 (소수점 이하 절삭)
 
 ## 오브젝트 렌더링 순서 (Z-Order)
 

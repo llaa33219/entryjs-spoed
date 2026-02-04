@@ -1,29 +1,4 @@
 /**
- * Renderer Generator
- * 
- * Generates minimal JavaScript code that uses PixiJS for rendering only.
- * All logic is handled by the WASM module.
- */
-
-/**
- * Generate the renderer JavaScript code
- * @param {Object} project - Parsed project
- * @param {Object} options - Compiler options
- * @returns {string} JavaScript code
- */
-function generateRenderer(project, options = {}) {
-    const generator = new RendererGenerator(project, options);
-    return generator.generate();
-}
-
-class RendererGenerator {
-    constructor(project, options) {
-        this.project = project;
-        this.options = options;
-    }
-
-    generate() {
-        return `/**
  * EntryJS Compiled Project - Renderer
  * 
  * This file handles PixiJS rendering only.
@@ -33,8 +8,8 @@ class RendererGenerator {
 // ===== CONFIGURATION =====
 const STAGE_WIDTH = 640;
 const STAGE_HEIGHT = 360;
-const TARGET_FPS = ${this.project.speed || 60};
-const SCENE_COUNT = ${this.project.scenes.length};
+const TARGET_FPS = 60;
+const SCENE_COUNT = 1;
 
 // ===== WASM IMPORTS =====
 const wasmImports = {
@@ -179,10 +154,37 @@ let stamps = [];            // Array of stamp sprites
 let brushStates = [];
 
 // ===== SCENE DATA =====
-${this.generateSceneData()}
+const SCENE_DATA = [
+    { id: "7dwq", name: "장면 1", index: 0 },
+];
+
 
 // ===== ASSET DATA =====
-${this.generateAssetData()}
+const ENTITY_DATA = [
+    {
+        id: "vqwy",
+        name: "다운로드 - 2024-01-23T191203.246.png",
+        pictures: [
+            { id: "5lrz", url: "/uploads/c6/1e/image/c61ec1b4lrq7ch6z2ks373ff6751p2n6.png", width: 960, height: 540 },
+        ],
+        sounds: [
+        ],
+        sceneIndex: 0
+    },
+    {
+        id: "7y0y",
+        name: "엔트리봇",
+        pictures: [
+            { id: "vx80", url: "/lib/entry-js/images/media/entrybot1.svg", width: 144, height: 246 },
+            { id: "4t48", url: "/lib/entry-js/images/media/entrybot2.svg", width: 144, height: 246 },
+        ],
+        sounds: [
+            { id: "8el5", url: "/lib/entry-js/images/media/bark.mp3" },
+        ],
+        sceneIndex: 0
+    },
+];
+
 
 // ===== HELPER FUNCTIONS =====
 let placeholderTexture = null;
@@ -1177,66 +1179,3 @@ function getSceneInfo() {
 
 // ===== START =====
 init().catch(console.error);
-`;
-    }
-
-    generateAssetData() {
-        let code = 'const ENTITY_DATA = [\n';
-        
-        for (const obj of this.project.objects) {
-            code += `    {\n`;
-            code += `        id: "${obj.id}",\n`;
-            code += `        name: "${obj.name}",\n`;
-            code += `        pictures: [\n`;
-            
-            for (const pic of obj.pictures) {
-                // Generate URL: use fileurl if available, otherwise build from filename
-                let url = pic.fileurl || '';
-                if (!url && pic.filename && pic.filename.length >= 4) {
-                    // Build URL from filename following EntryJS pattern:
-                    // /uploads/{first2}/{next2}/image/{filename}.{ext}
-                    const filename = pic.filename;
-                    const imageType = pic.imageType || 'png';
-                    const ext = imageType === 'svg' ? 'svg' : 'png';
-                    url = `/uploads/${filename.substring(0, 2)}/${filename.substring(2, 4)}/image/${filename}.${ext}`;
-                }
-                code += `            { id: "${pic.id}", url: "${url}", width: ${pic.dimension?.width || 100}, height: ${pic.dimension?.height || 100} },\n`;
-            }
-            
-            code += `        ],\n`;
-            code += `        sounds: [\n`;
-            
-            for (const snd of obj.sounds) {
-                // Generate URL: use fileurl if available, otherwise build from filename
-                let sndUrl = snd.fileurl || '';
-                if (!sndUrl && snd.filename && snd.filename.length >= 4) {
-                    // Build URL from filename following EntryJS pattern
-                    const filename = snd.filename;
-                    const ext = snd.ext || '.mp3';
-                    sndUrl = `/uploads/${filename.substring(0, 2)}/${filename.substring(2, 4)}/${filename}${ext}`;
-                }
-                code += `            { id: "${snd.id}", url: "${sndUrl}" },\n`;
-            }
-            
-            code += `        ],\n`;
-            code += `        sceneIndex: ${obj.sceneIndex || 0}\n`;
-            code += `    },\n`;
-        }
-        
-        code += '];\n';
-        return code;
-    }
-
-    generateSceneData() {
-        let code = 'const SCENE_DATA = [\n';
-        
-        for (const scene of this.project.scenes) {
-            code += `    { id: "${scene.id}", name: "${scene.name}", index: ${scene.index} },\n`;
-        }
-        
-        code += '];\n';
-        return code;
-    }
-}
-
-module.exports = { generateRenderer, RendererGenerator };

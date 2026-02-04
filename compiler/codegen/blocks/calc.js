@@ -153,9 +153,9 @@ const valueBlocks = {
             case 'atan':
                 return `(f64.mul (call $atan ${value}) (f64.const 57.29577951308232))`;
             case 'log':
-                return `(call $log ${value})`;
+                return `(call $mathLog ${value})`;
             case 'ln':
-                return `(call $log ${value})`;
+                return `(call $mathLog ${value})`;
             case 'exp':
                 return `(call $exp ${value})`;
             case '10^':
@@ -303,4 +303,125 @@ const booleanBlocks = {
     }
 };
 
-module.exports = { statementBlocks, valueBlocks, booleanBlocks };
+// String operation blocks
+const stringBlocks = {
+    // Combine/concatenate strings
+    // combine_something: params[0] = value1, params[1] = value2
+    combine_something: (block, ctx) => {
+        const value1 = block.params?.[0];
+        const value2 = block.params?.[1];
+        
+        const str1 = ctx.transpileStringValue(value1);
+        const str2 = ctx.transpileStringValue(value2);
+        
+        return `(call $str_concat ${str1} ${str2})`;
+    },
+
+    // Get character at index (1-based)
+    // char_at: params[0] = index, params[1] = string
+    char_at: (block, ctx) => {
+        const indexParam = block.params?.[0];
+        const stringParam = block.params?.[1];
+        
+        const strCode = ctx.transpileStringValue(stringParam);
+        const idxCode = transpileAsI32(indexParam, ctx);
+        
+        return `(call $str_char_at_str ${strCode} ${idxCode})`;
+    },
+
+    // Get substring (1-based start and end indices)
+    // substring: params[0] = start, params[1] = end, params[2] = string
+    substring: (block, ctx) => {
+        const startParam = block.params?.[0];
+        const endParam = block.params?.[1];
+        const stringParam = block.params?.[2];
+        
+        const strCode = ctx.transpileStringValue(stringParam);
+        const startCode = transpileAsI32(startParam, ctx);
+        const endCode = transpileAsI32(endParam, ctx);
+        
+        return `(call $str_substring ${strCode} ${startCode} ${endCode})`;
+    },
+
+    // Find index of substring (returns 1-based index, 0 if not found)
+    // index_of_string: params[0] = search, params[1] = string
+    index_of_string: (block, ctx) => {
+        const searchParam = block.params?.[0];
+        const stringParam = block.params?.[1];
+        
+        const strCode = ctx.transpileStringValue(stringParam);
+        const searchCode = ctx.transpileStringValue(searchParam);
+        
+        // Returns i32, convert to f64 for consistency
+        return `(f64.convert_i32_s (call $str_index_of ${strCode} ${searchCode}))`;
+    },
+
+    // Replace substring
+    // replace_string: params[0] = old, params[1] = new, params[2] = string
+    replace_string: (block, ctx) => {
+        const oldParam = block.params?.[0];
+        const newParam = block.params?.[1];
+        const stringParam = block.params?.[2];
+        
+        const strCode = ctx.transpileStringValue(stringParam);
+        const oldCode = ctx.transpileStringValue(oldParam);
+        const newCode = ctx.transpileStringValue(newParam);
+        
+        return `(call $str_replace ${strCode} ${oldCode} ${newCode})`;
+    },
+
+    // Get string length
+    // length_of_string: params[0] = string
+    length_of_string: (block, ctx) => {
+        const stringParam = block.params?.[0];
+        const strCode = ctx.transpileStringValue(stringParam);
+        
+        // Returns i32, convert to f64 for consistency
+        return `(f64.convert_i32_s (call $str_length ${strCode}))`;
+    },
+
+    // Change string case
+    // change_string_case: params[0] = mode (upper/lower), params[1] = string
+    change_string_case: (block, ctx) => {
+        const modeParam = block.params?.[0];
+        const stringParam = block.params?.[1];
+        
+        const strCode = ctx.transpileStringValue(stringParam);
+        const mode = (typeof modeParam === 'string') ? modeParam.toLowerCase() : 'upper';
+        
+        if (mode === 'lower' || mode === 'LOWER') {
+            return `(call $str_to_lower ${strCode})`;
+        } else {
+            return `(call $str_to_upper ${strCode})`;
+        }
+    },
+
+    // Text/string literal - create string from literal value
+    // text: params[0] = the text value
+    text: (block, ctx) => {
+        const textValue = block.params?.[0] || '';
+        return ctx.createStringLiteral(textValue.toString());
+    },
+};
+
+/**
+ * Helper function to transpile a value as i32
+ */
+function transpileAsI32(param, ctx) {
+    if (typeof param === 'number') {
+        return `(i32.const ${Math.floor(param)})`;
+    }
+    if (typeof param === 'string') {
+        const num = parseInt(param, 10);
+        if (!isNaN(num)) {
+            return `(i32.const ${num})`;
+        }
+    }
+    if (param && param.type) {
+        const valueCode = ctx.transpileValue(param);
+        return `(i32.trunc_f64_s ${valueCode})`;
+    }
+    return '(i32.const 1)';
+}
+
+module.exports = { statementBlocks, valueBlocks, booleanBlocks, stringBlocks };

@@ -70,9 +70,15 @@ class WATGenerator {
   (import "math" "ceil" (func $ceil (param f64) (result f64)))
   (import "math" "abs" (func $abs (param f64) (result f64)))
   (import "math" "atan2" (func $atan2 (param f64 f64) (result f64)))
+  (import "math" "asin" (func $asin (param f64) (result f64)))
+  (import "math" "acos" (func $acos (param f64) (result f64)))
+  (import "math" "atan" (func $atan (param f64) (result f64)))
+  (import "math" "log" (func $mathLog (param f64) (result f64)))
+  (import "math" "exp" (func $exp (param f64) (result f64)))
+  (import "math" "pow" (func $pow (param f64 f64) (result f64)))
   
   ;; System callbacks
-  (import "system" "log" (func $log (param f64)))
+  (import "system" "log" (func $sysLog (param f64)))
   (import "system" "playSound" (func $playSound (param i32 i32)))
   (import "system" "sendMessage" (func $sendMessage (param i32)))
   
@@ -155,7 +161,11 @@ class WATGenerator {
   (global $currentScene (mut i32) (i32.const 0))
   (global $sceneCount (mut i32) (i32.const ${this.project.scenes.length}))
   (global $sceneJustChanged (mut i32) (i32.const 0))`;
-
+        
+        // String pool pointer (bump allocator)
+        const stringPoolStart = this.project.stringPool?.start || 0;
+        code += `\n  (global $str_pool_ptr (mut i32) (i32.const ${stringPoolStart}))`;
+        
         // Add thread execution state globals for each thread
         let threadIndex = 0;
         for (const obj of this.project.objects) {
@@ -163,8 +173,6 @@ class WATGenerator {
                 code += `\n  (global $thread_${threadIndex}_pc (mut i32) (i32.const 0))`;
                 code += `\n  (global $thread_${threadIndex}_waiting (mut f64) (f64.const 0))`;
                 code += `\n  (global $thread_${threadIndex}_active (mut i32) (i32.const 0))`;
-                // Loop counter for repeat_basic blocks (-1 = uninitialized, >= 0 = iterations remaining)
-                // This enables EntryJS-compatible tick-based iteration
                 code += `\n  (global $thread_${threadIndex}_loopCounter (mut i32) (i32.const -1))`;
                 threadIndex++;
             }
@@ -532,7 +540,668 @@ class WATGenerator {
       (call $isTouchingMouse (local.get $idx))))
   
   ;; Note: Brush/drawing functions and dialog functions are imported from JS
-  ;; See imports section above`;
+  ;; See imports section above
+  
+  ;; ===== LIST HELPER FUNCTIONS =====
+  
+  ;; Get list metadata offset by list index
+  ;; List metadata: [length(i32), capacity(i32), data_ptr(i32), reserved(12 bytes)]
+  (func $list_get_meta_ptr (param $listIdx i32) (result i32)
+    (i32.add
+      (i32.const ${this.project.listMemory?.metaStart || 0})
+      (i32.mul (local.get $listIdx) (i32.const 24))))
+  
+  ;; Get list length
+  (func $list_length (param $listIdx i32) (result i32)
+    (i32.load (call $list_get_meta_ptr (local.get $listIdx))))
+  
+  ;; Set list length
+  (func $list_set_length (param $listIdx i32) (param $len i32)
+    (i32.store (call $list_get_meta_ptr (local.get $listIdx)) (local.get $len)))
+  
+  ;; Get list capacity
+  (func $list_capacity (param $listIdx i32) (result i32)
+    (i32.load (i32.add (call $list_get_meta_ptr (local.get $listIdx)) (i32.const 4))))
+  
+  ;; Get list data pointer
+  (func $list_data_ptr (param $listIdx i32) (result i32)
+    (i32.load (i32.add (call $list_get_meta_ptr (local.get $listIdx)) (i32.const 8))))
+  
+  ;; Get element offset (0-based index) - each element is 16 bytes
+  (func $list_element_offset (param $listIdx i32) (param $index i32) (result i32)
+    (i32.add
+      (call $list_data_ptr (local.get $listIdx))
+      (i32.mul (local.get $index) (i32.const 16))))
+  
+  ;; Get element type at index (0=number, 1=string)
+  (func $list_get_type (param $listIdx i32) (param $index i32) (result i32)
+    (local $len i32)
+    (local.set $len (call $list_length (local.get $listIdx)))
+    (if (result i32) (i32.or (i32.lt_s (local.get $index) (i32.const 0)) (i32.ge_s (local.get $index) (local.get $len)))
+      (then (i32.const 0))
+      (else (i32.load (i32.add (call $list_element_offset (local.get $listIdx) (local.get $index)) (i32.const 8))))))
+  
+  ;; Get string pointer at index
+  (func $list_get_str_ptr (param $listIdx i32) (param $index i32) (result i32)
+    (local $len i32)
+    (local.set $len (call $list_length (local.get $listIdx)))
+    (if (result i32) (i32.or (i32.lt_s (local.get $index) (i32.const 0)) (i32.ge_s (local.get $index) (local.get $len)))
+      (then (i32.const 0))
+      (else (i32.load (i32.add (call $list_element_offset (local.get $listIdx) (local.get $index)) (i32.const 12))))))
+  
+  ;; Get value at index (0-based) - returns f64, converts string to number if needed
+  (func $list_get (param $listIdx i32) (param $index i32) (result f64)
+    (local $len i32)
+    (local $offset i32)
+    (local.set $len (call $list_length (local.get $listIdx)))
+    ;; Bounds check
+    (if (result f64) (i32.or
+          (i32.lt_s (local.get $index) (i32.const 0))
+          (i32.ge_s (local.get $index) (local.get $len)))
+      (then (f64.const 0))
+      (else
+        (local.set $offset (call $list_element_offset (local.get $listIdx) (local.get $index)))
+        ;; Check type: 0=number, 1=string
+        (if (result f64) (i32.eqz (i32.load (i32.add (local.get $offset) (i32.const 8))))
+          (then (f64.load (local.get $offset)))
+          (else (call $str_to_f64 (i32.load (i32.add (local.get $offset) (i32.const 12)))))))))
+  
+  ;; Set numeric value at index (0-based)
+  (func $list_set (param $listIdx i32) (param $index i32) (param $value f64)
+    (local $len i32)
+    (local $offset i32)
+    (local.set $len (call $list_length (local.get $listIdx)))
+    ;; Bounds check
+    (if (i32.and
+          (i32.ge_s (local.get $index) (i32.const 0))
+          (i32.lt_s (local.get $index) (local.get $len)))
+      (then
+        (local.set $offset (call $list_element_offset (local.get $listIdx) (local.get $index)))
+        (f64.store (local.get $offset) (local.get $value))
+        (i32.store (i32.add (local.get $offset) (i32.const 8)) (i32.const 0))  ;; type = number
+        (i32.store (i32.add (local.get $offset) (i32.const 12)) (i32.const 0)))))  ;; str_ptr = 0
+  
+  ;; Set string value at index (0-based)
+  (func $list_set_str (param $listIdx i32) (param $index i32) (param $strPtr i32)
+    (local $len i32)
+    (local $offset i32)
+    (local.set $len (call $list_length (local.get $listIdx)))
+    ;; Bounds check
+    (if (i32.and
+          (i32.ge_s (local.get $index) (i32.const 0))
+          (i32.lt_s (local.get $index) (local.get $len)))
+      (then
+        (local.set $offset (call $list_element_offset (local.get $listIdx) (local.get $index)))
+        (f64.store (local.get $offset) (f64.const 0))  ;; value = 0
+        (i32.store (i32.add (local.get $offset) (i32.const 8)) (i32.const 1))  ;; type = string
+        (i32.store (i32.add (local.get $offset) (i32.const 12)) (local.get $strPtr)))))
+  
+  ;; Push numeric value to end of list
+  (func $list_push (param $listIdx i32) (param $value f64)
+    (local $len i32)
+    (local $cap i32)
+    (local $offset i32)
+    (local.set $len (call $list_length (local.get $listIdx)))
+    (local.set $cap (call $list_capacity (local.get $listIdx)))
+    ;; Check capacity
+    (if (i32.lt_s (local.get $len) (local.get $cap))
+      (then
+        (local.set $offset (call $list_element_offset (local.get $listIdx) (local.get $len)))
+        ;; Store value at end (16-byte element: f64 value + i32 type + i32 str_ptr)
+        (f64.store (local.get $offset) (local.get $value))
+        (i32.store (i32.add (local.get $offset) (i32.const 8)) (i32.const 0))  ;; type = 0 (number)
+        (i32.store (i32.add (local.get $offset) (i32.const 12)) (i32.const 0)) ;; str_ptr = 0
+        ;; Increment length
+        (call $list_set_length (local.get $listIdx) (i32.add (local.get $len) (i32.const 1))))))
+  
+  ;; Push string value to end of list
+  (func $list_push_str (param $listIdx i32) (param $strPtr i32)
+    (local $len i32)
+    (local $cap i32)
+    (local $offset i32)
+    (local.set $len (call $list_length (local.get $listIdx)))
+    (local.set $cap (call $list_capacity (local.get $listIdx)))
+    ;; Check capacity
+    (if (i32.lt_s (local.get $len) (local.get $cap))
+      (then
+        (local.set $offset (call $list_element_offset (local.get $listIdx) (local.get $len)))
+        ;; Store string at end (16-byte element)
+        (f64.store (local.get $offset) (f64.const 0))  ;; value = 0 (unused for strings)
+        (i32.store (i32.add (local.get $offset) (i32.const 8)) (i32.const 1))  ;; type = 1 (string)
+        (i32.store (i32.add (local.get $offset) (i32.const 12)) (local.get $strPtr)) ;; str_ptr
+        ;; Increment length
+        (call $list_set_length (local.get $listIdx) (i32.add (local.get $len) (i32.const 1))))))
+  
+  ;; Insert numeric value at index (0-based), shift elements right
+  (func $list_insert (param $listIdx i32) (param $index i32) (param $value f64)
+    (local $len i32)
+    (local $cap i32)
+    (local $i i32)
+    (local $srcOffset i32)
+    (local $dstOffset i32)
+    (local.set $len (call $list_length (local.get $listIdx)))
+    (local.set $cap (call $list_capacity (local.get $listIdx)))
+    ;; Clamp index to valid range [0, len]
+    (if (i32.lt_s (local.get $index) (i32.const 0))
+      (then (local.set $index (i32.const 0))))
+    (if (i32.gt_s (local.get $index) (local.get $len))
+      (then (local.set $index (local.get $len))))
+    ;; Check capacity
+    (if (i32.lt_s (local.get $len) (local.get $cap))
+      (then
+        ;; Shift elements right from end to index (copy all 16 bytes per element)
+        (local.set $i (local.get $len))
+        (block $break
+          (loop $shift
+            (br_if $break (i32.le_s (local.get $i) (local.get $index)))
+            (local.set $dstOffset (call $list_element_offset (local.get $listIdx) (local.get $i)))
+            (local.set $srcOffset (call $list_element_offset (local.get $listIdx) (i32.sub (local.get $i) (i32.const 1))))
+            ;; Copy all 16 bytes: value (8) + type (4) + str_ptr (4)
+            (f64.store (local.get $dstOffset) (f64.load (local.get $srcOffset)))
+            (i32.store (i32.add (local.get $dstOffset) (i32.const 8)) (i32.load (i32.add (local.get $srcOffset) (i32.const 8))))
+            (i32.store (i32.add (local.get $dstOffset) (i32.const 12)) (i32.load (i32.add (local.get $srcOffset) (i32.const 12))))
+            (local.set $i (i32.sub (local.get $i) (i32.const 1)))
+            (br $shift)))
+        ;; Store new numeric value with type tag
+        (local.set $dstOffset (call $list_element_offset (local.get $listIdx) (local.get $index)))
+        (f64.store (local.get $dstOffset) (local.get $value))
+        (i32.store (i32.add (local.get $dstOffset) (i32.const 8)) (i32.const 0))  ;; type = 0 (number)
+        (i32.store (i32.add (local.get $dstOffset) (i32.const 12)) (i32.const 0)) ;; str_ptr = 0
+        ;; Increment length
+        (call $list_set_length (local.get $listIdx) (i32.add (local.get $len) (i32.const 1))))))
+  
+  ;; Insert string value at index (0-based), shift elements right
+  (func $list_insert_str (param $listIdx i32) (param $index i32) (param $strPtr i32)
+    (local $len i32)
+    (local $cap i32)
+    (local $i i32)
+    (local $srcOffset i32)
+    (local $dstOffset i32)
+    (local.set $len (call $list_length (local.get $listIdx)))
+    (local.set $cap (call $list_capacity (local.get $listIdx)))
+    ;; Clamp index to valid range [0, len]
+    (if (i32.lt_s (local.get $index) (i32.const 0))
+      (then (local.set $index (i32.const 0))))
+    (if (i32.gt_s (local.get $index) (local.get $len))
+      (then (local.set $index (local.get $len))))
+    ;; Check capacity
+    (if (i32.lt_s (local.get $len) (local.get $cap))
+      (then
+        ;; Shift elements right from end to index (copy all 16 bytes per element)
+        (local.set $i (local.get $len))
+        (block $break
+          (loop $shift
+            (br_if $break (i32.le_s (local.get $i) (local.get $index)))
+            (local.set $dstOffset (call $list_element_offset (local.get $listIdx) (local.get $i)))
+            (local.set $srcOffset (call $list_element_offset (local.get $listIdx) (i32.sub (local.get $i) (i32.const 1))))
+            ;; Copy all 16 bytes: value (8) + type (4) + str_ptr (4)
+            (f64.store (local.get $dstOffset) (f64.load (local.get $srcOffset)))
+            (i32.store (i32.add (local.get $dstOffset) (i32.const 8)) (i32.load (i32.add (local.get $srcOffset) (i32.const 8))))
+            (i32.store (i32.add (local.get $dstOffset) (i32.const 12)) (i32.load (i32.add (local.get $srcOffset) (i32.const 12))))
+            (local.set $i (i32.sub (local.get $i) (i32.const 1)))
+            (br $shift)))
+        ;; Store new string value with type tag
+        (local.set $dstOffset (call $list_element_offset (local.get $listIdx) (local.get $index)))
+        (f64.store (local.get $dstOffset) (f64.const 0))  ;; value = 0 (unused for strings)
+        (i32.store (i32.add (local.get $dstOffset) (i32.const 8)) (i32.const 1))  ;; type = 1 (string)
+        (i32.store (i32.add (local.get $dstOffset) (i32.const 12)) (local.get $strPtr)) ;; str_ptr
+        ;; Increment length
+        (call $list_set_length (local.get $listIdx) (i32.add (local.get $len) (i32.const 1))))))
+  
+  ;; Remove value at index (0-based), shift elements left
+  (func $list_remove (param $listIdx i32) (param $index i32)
+    (local $len i32)
+    (local $i i32)
+    (local $srcOffset i32)
+    (local $dstOffset i32)
+    (local.set $len (call $list_length (local.get $listIdx)))
+    ;; Bounds check
+    (if (i32.and
+          (i32.ge_s (local.get $index) (i32.const 0))
+          (i32.lt_s (local.get $index) (local.get $len)))
+      (then
+        ;; Shift elements left (copy all 16 bytes per element)
+        (local.set $i (local.get $index))
+        (block $break
+          (loop $shift
+            (br_if $break (i32.ge_s (local.get $i) (i32.sub (local.get $len) (i32.const 1))))
+            (local.set $dstOffset (call $list_element_offset (local.get $listIdx) (local.get $i)))
+            (local.set $srcOffset (call $list_element_offset (local.get $listIdx) (i32.add (local.get $i) (i32.const 1))))
+            ;; Copy all 16 bytes: value (8) + type (4) + str_ptr (4)
+            (f64.store (local.get $dstOffset) (f64.load (local.get $srcOffset)))
+            (i32.store (i32.add (local.get $dstOffset) (i32.const 8)) (i32.load (i32.add (local.get $srcOffset) (i32.const 8))))
+            (i32.store (i32.add (local.get $dstOffset) (i32.const 12)) (i32.load (i32.add (local.get $srcOffset) (i32.const 12))))
+            (local.set $i (i32.add (local.get $i) (i32.const 1)))
+            (br $shift)))
+        ;; Decrement length
+        (call $list_set_length (local.get $listIdx) (i32.sub (local.get $len) (i32.const 1))))))
+  
+  ;; Check if list contains numeric value (returns 1 if found, 0 otherwise)
+  ;; Only checks elements with type=0 (number)
+  (func $list_contains (param $listIdx i32) (param $value f64) (result i32)
+    (local $len i32)
+    (local $i i32)
+    (local $offset i32)
+    (local.set $len (call $list_length (local.get $listIdx)))
+    (local.set $i (i32.const 0))
+    (block $found
+      (block $not_found
+        (loop $search
+          (br_if $not_found (i32.ge_s (local.get $i) (local.get $len)))
+          (local.set $offset (call $list_element_offset (local.get $listIdx) (local.get $i)))
+          ;; Only compare if type=0 (number)
+          (if (i32.eqz (i32.load (i32.add (local.get $offset) (i32.const 8))))
+            (then
+              (br_if $found (f64.eq (f64.load (local.get $offset)) (local.get $value)))))
+          (local.set $i (i32.add (local.get $i) (i32.const 1)))
+          (br $search)))
+      (return (i32.const 0)))
+    (i32.const 1))
+  
+  ;; Check if list contains string value (returns 1 if found, 0 otherwise)
+  ;; Compares string contents, not pointers
+  (func $list_contains_str (param $listIdx i32) (param $strPtr i32) (result i32)
+    (local $len i32)
+    (local $i i32)
+    (local $offset i32)
+    (local $elemStrPtr i32)
+    (local $strLen i32)
+    (local $elemStrLen i32)
+    (local $j i32)
+    (local $match i32)
+    (local.set $len (call $list_length (local.get $listIdx)))
+    (local.set $strLen (call $str_length (local.get $strPtr)))
+    (local.set $i (i32.const 0))
+    (block $found
+      (block $not_found
+        (loop $search
+          (br_if $not_found (i32.ge_s (local.get $i) (local.get $len)))
+          (local.set $offset (call $list_element_offset (local.get $listIdx) (local.get $i)))
+          ;; Only compare if type=1 (string)
+          (if (i32.eq (i32.load (i32.add (local.get $offset) (i32.const 8))) (i32.const 1))
+            (then
+              (local.set $elemStrPtr (i32.load (i32.add (local.get $offset) (i32.const 12))))
+              (local.set $elemStrLen (call $str_length (local.get $elemStrPtr)))
+              ;; Check if lengths match
+              (if (i32.eq (local.get $strLen) (local.get $elemStrLen))
+                (then
+                  ;; Compare byte by byte
+                  (local.set $match (i32.const 1))
+                  (local.set $j (i32.const 0))
+                  (block $nomatch
+                    (loop $compare
+                      (br_if $nomatch (i32.ge_s (local.get $j) (local.get $strLen)))
+                      (if (i32.ne
+                            (i32.load8_u (i32.add (i32.add (local.get $strPtr) (i32.const 4)) (local.get $j)))
+                            (i32.load8_u (i32.add (i32.add (local.get $elemStrPtr) (i32.const 4)) (local.get $j))))
+                        (then
+                          (local.set $match (i32.const 0))
+                          (br $nomatch)))
+                      (local.set $j (i32.add (local.get $j) (i32.const 1)))
+                      (br $compare)))
+                  (br_if $found (local.get $match))))))
+          (local.set $i (i32.add (local.get $i) (i32.const 1)))
+          (br $search)))
+      (return (i32.const 0)))
+    (i32.const 1))
+  
+  ;; Clear list (set length to 0)
+  (func $list_clear (param $listIdx i32)
+    (call $list_set_length (local.get $listIdx) (i32.const 0)))
+  
+  ;; ===== STRING HELPER FUNCTIONS =====
+  
+  ;; Allocate string in string pool (bump allocator)
+  ;; Returns pointer to string (layout: [len:i32][data:bytes][null])
+  (func $str_alloc (param $len i32) (result i32)
+    (local $ptr i32)
+    (local.set $ptr (global.get $str_pool_ptr))
+    ;; Store length at ptr
+    (i32.store (local.get $ptr) (local.get $len))
+    ;; Advance pool pointer: ptr + 4 (len) + len + 1 (null) + padding to 4-byte align
+    (global.set $str_pool_ptr
+      (i32.and
+        (i32.add (i32.add (local.get $ptr) (i32.add (local.get $len) (i32.const 5))) (i32.const 3))
+        (i32.const -4)))
+    (local.get $ptr))
+  
+  ;; Get string length
+  (func $str_length (param $ptr i32) (result i32)
+    (if (result i32) (i32.eqz (local.get $ptr))
+      (then (i32.const 0))
+      (else (i32.load (local.get $ptr)))))
+  
+  ;; Get character at index (1-based) as char code
+  (func $str_char_at (param $ptr i32) (param $idx i32) (result i32)
+    (local $len i32)
+    (local $zeroIdx i32)
+    (if (result i32) (i32.eqz (local.get $ptr))
+      (then (i32.const 0))
+      (else
+        (local.set $len (i32.load (local.get $ptr)))
+        (local.set $zeroIdx (i32.sub (local.get $idx) (i32.const 1)))
+        (if (result i32) (i32.or (i32.lt_s (local.get $zeroIdx) (i32.const 0)) (i32.ge_s (local.get $zeroIdx) (local.get $len)))
+          (then (i32.const 0))
+          (else (i32.load8_u (i32.add (i32.add (local.get $ptr) (i32.const 4)) (local.get $zeroIdx))))))))
+  
+  ;; Get character at index (1-based) as new string pointer
+  (func $str_char_at_str (param $ptr i32) (param $idx i32) (result i32)
+    (local $charCode i32)
+    (local $newPtr i32)
+    (local.set $charCode (call $str_char_at (local.get $ptr) (local.get $idx)))
+    (if (result i32) (i32.eqz (local.get $charCode))
+      (then (call $str_alloc (i32.const 0)))
+      (else
+        (local.set $newPtr (call $str_alloc (i32.const 1)))
+        (i32.store8 (i32.add (local.get $newPtr) (i32.const 4)) (local.get $charCode))
+        (i32.store8 (i32.add (local.get $newPtr) (i32.const 5)) (i32.const 0))
+        (local.get $newPtr))))
+  
+  ;; Concatenate two strings
+  (func $str_concat (param $ptr1 i32) (param $ptr2 i32) (result i32)
+    (local $len1 i32)
+    (local $len2 i32)
+    (local $newPtr i32)
+    (local $i i32)
+    (local.set $len1 (if (result i32) (i32.eqz (local.get $ptr1)) (then (i32.const 0)) (else (i32.load (local.get $ptr1)))))
+    (local.set $len2 (if (result i32) (i32.eqz (local.get $ptr2)) (then (i32.const 0)) (else (i32.load (local.get $ptr2)))))
+    (local.set $newPtr (call $str_alloc (i32.add (local.get $len1) (local.get $len2))))
+    ;; Copy first string
+    (local.set $i (i32.const 0))
+    (block $break1
+      (loop $copy1
+        (br_if $break1 (i32.ge_s (local.get $i) (local.get $len1)))
+        (i32.store8
+          (i32.add (i32.add (local.get $newPtr) (i32.const 4)) (local.get $i))
+          (i32.load8_u (i32.add (i32.add (local.get $ptr1) (i32.const 4)) (local.get $i))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $copy1)))
+    ;; Copy second string
+    (local.set $i (i32.const 0))
+    (block $break2
+      (loop $copy2
+        (br_if $break2 (i32.ge_s (local.get $i) (local.get $len2)))
+        (i32.store8
+          (i32.add (i32.add (local.get $newPtr) (i32.const 4)) (i32.add (local.get $len1) (local.get $i)))
+          (i32.load8_u (i32.add (i32.add (local.get $ptr2) (i32.const 4)) (local.get $i))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $copy2)))
+    ;; Null terminate
+    (i32.store8 (i32.add (i32.add (local.get $newPtr) (i32.const 4)) (i32.add (local.get $len1) (local.get $len2))) (i32.const 0))
+    (local.get $newPtr))
+  
+  ;; Get substring (1-based start and end, inclusive)
+  (func $str_substring (param $ptr i32) (param $start i32) (param $end i32) (result i32)
+    (local $len i32)
+    (local $startIdx i32)
+    (local $endIdx i32)
+    (local $subLen i32)
+    (local $newPtr i32)
+    (local $i i32)
+    (if (result i32) (i32.eqz (local.get $ptr))
+      (then (call $str_alloc (i32.const 0)))
+      (else
+        (local.set $len (i32.load (local.get $ptr)))
+        (local.set $startIdx (i32.sub (local.get $start) (i32.const 1)))
+        (local.set $endIdx (local.get $end))
+        ;; Clamp indices
+        (if (i32.lt_s (local.get $startIdx) (i32.const 0)) (then (local.set $startIdx (i32.const 0))))
+        (if (i32.gt_s (local.get $endIdx) (local.get $len)) (then (local.set $endIdx (local.get $len))))
+        (local.set $subLen (i32.sub (local.get $endIdx) (local.get $startIdx)))
+        (if (i32.lt_s (local.get $subLen) (i32.const 0)) (then (local.set $subLen (i32.const 0))))
+        (local.set $newPtr (call $str_alloc (local.get $subLen)))
+        ;; Copy substring
+        (local.set $i (i32.const 0))
+        (block $break
+          (loop $copy
+            (br_if $break (i32.ge_s (local.get $i) (local.get $subLen)))
+            (i32.store8
+              (i32.add (i32.add (local.get $newPtr) (i32.const 4)) (local.get $i))
+              (i32.load8_u (i32.add (i32.add (local.get $ptr) (i32.const 4)) (i32.add (local.get $startIdx) (local.get $i)))))
+            (local.set $i (i32.add (local.get $i) (i32.const 1)))
+            (br $copy)))
+        (i32.store8 (i32.add (i32.add (local.get $newPtr) (i32.const 4)) (local.get $subLen)) (i32.const 0))
+        (local.get $newPtr))))
+  
+  ;; Find index of substring (returns 1-based index, 0 if not found)
+  (func $str_index_of (param $str i32) (param $search i32) (result i32)
+    (local $strLen i32)
+    (local $searchLen i32)
+    (local $i i32)
+    (local $j i32)
+    (local $match i32)
+    (if (result i32) (i32.or (i32.eqz (local.get $str)) (i32.eqz (local.get $search)))
+      (then (i32.const 0))
+      (else
+        (local.set $strLen (i32.load (local.get $str)))
+        (local.set $searchLen (i32.load (local.get $search)))
+        (if (result i32) (i32.gt_s (local.get $searchLen) (local.get $strLen))
+          (then (i32.const 0))
+          (else
+            (local.set $i (i32.const 0))
+            (block $found (result i32)
+              (block $notfound
+                (loop $outer
+                  (br_if $notfound (i32.gt_s (local.get $i) (i32.sub (local.get $strLen) (local.get $searchLen))))
+                  (local.set $match (i32.const 1))
+                  (local.set $j (i32.const 0))
+                  (block $nomatch
+                    (loop $inner
+                      (br_if $nomatch (i32.ge_s (local.get $j) (local.get $searchLen)))
+                      (if (i32.ne
+                            (i32.load8_u (i32.add (i32.add (local.get $str) (i32.const 4)) (i32.add (local.get $i) (local.get $j))))
+                            (i32.load8_u (i32.add (i32.add (local.get $search) (i32.const 4)) (local.get $j))))
+                        (then
+                          (local.set $match (i32.const 0))
+                          (br $nomatch)))
+                      (local.set $j (i32.add (local.get $j) (i32.const 1)))
+                      (br $inner)))
+                  (if (local.get $match)
+                    (then (br $found (i32.add (local.get $i) (i32.const 1)))))
+                  (local.set $i (i32.add (local.get $i) (i32.const 1)))
+                  (br $outer)))
+              (i32.const 0)))))))
+  
+  ;; Replace first occurrence of old with new
+  (func $str_replace (param $str i32) (param $old i32) (param $new i32) (result i32)
+    (local $idx i32)
+    (local $strLen i32)
+    (local $oldLen i32)
+    (local $newLen i32)
+    (local $resultLen i32)
+    (local $newPtr i32)
+    (local $i i32)
+    (local $srcIdx i32)
+    (local.set $idx (call $str_index_of (local.get $str) (local.get $old)))
+    (if (result i32) (i32.eqz (local.get $idx))
+      (then
+        ;; Not found, return copy of original
+        (local.set $strLen (if (result i32) (i32.eqz (local.get $str)) (then (i32.const 0)) (else (i32.load (local.get $str)))))
+        (local.set $newPtr (call $str_alloc (local.get $strLen)))
+        (local.set $i (i32.const 0))
+        (block $break
+          (loop $copy
+            (br_if $break (i32.ge_s (local.get $i) (local.get $strLen)))
+            (i32.store8
+              (i32.add (i32.add (local.get $newPtr) (i32.const 4)) (local.get $i))
+              (i32.load8_u (i32.add (i32.add (local.get $str) (i32.const 4)) (local.get $i))))
+            (local.set $i (i32.add (local.get $i) (i32.const 1)))
+            (br $copy)))
+        (i32.store8 (i32.add (i32.add (local.get $newPtr) (i32.const 4)) (local.get $strLen)) (i32.const 0))
+        (local.get $newPtr))
+      (else
+        ;; Found, build replaced string
+        (local.set $strLen (i32.load (local.get $str)))
+        (local.set $oldLen (i32.load (local.get $old)))
+        (local.set $newLen (if (result i32) (i32.eqz (local.get $new)) (then (i32.const 0)) (else (i32.load (local.get $new)))))
+        (local.set $resultLen (i32.add (i32.sub (local.get $strLen) (local.get $oldLen)) (local.get $newLen)))
+        (local.set $newPtr (call $str_alloc (local.get $resultLen)))
+        (local.set $srcIdx (i32.sub (local.get $idx) (i32.const 1)))
+        ;; Copy before
+        (local.set $i (i32.const 0))
+        (block $break1
+          (loop $copy1
+            (br_if $break1 (i32.ge_s (local.get $i) (local.get $srcIdx)))
+            (i32.store8
+              (i32.add (i32.add (local.get $newPtr) (i32.const 4)) (local.get $i))
+              (i32.load8_u (i32.add (i32.add (local.get $str) (i32.const 4)) (local.get $i))))
+            (local.set $i (i32.add (local.get $i) (i32.const 1)))
+            (br $copy1)))
+        ;; Copy new
+        (local.set $i (i32.const 0))
+        (block $break2
+          (loop $copy2
+            (br_if $break2 (i32.ge_s (local.get $i) (local.get $newLen)))
+            (i32.store8
+              (i32.add (i32.add (local.get $newPtr) (i32.const 4)) (i32.add (local.get $srcIdx) (local.get $i)))
+              (i32.load8_u (i32.add (i32.add (local.get $new) (i32.const 4)) (local.get $i))))
+            (local.set $i (i32.add (local.get $i) (i32.const 1)))
+            (br $copy2)))
+        ;; Copy after
+        (local.set $i (i32.const 0))
+        (block $break3
+          (loop $copy3
+            (br_if $break3 (i32.ge_s (local.get $i) (i32.sub (local.get $strLen) (i32.add (local.get $srcIdx) (local.get $oldLen)))))
+            (i32.store8
+              (i32.add (i32.add (local.get $newPtr) (i32.const 4)) (i32.add (i32.add (local.get $srcIdx) (local.get $newLen)) (local.get $i)))
+              (i32.load8_u (i32.add (i32.add (local.get $str) (i32.const 4)) (i32.add (i32.add (local.get $srcIdx) (local.get $oldLen)) (local.get $i)))))
+            (local.set $i (i32.add (local.get $i) (i32.const 1)))
+            (br $copy3)))
+        (i32.store8 (i32.add (i32.add (local.get $newPtr) (i32.const 4)) (local.get $resultLen)) (i32.const 0))
+        (local.get $newPtr))))
+  
+  ;; Convert string to uppercase
+  (func $str_to_upper (param $ptr i32) (result i32)
+    (local $len i32)
+    (local $newPtr i32)
+    (local $i i32)
+    (local $c i32)
+    (if (result i32) (i32.eqz (local.get $ptr))
+      (then (call $str_alloc (i32.const 0)))
+      (else
+        (local.set $len (i32.load (local.get $ptr)))
+        (local.set $newPtr (call $str_alloc (local.get $len)))
+        (local.set $i (i32.const 0))
+        (block $break
+          (loop $copy
+            (br_if $break (i32.ge_s (local.get $i) (local.get $len)))
+            (local.set $c (i32.load8_u (i32.add (i32.add (local.get $ptr) (i32.const 4)) (local.get $i))))
+            ;; Convert a-z (97-122) to A-Z (65-90)
+            (if (i32.and (i32.ge_u (local.get $c) (i32.const 97)) (i32.le_u (local.get $c) (i32.const 122)))
+              (then (local.set $c (i32.sub (local.get $c) (i32.const 32)))))
+            (i32.store8 (i32.add (i32.add (local.get $newPtr) (i32.const 4)) (local.get $i)) (local.get $c))
+            (local.set $i (i32.add (local.get $i) (i32.const 1)))
+            (br $copy)))
+        (i32.store8 (i32.add (i32.add (local.get $newPtr) (i32.const 4)) (local.get $len)) (i32.const 0))
+        (local.get $newPtr))))
+  
+  ;; Convert string to lowercase
+  (func $str_to_lower (param $ptr i32) (result i32)
+    (local $len i32)
+    (local $newPtr i32)
+    (local $i i32)
+    (local $c i32)
+    (if (result i32) (i32.eqz (local.get $ptr))
+      (then (call $str_alloc (i32.const 0)))
+      (else
+        (local.set $len (i32.load (local.get $ptr)))
+        (local.set $newPtr (call $str_alloc (local.get $len)))
+        (local.set $i (i32.const 0))
+        (block $break
+          (loop $copy
+            (br_if $break (i32.ge_s (local.get $i) (local.get $len)))
+            (local.set $c (i32.load8_u (i32.add (i32.add (local.get $ptr) (i32.const 4)) (local.get $i))))
+            ;; Convert A-Z (65-90) to a-z (97-122)
+            (if (i32.and (i32.ge_u (local.get $c) (i32.const 65)) (i32.le_u (local.get $c) (i32.const 90)))
+              (then (local.set $c (i32.add (local.get $c) (i32.const 32)))))
+            (i32.store8 (i32.add (i32.add (local.get $newPtr) (i32.const 4)) (local.get $i)) (local.get $c))
+            (local.set $i (i32.add (local.get $i) (i32.const 1)))
+            (br $copy)))
+        (i32.store8 (i32.add (i32.add (local.get $newPtr) (i32.const 4)) (local.get $len)) (i32.const 0))
+        (local.get $newPtr))))
+  
+  ;; Convert f64 to string (simple integer conversion for now)
+  (func $f64_to_str (param $val f64) (result i32)
+    (local $intVal i32)
+    (local $isNeg i32)
+    (local $ptr i32)
+    (local $digits i32)
+    (local $temp i32)
+    (local $i i32)
+    ;; Simple conversion - just handle integers for now
+    (local.set $intVal (i32.trunc_f64_s (local.get $val)))
+    (local.set $isNeg (i32.lt_s (local.get $intVal) (i32.const 0)))
+    (if (local.get $isNeg) (then (local.set $intVal (i32.sub (i32.const 0) (local.get $intVal)))))
+    ;; Count digits
+    (local.set $digits (i32.const 1))
+    (local.set $temp (local.get $intVal))
+    (block $countDone
+      (loop $count
+        (local.set $temp (i32.div_u (local.get $temp) (i32.const 10)))
+        (br_if $countDone (i32.eqz (local.get $temp)))
+        (local.set $digits (i32.add (local.get $digits) (i32.const 1)))
+        (br $count)))
+    ;; Allocate string
+    (local.set $ptr (call $str_alloc (i32.add (local.get $digits) (local.get $isNeg))))
+    ;; Write digits in reverse
+    (local.set $temp (local.get $intVal))
+    (local.set $i (i32.sub (i32.add (local.get $digits) (local.get $isNeg)) (i32.const 1)))
+    (block $writeDone
+      (loop $write
+        (i32.store8
+          (i32.add (i32.add (local.get $ptr) (i32.const 4)) (local.get $i))
+          (i32.add (i32.const 48) (i32.rem_u (local.get $temp) (i32.const 10))))
+        (local.set $temp (i32.div_u (local.get $temp) (i32.const 10)))
+        (local.set $i (i32.sub (local.get $i) (i32.const 1)))
+        (br_if $writeDone (i32.lt_s (local.get $i) (local.get $isNeg)))
+        (br $write)))
+    ;; Write negative sign if needed
+    (if (local.get $isNeg)
+      (then (i32.store8 (i32.add (local.get $ptr) (i32.const 4)) (i32.const 45))))
+    ;; Null terminate
+    (i32.store8 (i32.add (i32.add (local.get $ptr) (i32.const 4)) (i32.add (local.get $digits) (local.get $isNeg))) (i32.const 0))
+    (local.get $ptr))
+  
+  ;; Convert string to f64
+  (func $str_to_f64 (param $ptr i32) (result f64)
+    (local $len i32)
+    (local $i i32)
+    (local $c i32)
+    (local $result f64)
+    (local $isNeg i32)
+    (if (result f64) (i32.eqz (local.get $ptr))
+      (then (f64.const 0))
+      (else
+        (local.set $len (i32.load (local.get $ptr)))
+        (local.set $result (f64.const 0))
+        (local.set $i (i32.const 0))
+        ;; Check for negative
+        (if (i32.and (i32.gt_s (local.get $len) (i32.const 0))
+                     (i32.eq (i32.load8_u (i32.add (local.get $ptr) (i32.const 4))) (i32.const 45)))
+          (then
+            (local.set $isNeg (i32.const 1))
+            (local.set $i (i32.const 1))))
+        ;; Parse digits
+        (block $done
+          (loop $parse
+            (br_if $done (i32.ge_s (local.get $i) (local.get $len)))
+            (local.set $c (i32.load8_u (i32.add (i32.add (local.get $ptr) (i32.const 4)) (local.get $i))))
+            (br_if $done (i32.or (i32.lt_u (local.get $c) (i32.const 48)) (i32.gt_u (local.get $c) (i32.const 57))))
+            (local.set $result
+              (f64.add
+                (f64.mul (local.get $result) (f64.const 10))
+                (f64.convert_i32_u (i32.sub (local.get $c) (i32.const 48)))))
+            (local.set $i (i32.add (local.get $i) (i32.const 1)))
+            (br $parse)))
+        (if (result f64) (local.get $isNeg)
+          (then (f64.neg (local.get $result)))
+          (else (local.get $result))))))
+  
+  ;; Get list value as string pointer (converts number to string if needed)
+  (func $list_get_as_str (param $listIdx i32) (param $index i32) (result i32)
+    ;; For now, just convert the numeric value to string
+    ;; TODO: Support mixed-type lists with type tagging
+    (call $f64_to_str (call $list_get (local.get $listIdx) (local.get $index))))`;
     }
 
     /**
@@ -585,7 +1254,8 @@ class WATGenerator {
         let localsDecl = `
     (local $temp f64)
     (local $iterCount i32)
-    (local $condResult i32)`;
+    (local $condResult i32)
+    (local $temp_str_ptr i32)`;
 
         // Add local variable declarations for function local variables
         localVars.forEach((v, idx) => {
@@ -750,6 +1420,7 @@ class WATGenerator {
     (local $temp f64)
     (local $iterCount i32)
     (local $condResult i32)
+    (local $temp_str_ptr i32)
     
     ;; Get current program counter
     (local.set $pc (global.get $thread_${threadIndex}_pc))
@@ -874,6 +1545,7 @@ class WATGenerator {
     (global.set $sceneJustChanged (i32.const 0))
     ${this.generateEntityInitialization()}
     ${this.generateVariableInitialization()}
+    ${this.generateListInitialization()}
     (global.set $running (i32.const 1)))
   
   ;; Main tick function - called every frame from JS
@@ -946,6 +1618,32 @@ class WATGenerator {
     ;; Initialize variable: ${v.name}
     (call $setVariable (i32.const ${v.memoryOffset}) (f64.const ${numVal}))`;
         }
+        return code;
+    }
+
+    generateListInitialization() {
+        let code = '';
+        const lists = this.project.variables.lists || [];
+        
+        for (const list of lists) {
+            const listIdx = list.memoryIndex;
+            const initialArray = list.array || [];
+            
+            code += `
+    ;; Initialize list: ${list.name} (index ${listIdx})
+    ;; Set metadata: length=0, capacity=${list.capacity}, data_ptr=${list.dataOffset}
+    (i32.store (i32.const ${list.metaOffset}) (i32.const 0))
+    (i32.store (i32.const ${list.metaOffset + 4}) (i32.const ${list.capacity}))
+    (i32.store (i32.const ${list.metaOffset + 8}) (i32.const ${list.dataOffset}))`;
+            
+            // Add initial values
+            for (let i = 0; i < initialArray.length && i < list.capacity; i++) {
+                const val = parseFloat(initialArray[i].data || initialArray[i]) || 0;
+                code += `
+    (call $list_push (i32.const ${listIdx}) (f64.const ${val}))`;
+            }
+        }
+        
         return code;
     }
 

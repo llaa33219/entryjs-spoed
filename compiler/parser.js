@@ -301,7 +301,7 @@ function parseFunctions(functions) {
  * 
  * Memory Layout:
  * - 0-1023: Reserved for system
- * - 1024+: Entity data (each entity uses 72 bytes)
+ * - 1024+: Entity data (each entity uses 120 bytes)
  *   - 0-7: x (f64)
  *   - 8-15: y (f64)
  *   - 16-23: rotation (f64)
@@ -309,17 +309,29 @@ function parseFunctions(functions) {
  *   - 32-39: scaleX (f64)
  *   - 40-47: scaleY (f64)
  *   - 48-55: size (f64)
- *   - 56: visible (i32)
- *   - 60: pictureIndex (i32)
- *   - 64: sceneIndex (i32)
- *   - 68: reserved (i32)
- * - After entities: Variables (8 bytes each)
- * - After variables: Lists (dynamic)
+ *   - 56-59: visible (i32)
+ *   - 60-63: pictureIndex (i32)
+ *   - 64-67: sceneIndex (i32)
+ *   - 68-115: brush/fill colors
+ *   - 116-119: initialVisible (i32)
+ * - After entities: Variables (8 bytes each, f64)
+ * - After variables: List metadata (24 bytes per list)
+ *   - 0-3: length (i32)
+ *   - 4-7: capacity (i32)
+ *   - 8-11: data_ptr (i32)
+ *   - 12-23: reserved
+ * - After list metadata: List data areas (capacity * 16 bytes per list)
+ *   - Each element is 16 bytes (8 bytes f64 + 4 bytes type + 4 bytes str_ptr)
+ * - After list data: String pool (256KB)
  */
 function assignMemoryIndices(parsed) {
     let memOffset = 1024;
-    const ENTITY_SIZE = 72;
+    const ENTITY_SIZE = 120;
     const VARIABLE_SIZE = 8;
+    const LIST_META_SIZE = 24;
+    const LIST_ELEMENT_SIZE = 16; // 8 bytes f64 value + 4 bytes type + 4 bytes str_ptr
+    const DEFAULT_LIST_CAPACITY = 1000000;
+    const STRING_POOL_SIZE = 262144; // 256KB for string pool
 
     // Assign entity memory offsets
     parsed.objects.forEach((obj, index) => {
@@ -334,6 +346,39 @@ function assignMemoryIndices(parsed) {
         v.memoryOffset = memOffset;
         memOffset += VARIABLE_SIZE;
     });
+
+    // Assign list metadata offsets
+    const listMetaStart = memOffset;
+    parsed.variables.lists.forEach((list, index) => {
+        list.memoryIndex = index;
+        list.metaOffset = memOffset;
+        list.capacity = DEFAULT_LIST_CAPACITY;
+        memOffset += LIST_META_SIZE;
+    });
+
+    // Assign list data offsets (after all metadata)
+    parsed.variables.lists.forEach((list, index) => {
+        list.dataOffset = memOffset;
+        memOffset += list.capacity * LIST_ELEMENT_SIZE;
+    });
+
+    // Calculate string pool start (after all list data)
+    const stringPoolStart = memOffset;
+    memOffset += STRING_POOL_SIZE;
+
+    // Store list memory info for code generation
+    parsed.listMemory = {
+        metaStart: listMetaStart,
+        metaSize: LIST_META_SIZE,
+        elementSize: LIST_ELEMENT_SIZE,
+        defaultCapacity: DEFAULT_LIST_CAPACITY
+    };
+
+    // Store string pool info
+    parsed.stringPool = {
+        start: stringPoolStart,
+        size: STRING_POOL_SIZE
+    };
 
     parsed.memorySize = Math.ceil(memOffset / 65536) + 1; // In pages (64KB each)
 }

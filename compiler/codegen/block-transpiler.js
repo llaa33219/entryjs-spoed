@@ -17,6 +17,7 @@ const {
 class BlockTranspiler {
     constructor(generator) {
         this.generator = generator;
+        this.stringLiterals = []; // Track string literals for data section
     }
 
     /**
@@ -33,7 +34,8 @@ class BlockTranspiler {
             transpile: (block, entIdx, thrIdx) => this.transpile(block, entIdx ?? entityIndex, thrIdx ?? threadIndex),
             transpileValue: (block, entIdx) => this.transpileValue(block, entIdx ?? entityIndex),
             transpileBoolean: (block, entIdx) => this.transpileBoolean(block, entIdx ?? entityIndex),
-            findVariable: (varId) => this.findVariable(varId)
+            findVariable: (varId) => this.findVariable(varId),
+            findList: (listId) => this.findList(listId)
         };
     }
 
@@ -134,12 +136,303 @@ class BlockTranspiler {
     }
 
     /**
+     * Transpile a value to a string pointer (i32)
+     * This handles both string literals and string-producing blocks
+     */
+    transpileStringValue(param, entityIndex) {
+        if (param === null || param === undefined) {
+            return '(i32.const 0)'; // null string pointer
+        }
+
+        // String literal
+        if (typeof param === 'string') {
+            return this.createStringLiteral(param);
+        }
+
+        // Number - convert to string
+        if (typeof param === 'number') {
+            return `(call $f64_to_str (f64.const ${param}))`;
+        }
+
+        // Block that produces a string
+        if (param && param.type) {
+            const blockType = param.type;
+            
+            // String-producing blocks
+            const stringBlocks = [
+                'combine_something',
+                'char_at',
+                'substring',
+                'replace_string',
+                'change_string_case',
+                'text',
+            ];
+
+            if (stringBlocks.includes(blockType)) {
+                // Call the string block handler
+                return this.transpileStringBlock(param, entityIndex);
+            }
+
+            // value_of_index_from_list can return string
+            if (blockType === 'value_of_index_from_list') {
+                return this.transpileListGetAsStr(param, entityIndex);
+            }
+
+            // Other blocks - treat as numeric and convert to string
+            const numericValue = this.transpileValue(param, entityIndex);
+            return `(call $f64_to_str ${numericValue})`;
+        }
+
+        // Default - convert to string
+        return `(call $f64_to_str (f64.const 0))`;
+    }
+
+    /**
+     * Transpile a string-producing block
+     */
+    transpileStringBlock(block, entityIndex) {
+        const ctx = {
+            transpileValue: (p) => this.transpileValue(p, entityIndex),
+            transpileStringValue: (p) => this.transpileStringValue(p, entityIndex),
+            createStringLiteral: (s) => this.createStringLiteral(s),
+            generator: this.generator
+        };
+
+        switch (block.type) {
+            case 'combine_something': {
+                const str1 = this.transpileStringValue(block.params?.[0], entityIndex);
+                const str2 = this.transpileStringValue(block.params?.[1], entityIndex);
+                return `(call $str_concat ${str1} ${str2})`;
+            }
+            case 'char_at': {
+                const strCode = this.transpileStringValue(block.params?.[1], entityIndex);
+                const idxCode = this.transpileAsI32(block.params?.[0], entityIndex);
+                return `(call $str_char_at_str ${strCode} ${idxCode})`;
+            }
+            case 'substring': {
+                const strCode = this.transpileStringValue(block.params?.[2], entityIndex);
+                const startCode = this.transpileAsI32(block.params?.[0], entityIndex);
+                const endCode = this.transpileAsI32(block.params?.[1], entityIndex);
+                return `(call $str_substring ${strCode} ${startCode} ${endCode})`;
+            }
+            case 'replace_string': {
+                const strCode = this.transpileStringValue(block.params?.[2], entityIndex);
+                const oldCode = this.transpileStringValue(block.params?.[0], entityIndex);
+                const newCode = this.transpileStringValue(block.params?.[1], entityIndex);
+                return `(call $str_replace ${strCode} ${oldCode} ${newCode})`;
+            }
+            case 'change_string_case': {
+                const strCode = this.transpileStringValue(block.params?.[1], entityIndex);
+                const mode = (typeof block.params?.[0] === 'string') ? block.params[0].toLowerCase() : 'upper';
+                if (mode === 'lower') {
+                    return `(call $str_to_lower ${strCode})`;
+                }
+                return `(call $str_to_upper ${strCode})`;
+            }
+            case 'text': {
+                const textValue = block.params?.[0] || '';
+                return this.createStringLiteral(textValue.toString());
+            }
+            default:
+                // Unknown string block - return empty string
+                return this.createStringLiteral('');
+        }
+    }
+
+    /**
+     * Transpile list get as string
+     */
+    transpileListGetAsStr(block, entityIndex) {
+        const listId = block.params?.[1];
+        const list = this.generator.project.variables.lists.find(l => l.id === listId);
+        if (!list) {
+            return '(i32.const 0)';
+        }
+        const listIdx = list.memoryIndex;
+        const indexParam = block.params?.[0];
+        const indexCode = this.transpileListIndex(indexParam, entityIndex);
+        return `(call $list_get_as_str (i32.const ${listIdx}) ${indexCode})`;
+    }
+
+    /**
+     * Transpile list index parameter
+     */
+    transpileListIndex(indexParam, entityIndex) {
+        if (typeof indexParam === 'string') {
+            const upper = indexParam.toUpperCase();
+            if (upper === 'FIRST') return '(i32.const 0)';
+            if (upper === 'LAST') return '(i32.const -1)';
+            if (upper === 'RANDOM') return '(i32.const -2)';
+            const num = parseInt(indexParam, 10) || 1;
+            return `(i32.const ${num})`;
+        }
+        if (indexParam && indexParam.type) {
+            const valueCode = this.transpileValue(indexParam, entityIndex);
+            return `(i32.trunc_f64_s ${valueCode})`;
+        }
+        return '(i32.const 1)';
+    }
+
+    /**
+     * Transpile a value as i32
+     */
+    transpileAsI32(param, entityIndex) {
+        if (typeof param === 'number') {
+            return `(i32.const ${Math.floor(param)})`;
+        }
+        if (typeof param === 'string') {
+            const num = parseInt(param, 10);
+            if (!isNaN(num)) {
+                return `(i32.const ${num})`;
+            }
+        }
+        if (param && param.type) {
+            const valueCode = this.transpileValue(param, entityIndex);
+            return `(i32.trunc_f64_s ${valueCode})`;
+        }
+        return '(i32.const 1)';
+    }
+
+    /**
+     * Create a string literal and return the code to load it
+     * For now, we use f64_to_str for numeric literals and inline data for strings
+     */
+    createStringLiteral(str) {
+        if (str === '' || str === null || str === undefined) {
+            // Return empty string allocation
+            return '(call $str_alloc (i32.const 0))';
+        }
+
+        // For simple ASCII strings, we can inline the creation
+        // This creates a string at runtime by allocating and copying bytes
+        const bytes = [];
+        for (let i = 0; i < str.length && i < 256; i++) {
+            bytes.push(str.charCodeAt(i) & 0xFF);
+        }
+
+        // Generate inline string creation code
+        // This is less efficient than data sections but works without complex setup
+        const len = bytes.length;
+        let code = `(block (result i32)
+            (local.set $temp (f64.convert_i32_s (call $str_alloc (i32.const ${len}))))`;
+        
+        for (let i = 0; i < len; i++) {
+            code += `
+            (i32.store8 (i32.add (i32.add (i32.trunc_f64_s (local.get $temp)) (i32.const 4)) (i32.const ${i})) (i32.const ${bytes[i]}))`;
+        }
+        
+        // Null terminate
+        code += `
+            (i32.store8 (i32.add (i32.add (i32.trunc_f64_s (local.get $temp)) (i32.const 4)) (i32.const ${len})) (i32.const 0))
+            (i32.trunc_f64_s (local.get $temp)))`;
+        
+        return code;
+    }
+
+    /**
      * Find a variable by ID
      * @param {string} varId - Variable ID
      * @returns {Object|undefined} Variable object with memoryOffset
      */
     findVariable(varId) {
         return this.generator.project.variables.variables.find(v => v.id === varId);
+    }
+
+    /**
+     * Find a list by ID
+     * @param {string} listId - List ID
+     * @returns {Object|undefined} List object with memoryIndex, metaOffset, dataOffset
+     */
+    findList(listId) {
+        return this.generator.project.variables.lists.find(l => l.id === listId);
+    }
+
+    /**
+     * Check if a value parameter represents a string value
+     * @param {*} param - The parameter to check
+     * @returns {boolean} True if the value is a string
+     */
+    isStringValue(param) {
+        // Check if it's a literal string (non-numeric string)
+        if (typeof param === 'string') {
+            // If it's a numeric string, it's not a string value
+            if (!isNaN(parseFloat(param)) && isFinite(param)) {
+                return false;
+            }
+            // Special keywords like FIRST, LAST, RANDOM are not string values
+            const upper = param.toUpperCase();
+            if (['FIRST', 'LAST', 'RANDOM', 'TRUE', 'FALSE'].includes(upper)) {
+                return false;
+            }
+            // Empty string is still a string
+            return param.length > 0 || param === '';
+        }
+        
+        // Check if it's a string-producing block
+        if (param && typeof param === 'object' && param.type) {
+            // These blocks produce strings (return i32 string pointer)
+            const pureStringBlocks = [
+                'combine_something',
+                'char_at', 
+                'substring',
+                'replace_string',
+                'change_string_case'
+            ];
+            return pureStringBlocks.includes(param.type);
+        }
+        
+        return false;
+    }
+
+    /**
+     * Transpile a value parameter as a string pointer (i32)
+     * @param {*} param - The parameter to transpile
+     * @param {number} entityIndex - Current entity index
+     * @returns {string} WAT code returning i32 string pointer
+     */
+    transpileStringValue(param, entityIndex) {
+        // If it's a literal string, allocate it in the string pool
+        if (typeof param === 'string') {
+            const bytes = Buffer.from(param, 'utf8');
+            const len = bytes.length;
+            
+            if (len === 0) {
+                // Empty string
+                return `(call $str_alloc (i32.const 0))`;
+            }
+            
+            // Generate code to allocate string and copy bytes
+            // Uses $temp_str_ptr local variable
+            let code = `(local.set $temp_str_ptr (call $str_alloc (i32.const ${len})))`;
+            for (let i = 0; i < len; i++) {
+                code += `\n          (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const ${i})) (i32.const ${bytes[i]}))`;
+            }
+            // Null terminate
+            code += `\n          (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const ${len})) (i32.const 0))`;
+            code += `\n          (local.get $temp_str_ptr)`;
+            
+            return code;
+        }
+        
+        // If it's a string-producing block (combine_something, char_at, etc.)
+        // use transpileStringBlock which returns i32 string pointer
+        if (param && typeof param === 'object' && param.type) {
+            const stringBlocks = [
+                'combine_something',
+                'char_at', 
+                'substring',
+                'replace_string',
+                'change_string_case',
+                'text'
+            ];
+            if (stringBlocks.includes(param.type)) {
+                // These blocks return i32 string pointer
+                return this.transpileStringBlock(param, entityIndex);
+            }
+        }
+        
+        // Fallback: convert number to string
+        return `(call $f64_to_str ${this.transpileValue(param, entityIndex)})`;
     }
 }
 
