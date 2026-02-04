@@ -1,0 +1,209 @@
+{
+  "objects": [
+    {
+      "id": "7y0y",
+      "name": "엔트리봇",
+      "script": "[[{\"id\":\"tpd7\",\"x\":50,\"y\":92.7166748046875,\"type\":\"when_run_button_click\",\"params\":[null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},{\"id\":\"9it8\",\"x\":0,\"y\":0,\"type\":\"dialog\",\"params\":[{\"id\":\"v7vg\",\"x\":0,\"y\":0,\"type\":\"text\",\"params\":[\"클릭하기\"],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},\"speak\",null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]}],[{\"id\":\"4lmk\",\"x\":329,\"y\":86.7166748046875,\"type\":\"when_object_click\",\"params\":[null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},{\"id\":\"9nb3\",\"x\":0,\"y\":0,\"type\":\"rotate_relative\",\"params\":[{\"id\":\"k2yy\",\"x\":0,\"y\":0,\"type\":\"angle\",\"params\":[\"90\"],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},{\"id\":\"verx\",\"x\":0,\"y\":0,\"type\":\"message_cast\",\"params\":[\"ccq0\",null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]}],[{\"id\":\"y0po\",\"x\":549,\"y\":140.7166748046875,\"type\":\"when_message_cast\",\"params\":[null,\"ccq0\"],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},{\"id\":\"1pxd\",\"x\":0,\"y\":0,\"type\":\"func_t98t\",\"params\":[{\"id\":\"zo59\",\"x\":0,\"y\":0,\"type\":\"text\",\"params\":[\"1\"],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[],\"_backupParams\":[{\"id\":\"zo59\",\"x\":0,\"y\":0,\"type\":\"text\",\"params\":[\"1\"],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},null]}],[{\"id\":\"mmxj\",\"x\":51,\"y\":355.7166748046875,\"type\":\"repeat_inf\",\"params\":[null,null],\"statements\":[[{\"id\":\"2fp9\",\"x\":0,\"y\":0,\"type\":\"_if\",\"params\":[{\"id\":\"fz2i\",\"x\":0,\"y\":0,\"type\":\"is_object_clicked\",\"params\":[null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},null],\"statements\":[[]],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]}]],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]}],[{\"id\":\"iohl\",\"x\":551,\"y\":547.7166748046875,\"type\":\"func_sa1w\",\"params\":[{\"id\":\"cnxp\",\"x\":0,\"y\":0,\"type\":\"text\",\"params\":[\"가나다\"],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[],\"_backupParams\":[{\"id\":\"cnxp\",\"x\":0,\"y\":0,\"type\":\"text\",\"params\":[\"가나다\"],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},null]}],[{\"id\":\"uhwj\",\"x\":549,\"y\":378.7166748046875,\"type\":\"add_value_to_list\",\"params\":[{\"id\":\"bo1v\",\"x\":0,\"y\":0,\"type\":\"text\",\"params\":[\"324324\"],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},\"jod8\",null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]}],[{\"id\":\"r5mq\",\"x\":685,\"y\":1.7166748046875,\"type\":\"get_variable\",\"params\":[\"sqr3\",null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]}],[{\"id\":\"ps38\",\"x\":552,\"y\":481.7166748046875,\"type\":\"set_variable\",\"params\":[\"sqr3\",{\"id\":\"i317\",\"x\":0,\"y\":0,\"type\":\"text\",\"params\":[\"10\"],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]}],[{\"id\":\"nbny\",\"x\":543,\"y\":292.7166748046875,\"type\":\"dialog\",\"params\":[{\"id\":\"38nq\",\"x\":0,\"y\":0,\"type\":\"value_of_index_from_list\",\"params\":[null,\"jod8\",null,{\"id\":\"jhws\",\"x\":0,\"y\":0,\"type\":\"number\",\"params\":[\"1\"],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},\"speak\",null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]}],[{\"id\":\"5gk7\",\"x\":644,\"y\":71.7166748046875,\"type\":\"remove_value_from_list\",\"params\":[{\"id\":\"602e\",\"x\":0,\"y\":0,\"type\":\"number\",\"params\":[\"1\"],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},\"jod8\",null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]}]]",
+      "objectType": "sprite",
+      "rotateMethod": "free",
+      "scene": "7dwq",
+      "sprite": {
+        "pictures": [
+          {
+            "id": "vx80",
+            "dimension": {
+              "width": 144,
+              "height": 246,
+              "scaleX": 0.5128205128205128,
+              "scaleY": 0.5128205128205128
+            },
+            "fileurl": "/lib/entry-js/images/media/entrybot1.svg",
+            "thumbUrl": "/lib/entry-js/images/media/entrybot1.svg",
+            "name": "엔트리봇_걷기1",
+            "imageType": "svg"
+          },
+          {
+            "id": "4t48",
+            "dimension": {
+              "width": 144,
+              "height": 246
+            },
+            "fileurl": "/lib/entry-js/images/media/entrybot2.svg",
+            "thumbUrl": "/lib/entry-js/images/media/entrybot2.svg",
+            "name": "엔트리봇_걷기2",
+            "imageType": "svg"
+          }
+        ],
+        "sounds": [
+          {
+            "duration": 1.3,
+            "ext": ".mp3",
+            "id": "8el5",
+            "fileurl": "/lib/entry-js/images/media/bark.mp3",
+            "name": "강아지 짖는 소리"
+          }
+        ]
+      },
+      "selectedPictureId": "vx80",
+      "lock": false,
+      "entity": {
+        "x": 0,
+        "y": 0,
+        "regX": 72,
+        "regY": 123,
+        "scaleX": 0.5128205128205128,
+        "scaleY": 0.5128205128205128,
+        "rotation": 0,
+        "direction": 90,
+        "width": 144,
+        "height": 246,
+        "font": "undefinedpx ",
+        "visible": true
+      }
+    }
+  ],
+  "scenes": [
+    {
+      "id": "7dwq",
+      "name": "장면 1"
+    }
+  ],
+  "variables": [
+    {
+      "name": "변수",
+      "id": "sqr3",
+      "visible": true,
+      "value": 0,
+      "variableType": "variable",
+      "isCloud": false,
+      "isRealTime": false,
+      "cloudDate": false,
+      "object": null,
+      "x": -230,
+      "y": -77
+    },
+    {
+      "name": "리스트",
+      "id": "jod8",
+      "visible": true,
+      "value": 0,
+      "variableType": "list",
+      "isCloud": false,
+      "isRealTime": false,
+      "cloudDate": false,
+      "object": null,
+      "x": 120,
+      "y": -115,
+      "width": 100,
+      "height": 120,
+      "array": [
+        {
+          "data": "1"
+        },
+        {
+          "data": "2"
+        },
+        {
+          "data": "3"
+        },
+        {
+          "data": "4"
+        },
+        {
+          "data": "5"
+        },
+        {
+          "data": "6"
+        },
+        {
+          "data": "7"
+        },
+        {
+          "data": "8"
+        },
+        {
+          "data": "9"
+        },
+        {
+          "data": "10"
+        }
+      ]
+    },
+    {
+      "name": "초시계",
+      "id": "brih",
+      "visible": false,
+      "value": 0,
+      "variableType": "timer",
+      "isCloud": false,
+      "isRealTime": false,
+      "cloudDate": false,
+      "object": null,
+      "x": 134,
+      "y": -70
+    },
+    {
+      "name": "대답",
+      "id": "1vu8",
+      "visible": false,
+      "value": "0",
+      "variableType": "answer",
+      "isCloud": false,
+      "isRealTime": false,
+      "cloudDate": false,
+      "object": null,
+      "x": 150,
+      "y": -100
+    }
+  ],
+  "messages": [
+    {
+      "id": "ccq0",
+      "name": "신호"
+    }
+  ],
+  "functions": [
+    {
+      "id": "t98t",
+      "type": "normal",
+      "localVariables": [
+        {
+          "name": "지역변수",
+          "value": 0,
+          "id": "t98t_23mh"
+        },
+        {
+          "name": "지역변수1",
+          "value": 0,
+          "id": "t98t_98db"
+        }
+      ],
+      "useLocalVariables": true,
+      "content": "[[{\"id\":\"3iik\",\"x\":26,\"y\":83,\"type\":\"function_create\",\"params\":[{\"id\":\"pjtv\",\"x\":0,\"y\":0,\"type\":\"function_field_label\",\"params\":[\"함수\",{\"id\":\"owgy\",\"x\":0,\"y\":0,\"type\":\"function_field_string\",\"params\":[{\"id\":\"h7bd\",\"x\":0,\"y\":0,\"type\":\"stringParam_j22q\",\"params\":[],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":false,\"assemble\":false,\"extensions\":[]}],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":false,\"assemble\":true,\"extensions\":[]},null,null,{\"id\":\"f3dp\",\"x\":0,\"y\":0,\"type\":\"text\",\"params\":[10],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]}],\"statements\":[[{\"id\":\"h9xf\",\"x\":0,\"y\":0,\"type\":\"set_func_variable\",\"params\":[\"t98t_23mh\",{\"id\":\"hd8n\",\"x\":0,\"y\":0,\"type\":\"stringParam_j22q\",\"params\":[],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},{\"id\":\"dfvm\",\"x\":0,\"y\":0,\"type\":\"if_else\",\"params\":[{\"id\":\"x5cv\",\"x\":0,\"y\":0,\"type\":\"boolean_basic_operator\",\"params\":[{\"id\":\"hrpy\",\"x\":0,\"y\":0,\"type\":\"get_func_variable\",\"params\":[\"t98t_23mh\",null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},\"NOT_EQUAL\",{\"id\":\"2vhw\",\"x\":0,\"y\":0,\"type\":\"calc_basic\",\"params\":[{\"id\":\"jhw0\",\"x\":0,\"y\":0,\"type\":\"length_of_list\",\"params\":[null,\"jod8\",null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},\"PLUS\",{\"id\":\"txb0\",\"x\":0,\"y\":0,\"type\":\"number\",\"params\":[\"1\"],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]}],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]}],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},null,null],\"statements\":[[{\"id\":\"aesj\",\"x\":0,\"y\":0,\"type\":\"locate_xy\",\"params\":[{\"id\":\"i2kq\",\"x\":0,\"y\":0,\"type\":\"value_of_index_from_list\",\"params\":[null,\"jod8\",null,{\"id\":\"6ohb\",\"x\":0,\"y\":0,\"type\":\"get_func_variable\",\"params\":[\"t98t_23mh\",null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},{\"id\":\"4ko4\",\"x\":0,\"y\":0,\"type\":\"value_of_index_from_list\",\"params\":[null,\"jod8\",null,{\"id\":\"f3sg\",\"x\":0,\"y\":0,\"type\":\"get_func_variable\",\"params\":[\"t98t_23mh\",null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},{\"id\":\"nqm2\",\"x\":0,\"y\":0,\"type\":\"dialog\",\"params\":[{\"id\":\"d3zm\",\"x\":0,\"y\":0,\"type\":\"get_func_variable\",\"params\":[\"t98t_23mh\",null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},\"speak\",null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},{\"id\":\"5lm5\",\"x\":0,\"y\":0,\"type\":\"set_func_variable\",\"params\":[\"t98t_23mh\",{\"id\":\"k67n\",\"x\":0,\"y\":0,\"type\":\"calc_basic\",\"params\":[{\"id\":\"kgcn\",\"x\":0,\"y\":0,\"type\":\"get_func_variable\",\"params\":[\"t98t_23mh\",null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},\"PLUS\",{\"id\":\"xp20\",\"x\":0,\"y\":0,\"type\":\"number\",\"params\":[\"1\"],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]}],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},{\"id\":\"6mhl\",\"x\":0,\"y\":0,\"type\":\"func_t98t\",\"params\":[{\"id\":\"rt2x\",\"x\":0,\"y\":0,\"type\":\"get_func_variable\",\"params\":[\"t98t_23mh\",null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]}],[{\"id\":\"44yy\",\"x\":0,\"y\":0,\"type\":\"add_value_to_list\",\"params\":[{\"id\":\"90o4\",\"x\":0,\"y\":0,\"type\":\"calc_basic\",\"params\":[{\"id\":\"q5uq\",\"x\":0,\"y\":0,\"type\":\"value_of_index_from_list\",\"params\":[null,\"jod8\",null,{\"id\":\"d6zl\",\"x\":0,\"y\":0,\"type\":\"length_of_list\",\"params\":[null,\"jod8\",null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},\"PLUS\",{\"id\":\"gh12\",\"x\":0,\"y\":0,\"type\":\"number\",\"params\":[\"1\"],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]}],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},\"jod8\",null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]}]],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]}]],\"movable\":null,\"deletable\":false,\"emphasized\":false,\"readOnly\":null,\"copyable\":false,\"assemble\":true,\"extensions\":[]}]]"
+    },
+    {
+      "id": "sa1w",
+      "type": "normal",
+      "localVariables": [
+        {
+          "name": "지역변수",
+          "value": 0,
+          "id": "sa1w_7pnz"
+        }
+      ],
+      "useLocalVariables": true,
+      "content": "[[{\"id\":\"scmc\",\"x\":50,\"y\":30,\"type\":\"function_create\",\"params\":[{\"id\":\"qx8z\",\"x\":0,\"y\":0,\"type\":\"function_field_label\",\"params\":[\"함수\",{\"id\":\"0n81\",\"x\":0,\"y\":0,\"type\":\"function_field_string\",\"params\":[{\"id\":\"ilw7\",\"x\":0,\"y\":0,\"type\":\"stringParam_5mlb\",\"params\":[],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":false,\"assemble\":false,\"extensions\":[]}],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":false,\"assemble\":true,\"extensions\":[]},null],\"statements\":[[{\"id\":\"9p4c\",\"x\":0,\"y\":0,\"type\":\"set_func_variable\",\"params\":[\"sa1w_7pnz\",{\"id\":\"0or4\",\"x\":0,\"y\":0,\"type\":\"stringParam_5mlb\",\"params\":[],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},{\"id\":\"e2e1\",\"x\":0,\"y\":0,\"type\":\"dialog\",\"params\":[{\"id\":\"2i5n\",\"x\":0,\"y\":0,\"type\":\"get_func_variable\",\"params\":[\"sa1w_7pnz\",null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},\"speak\",null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]}]],\"movable\":null,\"deletable\":false,\"emphasized\":false,\"readOnly\":null,\"copyable\":false,\"assemble\":true,\"extensions\":[]}]]"
+    }
+  ],
+  "tables": [],
+  "speed": 60,
+  "interface": {
+    "canvasWidth": 640,
+    "object": "7y0y"
+  },
+  "expansionBlocks": [],
+  "aiUtilizeBlocks": [],
+  "hardwareLiteBlocks": [],
+  "externalModules": [],
+  "externalModulesLite": []
+}

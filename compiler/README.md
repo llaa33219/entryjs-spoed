@@ -47,6 +47,9 @@ node compiler/output/server.js
 - `show`, `hide` - 보이기/숨기기
 - `change_size`, `set_size` - 크기 변경
 - `change_to_next_shape` - 다음 모양으로 변경
+- `dialog` - 말풍선 표시 (말하기/생각하기)
+- `dialog_time` - 지정 시간 동안 말풍선 표시
+- `remove_dialog` - 말풍선 지우기
 
 ### 흐름제어
 - `wait_second` - 초 기다리기
@@ -80,7 +83,7 @@ node compiler/output/server.js
 
 ### 변수
 - `get_variable`, `set_variable`, `change_variable` - 변수 조작
-- `show_variable`, `hide_variable` - 변수 표시
+- `show_variable`, `hide_variable` - 변수 표시 (화면에 변수명과 값 표시)
 
 ### 리스트
 - `add_value_to_list` - 리스트에 값 추가
@@ -91,6 +94,12 @@ node compiler/output/server.js
 - `change_value_list_index` - 리스트 값 변경 (FIRST/LAST/RANDOM 지원)
 - `is_included_in_list` - 리스트에 값 포함 여부
 - `delete_all_list` - 리스트 비우기
+- `show_list`, `hide_list` - 리스트 표시 (화면에 리스트명과 항목 표시)
+
+### 형태 (말풍선)
+- `dialog` - 말풍선 표시 (말하기/생각하기)
+- `dialog_time` - 지정 시간 동안 말풍선 표시 후 자동 제거
+- `remove_dialog` - 말풍선 지우기
 
 ### 함수
 - `func_<id>` - 사용자 정의 함수 호출
@@ -132,6 +141,41 @@ EntryJS와 동일한 렌더링 순서를 유지합니다:
 - `objects` 배열의 첫 번째 오브젝트(`objects[0]`)가 **가장 위(앞)**에 렌더링됩니다
 - `objects` 배열의 마지막 오브젝트가 **가장 아래(뒤)**에 렌더링됩니다
 - PixiJS는 나중에 추가된 child가 위에 렌더링되므로, 컴파일러는 엔티티 컨테이너를 **역순으로** stage에 추가합니다
+
+## 변수/리스트 표시 (Variable/List Display)
+
+EntryJS와 동일하게 변수와 리스트를 화면에 표시합니다:
+
+### 변수 표시
+- `show_variable` / `hide_variable` 블록으로 변수 표시 제어
+- 화면 좌측 상단에 주황색 박스로 표시
+- 변수명과 현재 값이 함께 표시됨
+- 여러 변수가 있으면 세로로 쌓임
+
+### 리스트 표시
+- `show_list` / `hide_list` 블록으로 리스트 표시 제어
+- 화면 좌측 상단 (변수 오른쪽)에 박스로 표시
+- 리스트명과 최대 5개 항목, 길이 표시
+- 여러 리스트가 있으면 세로로 쌓임
+
+## 말풍선 (Dialog/Speech Bubble)
+
+EntryJS와 동일하게 오브젝트의 말풍선을 표시합니다:
+
+### 지원 블록
+- `dialog` - 말하기/생각하기 (계속 표시)
+- `dialog_time` - 지정 시간 동안 말하기/생각하기
+- `remove_dialog` - 말풍선 지우기
+
+### 말풍선 스타일
+- **말하기 (speak)**: 파란색 테두리의 말풍선 + 꼬리
+- **생각하기 (think)**: 회색 테두리의 말풍선 + 작은 원
+
+### 동작 방식
+1. 오브젝트 위에 말풍선이 표시됨
+2. 오브젝트가 이동하면 말풍선도 따라감
+3. 화면 경계를 벗어나지 않도록 자동 조정
+4. 텍스트 길이에 따라 말풍선 크기 자동 조정
 
 ## 브러시/채우기 (Brush/Fill) 처리
 

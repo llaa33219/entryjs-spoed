@@ -35,6 +35,9 @@ const STAGE_WIDTH = 640;
 const STAGE_HEIGHT = 360;
 const TARGET_FPS = ${this.project.speed || 60};
 const SCENE_COUNT = ${this.project.scenes.length};
+const VARIABLE_COUNT = ${(this.project.variables.variables || []).length};
+const LIST_COUNT = ${(this.project.variables.lists || []).length};
+const ENTITY_COUNT = ${this.project.objects.length};
 
 // ===== WASM IMPORTS =====
 const wasmImports = {
@@ -175,11 +178,24 @@ let fillGraphics = [];      // PIXI.Graphics per entity for fill drawing
 let stampContainer = null;  // Container for stamps (rendered above all entities)
 let stamps = [];            // Array of stamp sprites
 
+// Variable/List display containers
+let variableDisplays = [];  // Array of variable display objects
+let listDisplays = [];      // Array of list display objects
+
+// Dialog/Speech bubble containers
+let dialogBubbles = [];     // Array of dialog bubble objects per entity
+
 // Brush state per entity: { isDrawing, isFilling, color, thickness, opacity, fillColor, fillOpacity, brushLastX, brushLastY, fillLastX, fillLastY }
 let brushStates = [];
 
 // ===== SCENE DATA =====
 ${this.generateSceneData()}
+
+// ===== VARIABLE DATA =====
+${this.generateVariableData()}
+
+// ===== LIST DATA =====
+${this.generateListData()}
 
 // ===== ASSET DATA =====
 ${this.generateAssetData()}
@@ -275,6 +291,11 @@ async function init() {
     // Load assets and create sprites
     await loadAssets();
     createSprites();
+    
+    // Create variable/list displays and dialog bubbles
+    createVariableDisplays();
+    createListDisplays();
+    createDialogBubbles();
     
     // Initialize WASM state
     wasm.init();
@@ -587,6 +608,11 @@ function gameLoop(currentTime) {
     
     // Update sprites from WASM state
     updateSprites();
+    
+    // Update variable/list displays and dialog bubbles
+    updateVariableDisplays();
+    updateListDisplays();
+    updateDialogBubbles();
     
     // Request next frame
     requestAnimationFrame(gameLoop);
@@ -1117,6 +1143,358 @@ function handleMessage(msgIdx) {
     // Messages are handled by WASM internally
 }
 
+// ===== VARIABLE DISPLAY =====
+function createVariableDisplays() {
+    const fontFamily = 'Arial, sans-serif';
+    const fontSize = 12;
+    
+    for (let i = 0; i < VARIABLE_DATA.length; i++) {
+        const varData = VARIABLE_DATA[i];
+        
+        // Create container for this variable display
+        const container = new PIXI.Container();
+        container.x = 10;
+        container.y = 10 + i * 28;  // Stack vertically
+        
+        // Background
+        const bg = new PIXI.Graphics();
+        bg.beginFill(0xF5A623, 0.9);  // Orange background like EntryJS
+        bg.drawRoundedRect(0, 0, 120, 24, 4);
+        bg.endFill();
+        container.addChild(bg);
+        
+        // Name label
+        const nameText = new PIXI.Text(varData.name, {
+            fontFamily,
+            fontSize,
+            fill: 0xFFFFFF,
+            fontWeight: 'bold'
+        });
+        nameText.x = 6;
+        nameText.y = 4;
+        container.addChild(nameText);
+        
+        // Value background (white rounded rect)
+        const valueBg = new PIXI.Graphics();
+        valueBg.beginFill(0xFFFFFF, 1);
+        valueBg.drawRoundedRect(nameText.width + 12, 2, 50, 20, 3);
+        valueBg.endFill();
+        container.addChild(valueBg);
+        
+        // Value text
+        const valueText = new PIXI.Text('0', {
+            fontFamily,
+            fontSize,
+            fill: 0x333333
+        });
+        valueText.x = nameText.width + 16;
+        valueText.y = 4;
+        container.addChild(valueText);
+        
+        // Initially hidden based on project settings
+        container.visible = varData.visible;
+        
+        app.stage.addChild(container);
+        variableDisplays.push({
+            container,
+            bg,
+            valueBg,
+            nameText,
+            valueText,
+            data: varData
+        });
+    }
+}
+
+function updateVariableDisplays() {
+    for (let i = 0; i < variableDisplays.length; i++) {
+        const display = variableDisplays[i];
+        const varData = display.data;
+        
+        // Update visibility from WASM
+        if (wasm['getVarVisible_' + i]) {
+            display.container.visible = wasm['getVarVisible_' + i]() !== 0;
+        }
+        
+        if (!display.container.visible) continue;
+        
+        // Update value from WASM memory
+        const value = wasm.getVariable ? wasm.getVariable(varData.memoryOffset) : 0;
+        let displayValue = value;
+        
+        // Format number nicely
+        if (Number.isInteger(value)) {
+            displayValue = value.toString();
+        } else {
+            displayValue = value.toFixed(2);
+        }
+        
+        display.valueText.text = displayValue;
+        
+        // Adjust value background width based on text
+        const newWidth = Math.max(50, display.valueText.width + 10);
+        display.valueBg.clear();
+        display.valueBg.beginFill(0xFFFFFF, 1);
+        display.valueBg.drawRoundedRect(display.nameText.width + 12, 2, newWidth, 20, 3);
+        display.valueBg.endFill();
+        
+        // Adjust background width
+        const totalWidth = display.nameText.width + 18 + newWidth;
+        display.bg.clear();
+        display.bg.beginFill(0xF5A623, 0.9);
+        display.bg.drawRoundedRect(0, 0, totalWidth, 24, 4);
+        display.bg.endFill();
+    }
+}
+
+// ===== LIST DISPLAY =====
+function createListDisplays() {
+    const fontFamily = 'Arial, sans-serif';
+    const fontSize = 11;
+    
+    for (let i = 0; i < LIST_DATA.length; i++) {
+        const listData = LIST_DATA[i];
+        
+        // Create container for this list display
+        const container = new PIXI.Container();
+        container.x = 150;  // Position to the right of variables
+        container.y = 10 + i * 120;  // Stack vertically with more space
+        
+        // Title bar
+        const titleBar = new PIXI.Graphics();
+        titleBar.beginFill(0xE85000, 0.9);  // Darker orange for lists
+        titleBar.drawRoundedRect(0, 0, 100, 20, 4);
+        titleBar.endFill();
+        container.addChild(titleBar);
+        
+        // Title text
+        const titleText = new PIXI.Text(listData.name, {
+            fontFamily,
+            fontSize,
+            fill: 0xFFFFFF,
+            fontWeight: 'bold'
+        });
+        titleText.x = 6;
+        titleText.y = 3;
+        container.addChild(titleText);
+        
+        // List body background
+        const bodyBg = new PIXI.Graphics();
+        bodyBg.beginFill(0xFFFFFF, 0.95);
+        bodyBg.lineStyle(1, 0xE85000, 1);
+        bodyBg.drawRoundedRect(0, 20, 100, 80, 4);
+        bodyBg.endFill();
+        container.addChild(bodyBg);
+        
+        // Create text elements for list items (show up to 5 items)
+        const itemTexts = [];
+        for (let j = 0; j < 5; j++) {
+            const itemText = new PIXI.Text('', {
+                fontFamily,
+                fontSize: 10,
+                fill: 0x333333
+            });
+            itemText.x = 6;
+            itemText.y = 24 + j * 14;
+            container.addChild(itemText);
+            itemTexts.push(itemText);
+        }
+        
+        // Length indicator
+        const lengthText = new PIXI.Text('length: 0', {
+            fontFamily,
+            fontSize: 9,
+            fill: 0x888888
+        });
+        lengthText.x = 6;
+        lengthText.y = 86;
+        container.addChild(lengthText);
+        
+        // Initially hidden based on project settings
+        container.visible = listData.visible;
+        
+        app.stage.addChild(container);
+        listDisplays.push({
+            container,
+            titleBar,
+            titleText,
+            bodyBg,
+            itemTexts,
+            lengthText,
+            data: listData
+        });
+    }
+}
+
+function updateListDisplays() {
+    for (let i = 0; i < listDisplays.length; i++) {
+        const display = listDisplays[i];
+        const listData = display.data;
+        
+        // Update visibility from WASM
+        if (wasm['getListVisible_' + i]) {
+            display.container.visible = wasm['getListVisible_' + i]() !== 0;
+        }
+        
+        if (!display.container.visible) continue;
+        
+        // Get list length from WASM
+        const length = wasm.list_length ? wasm.list_length(i) : 0;
+        display.lengthText.text = 'length: ' + length;
+        
+        // Update item texts (show first 5 items)
+        for (let j = 0; j < display.itemTexts.length; j++) {
+            if (j < length) {
+                // Get value from list
+                const value = wasm.list_get ? wasm.list_get(i, j) : 0;
+                let displayValue;
+                if (Number.isInteger(value)) {
+                    displayValue = value.toString();
+                } else {
+                    displayValue = value.toFixed(2);
+                }
+                display.itemTexts[j].text = (j + 1) + ': ' + displayValue;
+                display.itemTexts[j].visible = true;
+            } else {
+                display.itemTexts[j].visible = false;
+            }
+        }
+    }
+}
+
+// ===== DIALOG BUBBLES =====
+function createDialogBubbles() {
+    const fontFamily = 'Arial, sans-serif';
+    
+    for (let i = 0; i < ENTITY_COUNT; i++) {
+        // Create container for dialog bubble (positioned relative to stage center like sprites)
+        const container = new PIXI.Container();
+        container.visible = false;
+        
+        // Background graphic (will be drawn dynamically based on text)
+        const bg = new PIXI.Graphics();
+        container.addChild(bg);
+        
+        // Text
+        const text = new PIXI.Text('', {
+            fontFamily,
+            fontSize: 14,
+            fill: 0x000000,
+            wordWrap: true,
+            wordWrapWidth: 150
+        });
+        text.x = 10;
+        text.y = 8;
+        container.addChild(text);
+        
+        app.stage.addChild(container);
+        dialogBubbles.push({
+            container,
+            bg,
+            text,
+            entityIdx: i,
+            type: 0,  // 0=none, 1=speak, 2=think
+            lastText: ''
+        });
+    }
+}
+
+// Read string from WASM memory
+function readStringFromWasm(ptr) {
+    if (!ptr || ptr === 0) return '';
+    
+    const memoryBuffer = new Uint8Array(wasm.memory.buffer);
+    const length = new DataView(wasm.memory.buffer).getInt32(ptr, true);
+    
+    if (length <= 0 || length > 10000) return '';
+    
+    const bytes = memoryBuffer.slice(ptr + 4, ptr + 4 + length);
+    const decoder = new TextDecoder('utf-8');
+    return decoder.decode(bytes);
+}
+
+function updateDialogBubbles() {
+    for (let i = 0; i < dialogBubbles.length; i++) {
+        const bubble = dialogBubbles[i];
+        
+        // Get dialog type and text pointer from WASM
+        const dialogType = wasm['getDialogType_' + i] ? wasm['getDialogType_' + i]() : 0;
+        
+        if (dialogType === 0) {
+            bubble.container.visible = false;
+            continue;
+        }
+        
+        // Get text from WASM memory
+        const textPtr = wasm['getDialogTextPtr_' + i] ? wasm['getDialogTextPtr_' + i]() : 0;
+        const dialogText = readStringFromWasm(textPtr);
+        
+        if (!dialogText) {
+            bubble.container.visible = false;
+            continue;
+        }
+        
+        // Update text if changed
+        if (bubble.lastText !== dialogText) {
+            bubble.text.text = dialogText;
+            bubble.lastText = dialogText;
+            
+            // Redraw background based on text size
+            const padding = 10;
+            const width = Math.max(60, bubble.text.width + padding * 2);
+            const height = bubble.text.height + padding * 2;
+            
+            bubble.bg.clear();
+            
+            const bgColor = 0xFFFFFF;
+            const borderColor = dialogType === 2 ? 0x888888 : 0x4f80ff;  // Gray for think, blue for speak
+            
+            bubble.bg.beginFill(bgColor);
+            bubble.bg.lineStyle(2, borderColor, 1);
+            bubble.bg.drawRoundedRect(0, 0, width, height, 8);
+            bubble.bg.endFill();
+            
+            // Draw tail/notch
+            if (dialogType === 1) {
+                // Speak bubble - pointed tail
+                bubble.bg.beginFill(bgColor);
+                bubble.bg.lineStyle(2, borderColor, 1);
+                bubble.bg.moveTo(10, height);
+                bubble.bg.lineTo(5, height + 10);
+                bubble.bg.lineTo(20, height);
+                bubble.bg.endFill();
+                // Cover the line inside
+                bubble.bg.lineStyle(0);
+                bubble.bg.beginFill(bgColor);
+                bubble.bg.drawRect(11, height - 1, 8, 2);
+                bubble.bg.endFill();
+            } else if (dialogType === 2) {
+                // Think bubble - small circles
+                bubble.bg.beginFill(bgColor);
+                bubble.bg.lineStyle(2, borderColor, 1);
+                bubble.bg.drawCircle(12, height + 8, 5);
+                bubble.bg.drawCircle(6, height + 16, 3);
+                bubble.bg.endFill();
+            }
+        }
+        
+        // Position bubble above entity
+        if (sprites[i]) {
+            const sprite = sprites[i].sprite;
+            const container = sprites[i].container;
+            
+            // Calculate position (bubble above sprite)
+            const bubbleX = container.x + sprite.x - bubble.bg.width / 2;
+            const bubbleY = container.y + sprite.y - sprite.height / 2 - bubble.bg.height - 20;
+            
+            bubble.container.x = Math.max(5, Math.min(STAGE_WIDTH - bubble.bg.width - 5, bubbleX));
+            bubble.container.y = Math.max(5, bubbleY);
+        }
+        
+        bubble.container.visible = true;
+    }
+}
+
 // ===== CONTROLS =====
 function stop() {
     running = false;
@@ -1145,6 +1523,12 @@ function restart() {
         brushStates[i]._lastColor = -1;
         brushStates[i]._lastThickness = -1;
         brushStates[i]._lastOpacity = -1;
+    }
+    
+    // Reset dialog bubbles
+    for (let i = 0; i < dialogBubbles.length; i++) {
+        dialogBubbles[i].container.visible = false;
+        dialogBubbles[i].lastText = '';
     }
     
     // Reset project timer state
@@ -1232,6 +1616,34 @@ init().catch(console.error);
         
         for (const scene of this.project.scenes) {
             code += `    { id: "${scene.id}", name: "${scene.name}", index: ${scene.index} },\n`;
+        }
+        
+        code += '];\n';
+        return code;
+    }
+
+    generateVariableData() {
+        const variables = this.project.variables.variables || [];
+        let code = 'const VARIABLE_DATA = [\n';
+        
+        for (const v of variables) {
+            const name = (v.name || '').replace(/"/g, '\\"');
+            const visible = v.visible !== false;
+            code += `    { id: "${v.id}", name: "${name}", memoryOffset: ${v.memoryOffset}, visible: ${visible} },\n`;
+        }
+        
+        code += '];\n';
+        return code;
+    }
+
+    generateListData() {
+        const lists = this.project.variables.lists || [];
+        let code = 'const LIST_DATA = [\n';
+        
+        for (const l of lists) {
+            const name = (l.name || '').replace(/"/g, '\\"');
+            const visible = l.visible !== false;
+            code += `    { id: "${l.id}", name: "${name}", memoryIndex: ${l.memoryIndex}, visible: ${visible} },\n`;
         }
         
         code += '];\n';

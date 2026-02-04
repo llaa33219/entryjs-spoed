@@ -1,0 +1,172 @@
+{
+  "objects": [
+    {
+      "id": "7y0y",
+      "name": "엔트리봇",
+      "script": "[[{\"id\":\"6vj7\",\"x\":50,\"y\":30,\"type\":\"when_run_button_click\",\"params\":[null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},{\"id\":\"nfis\",\"x\":0,\"y\":0,\"type\":\"set_variable\",\"params\":[\"sdnz\",{\"id\":\"bstr\",\"x\":0,\"y\":0,\"type\":\"text\",\"params\":[\"1\"],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},{\"id\":\"w9zr\",\"x\":0,\"y\":0,\"type\":\"repeat_inf\",\"params\":[null,null],\"statements\":[[{\"id\":\"73q5\",\"x\":0,\"y\":0,\"type\":\"_if\",\"params\":[{\"id\":\"iuvq\",\"x\":0,\"y\":0,\"type\":\"boolean_basic_operator\",\"params\":[{\"id\":\"gbwo\",\"x\":0,\"y\":0,\"type\":\"get_variable\",\"params\":[\"sdnz\",null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},\"GREATER\",{\"id\":\"3yzt\",\"x\":0,\"y\":0,\"type\":\"length_of_list\",\"params\":[null,\"q708\",null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]}],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},null],\"statements\":[[{\"id\":\"37mo\",\"x\":0,\"y\":0,\"type\":\"dialog\",\"params\":[{\"id\":\"zbiu\",\"x\":0,\"y\":0,\"type\":\"text\",\"params\":[\"끝\"],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},\"speak\",null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},{\"id\":\"exqc\",\"x\":0,\"y\":0,\"type\":\"stop_object\",\"params\":[\"thisThread\",null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]}]],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},{\"id\":\"dxx2\",\"x\":0,\"y\":0,\"type\":\"_if\",\"params\":[{\"id\":\"aue8\",\"x\":0,\"y\":0,\"type\":\"boolean_basic_operator\",\"params\":[{\"id\":\"8vwc\",\"x\":0,\"y\":0,\"type\":\"value_of_index_from_list\",\"params\":[null,\"q708\",null,{\"id\":\"4xvh\",\"x\":0,\"y\":0,\"type\":\"calc_basic\",\"params\":[{\"id\":\"6wae\",\"x\":0,\"y\":0,\"type\":\"get_variable\",\"params\":[\"sdnz\",null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},\"PLUS\",{\"id\":\"wbbp\",\"x\":0,\"y\":0,\"type\":\"number\",\"params\":[\"0\"],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]}],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},\"GREATER\",{\"id\":\"x1o5\",\"x\":0,\"y\":0,\"type\":\"text\",\"params\":[\"-16777216\"],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]}],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},null],\"statements\":[[{\"id\":\"pp1n\",\"x\":0,\"y\":0,\"type\":\"dialog\",\"params\":[{\"id\":\"uqkg\",\"x\":0,\"y\":0,\"type\":\"value_of_index_from_list\",\"params\":[null,\"q708\",null,{\"id\":\"vny6\",\"x\":0,\"y\":0,\"type\":\"calc_basic\",\"params\":[{\"id\":\"dm98\",\"x\":0,\"y\":0,\"type\":\"get_variable\",\"params\":[\"sdnz\",null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},\"PLUS\",{\"id\":\"g250\",\"x\":0,\"y\":0,\"type\":\"number\",\"params\":[\"0\"],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]}],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},\"speak\",null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]}]],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},{\"id\":\"68lc\",\"x\":0,\"y\":0,\"type\":\"change_variable\",\"params\":[\"sdnz\",{\"id\":\"e4gp\",\"x\":0,\"y\":0,\"type\":\"text\",\"params\":[\"1\"],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]}]],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]}]]",
+      "objectType": "sprite",
+      "rotateMethod": "free",
+      "scene": "7dwq",
+      "sprite": {
+        "pictures": [
+          {
+            "id": "vx80",
+            "dimension": {
+              "width": 144,
+              "height": 246,
+              "scaleX": 0.5128205128205128,
+              "scaleY": 0.5128205128205128
+            },
+            "fileurl": "/lib/entry-js/images/media/entrybot1.svg",
+            "thumbUrl": "/lib/entry-js/images/media/entrybot1.svg",
+            "name": "엔트리봇_걷기1",
+            "imageType": "svg"
+          },
+          {
+            "id": "4t48",
+            "dimension": {
+              "width": 144,
+              "height": 246
+            },
+            "fileurl": "/lib/entry-js/images/media/entrybot2.svg",
+            "thumbUrl": "/lib/entry-js/images/media/entrybot2.svg",
+            "name": "엔트리봇_걷기2",
+            "imageType": "svg"
+          }
+        ],
+        "sounds": [
+          {
+            "duration": 1.3,
+            "ext": ".mp3",
+            "id": "8el5",
+            "fileurl": "/lib/entry-js/images/media/bark.mp3",
+            "name": "강아지 짖는 소리"
+          }
+        ]
+      },
+      "selectedPictureId": "vx80",
+      "lock": false,
+      "entity": {
+        "x": 0,
+        "y": 0,
+        "regX": 72,
+        "regY": 123,
+        "scaleX": 0.5128205128205128,
+        "scaleY": 0.5128205128205128,
+        "rotation": 0,
+        "direction": 90,
+        "width": 144,
+        "height": 246,
+        "font": "undefinedpx ",
+        "visible": true
+      }
+    }
+  ],
+  "scenes": [
+    {
+      "id": "7dwq",
+      "name": "장면 1"
+    }
+  ],
+  "variables": [
+    {
+      "name": "변수",
+      "id": "sdnz",
+      "visible": true,
+      "value": 0,
+      "variableType": "variable",
+      "isCloud": false,
+      "isRealTime": false,
+      "cloudDate": false,
+      "object": null,
+      "x": -230,
+      "y": -77
+    },
+    {
+      "name": "리스트",
+      "id": "q708",
+      "visible": true,
+      "value": 0,
+      "variableType": "list",
+      "isCloud": false,
+      "isRealTime": false,
+      "cloudDate": false,
+      "object": null,
+      "x": 120,
+      "y": -115,
+      "width": 100,
+      "height": 120,
+      "array": [
+        {
+          "data": "1"
+        },
+        {
+          "data": "2"
+        },
+        {
+          "data": "3"
+        },
+        {
+          "data": "4"
+        },
+        {
+          "data": "5"
+        },
+        {
+          "data": "6"
+        },
+        {
+          "data": "7"
+        },
+        {
+          "data": "8"
+        },
+        {
+          "data": "9"
+        },
+        {
+          "data": "10"
+        }
+      ]
+    },
+    {
+      "name": "초시계",
+      "id": "brih",
+      "visible": false,
+      "value": 0,
+      "variableType": "timer",
+      "isCloud": false,
+      "isRealTime": false,
+      "cloudDate": false,
+      "object": null,
+      "x": 134,
+      "y": -70
+    },
+    {
+      "name": "대답",
+      "id": "1vu8",
+      "visible": false,
+      "value": "0",
+      "variableType": "answer",
+      "isCloud": false,
+      "isRealTime": false,
+      "cloudDate": false,
+      "object": null,
+      "x": 150,
+      "y": -100
+    }
+  ],
+  "messages": [],
+  "functions": [],
+  "tables": [],
+  "speed": 60,
+  "interface": {
+    "canvasWidth": 640,
+    "object": "7y0y"
+  },
+  "expansionBlocks": [],
+  "aiUtilizeBlocks": [],
+  "hardwareLiteBlocks": [],
+  "externalModules": [],
+  "externalModulesLite": []
+}

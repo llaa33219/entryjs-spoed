@@ -4,6 +4,33 @@
  * Handles blocks related to appearance, visibility, and size.
  */
 
+/**
+ * Generate WAT code to allocate a string literal in memory
+ * @param {string} str - The string to allocate
+ * @returns {string} WAT code that returns i32 string pointer
+ */
+function generateStringAllocation(str) {
+    if (!str || str.length === 0) {
+        return '(call $str_alloc (i32.const 0))';
+    }
+    
+    const bytes = Buffer.from(str, 'utf8');
+    const len = bytes.length;
+    
+    let code = `(block (result i32)
+            (local.set $temp_str_ptr (call $str_alloc (i32.const ${len})))`;
+    
+    for (let i = 0; i < len; i++) {
+        code += `\n            (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const ${i})) (i32.const ${bytes[i]}))`;
+    }
+    
+    // Null terminate
+    code += `\n            (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const ${len})) (i32.const 0))`;
+    code += `\n            (local.get $temp_str_ptr))`;
+    
+    return code;
+}
+
 const statementBlocks = {
     'show': (ctx, block, entityIndex) => {
         return `
@@ -130,29 +157,70 @@ const statementBlocks = {
           ;; TODO: Reset all effects`;
     },
 
-    'dialog': (ctx, block, entityIndex) => {
-        const text = block.params?.[0];
+    'dialog': (ctx, block, entityIndex, threadIndex) => {
+        const textParam = block.params?.[0];
         const dialogType = block.params?.[1]; // 'speak' or 'think'
-        const typeCode = dialogType === 'think' ? 1 : 0;
+        const typeCode = dialogType === 'think' ? 2 : 1; // 0=none, 1=speak, 2=think
+        
+        // Generate code to create string and set dialog
+        let textCode;
+        if (textParam && typeof textParam === 'object' && textParam.type === 'text') {
+            // It's a text block, get the string from params
+            const textStr = String(textParam.params?.[0] ?? '');
+            textCode = generateStringAllocation(textStr);
+        } else if (typeof textParam === 'string') {
+            textCode = generateStringAllocation(textParam);
+        } else if (typeof textParam === 'number') {
+            textCode = `(call $f64_to_str (f64.const ${textParam}))`;
+        } else if (textParam && textParam.type) {
+            // It's a value block - convert result to string
+            const valueCode = ctx.transpileValue(textParam, entityIndex);
+            textCode = `(call $f64_to_str ${valueCode})`;
+        } else {
+            textCode = generateStringAllocation('');
+        }
+        
         return `
           ;; dialog: ${dialogType}
-          (call $showDialog (i32.const ${entityIndex}) (i32.const ${typeCode}))`;
+          (call $setDialogTextPtr_${entityIndex} ${textCode})
+          (call $setDialogType_${entityIndex} (i32.const ${typeCode}))`;
     },
 
-    'dialog_time': (ctx, block, entityIndex) => {
-        const text = block.params?.[0];
+    'dialog_time': (ctx, block, entityIndex, threadIndex) => {
+        const textParam = block.params?.[0];
         const seconds = ctx.transpileValue(block.params?.[1], entityIndex);
         const dialogType = block.params?.[2]; // 'speak' or 'think'
-        const typeCode = dialogType === 'think' ? 1 : 0;
+        const typeCode = dialogType === 'think' ? 2 : 1; // 0=none, 1=speak, 2=think
+        
+        // Generate code to create string and set dialog
+        let textCode;
+        if (textParam && typeof textParam === 'object' && textParam.type === 'text') {
+            const textStr = String(textParam.params?.[0] ?? '');
+            textCode = generateStringAllocation(textStr);
+        } else if (typeof textParam === 'string') {
+            textCode = generateStringAllocation(textParam);
+        } else if (typeof textParam === 'number') {
+            textCode = `(call $f64_to_str (f64.const ${textParam}))`;
+        } else if (textParam && textParam.type) {
+            const valueCode = ctx.transpileValue(textParam, entityIndex);
+            textCode = `(call $f64_to_str ${valueCode})`;
+        } else {
+            textCode = generateStringAllocation('');
+        }
+        
         return `
-          ;; dialog_time: ${dialogType}
-          (call $showDialog (i32.const ${entityIndex}) (i32.const ${typeCode}))`;
+          ;; dialog_time: ${dialogType} for ${seconds} seconds
+          (call $setDialogTextPtr_${entityIndex} ${textCode})
+          (call $setDialogType_${entityIndex} (i32.const ${typeCode}))
+          ;; Wait for specified time, then clear dialog
+          (global.set $thread_${threadIndex}_waiting ${seconds})`;
     },
 
     'remove_dialog': (ctx, block, entityIndex) => {
         return `
           ;; remove_dialog
-          (call $showDialog (i32.const ${entityIndex}) (i32.const -1))`;
+          (call $setDialogType_${entityIndex} (i32.const 0))
+          (call $setDialogTextPtr_${entityIndex} (i32.const 0))`;
     },
 
     'add_effect_amount': (ctx, block, entityIndex) => {

@@ -36,6 +36,7 @@ class WATGenerator {
             this.generateMemory(),
             this.generateGlobals(),
             this.generateEntityFunctions(),
+            this.generateVisibilityAndDialogFunctions(),
             this.generateBlockFunctions(),
             this.generateUserFunctions(),
             this.generateThreadFunctions(),
@@ -162,6 +163,28 @@ class WATGenerator {
   (global $sceneCount (mut i32) (i32.const ${this.project.scenes.length}))
   (global $sceneJustChanged (mut i32) (i32.const 0))`;
         
+        // Add variable visibility globals
+        const variables = this.project.variables.variables || [];
+        for (let i = 0; i < variables.length; i++) {
+            const v = variables[i];
+            const initialVisible = v.visible !== false ? 1 : 0;
+            code += `\n  (global $var_visible_${i} (mut i32) (i32.const ${initialVisible})) ;; ${v.name}`;
+        }
+        
+        // Add list visibility globals
+        const lists = this.project.variables.lists || [];
+        for (let i = 0; i < lists.length; i++) {
+            const l = lists[i];
+            const initialVisible = l.visible !== false ? 1 : 0;
+            code += `\n  (global $list_visible_${i} (mut i32) (i32.const ${initialVisible})) ;; ${l.name}`;
+        }
+        
+        // Add dialog globals per entity (type: 0=none, 1=speak, 2=think; textPtr: string pointer)
+        for (let i = 0; i < this.project.objects.length; i++) {
+            code += `\n  (global $dialog_type_${i} (mut i32) (i32.const 0))`;
+            code += `\n  (global $dialog_text_ptr_${i} (mut i32) (i32.const 0))`;
+        }
+        
         // String pool pointer (bump allocator)
         const stringPoolStart = this.project.stringPool?.start || 0;
         code += `\n  (global $str_pool_ptr (mut i32) (i32.const ${stringPoolStart}))`;
@@ -178,6 +201,46 @@ class WATGenerator {
             }
         }
 
+        return code;
+    }
+
+    /**
+     * Generate accessor functions for variable/list visibility and dialog state
+     */
+    generateVisibilityAndDialogFunctions() {
+        let code = `
+  ;; ===== VARIABLE/LIST VISIBILITY FUNCTIONS =====`;
+        
+        const variables = this.project.variables.variables || [];
+        const lists = this.project.variables.lists || [];
+        const entityCount = this.project.objects.length;
+        
+        // Variable visibility accessors
+        for (let i = 0; i < variables.length; i++) {
+            code += `
+  (func $getVarVisible_${i} (result i32) (global.get $var_visible_${i}))
+  (func $setVarVisible_${i} (param $v i32) (global.set $var_visible_${i} (local.get $v)))`;
+        }
+        
+        // List visibility accessors
+        for (let i = 0; i < lists.length; i++) {
+            code += `
+  (func $getListVisible_${i} (result i32) (global.get $list_visible_${i}))
+  (func $setListVisible_${i} (param $v i32) (global.set $list_visible_${i} (local.get $v)))`;
+        }
+        
+        // Dialog accessors per entity
+        code += `
+  
+  ;; ===== DIALOG FUNCTIONS =====`;
+        for (let i = 0; i < entityCount; i++) {
+            code += `
+  (func $getDialogType_${i} (result i32) (global.get $dialog_type_${i}))
+  (func $setDialogType_${i} (param $v i32) (global.set $dialog_type_${i} (local.get $v)))
+  (func $getDialogTextPtr_${i} (result i32) (global.get $dialog_text_ptr_${i}))
+  (func $setDialogTextPtr_${i} (param $v i32) (global.set $dialog_text_ptr_${i} (local.get $v)))`;
+        }
+        
         return code;
     }
 
@@ -1648,7 +1711,11 @@ class WATGenerator {
     }
 
     generateExports() {
-        return `
+        const variables = this.project.variables.variables || [];
+        const lists = this.project.variables.lists || [];
+        const entityCount = this.project.objects.length;
+        
+        let code = `
   ;; ===== EXPORTS =====
   (export "init" (func $init))
   (export "tick" (func $tick))
@@ -1674,8 +1741,34 @@ class WATGenerator {
   (export "getBrushColorB" (func $getBrushColorB))
   (export "getFillColorR" (func $getFillColorR))
   (export "getFillColorG" (func $getFillColorG))
-  (export "getFillColorB" (func $getFillColorB))
-)`;
+  (export "getFillColorB" (func $getFillColorB))`;
+        
+        // Export variable visibility accessors
+        for (let i = 0; i < variables.length; i++) {
+            code += `\n  (export "getVarVisible_${i}" (func $getVarVisible_${i}))`;
+        }
+        
+        // Export list visibility accessors
+        for (let i = 0; i < lists.length; i++) {
+            code += `\n  (export "getListVisible_${i}" (func $getListVisible_${i}))`;
+        }
+        
+        // Export dialog accessors
+        for (let i = 0; i < entityCount; i++) {
+            code += `\n  (export "getDialogType_${i}" (func $getDialogType_${i}))`;
+            code += `\n  (export "getDialogTextPtr_${i}" (func $getDialogTextPtr_${i}))`;
+        }
+        
+        // Export string helper for reading strings from memory
+        code += `\n  (export "str_length" (func $str_length))`;
+        
+        // Export variable/list accessor for renderer to read values
+        code += `\n  (export "getVariable" (func $getVariable))`;
+        code += `\n  (export "list_length" (func $list_length))`;
+        code += `\n  (export "list_get" (func $list_get))`;
+        
+        code += `\n)`;
+        return code;
     }
 
     getNewLabel() {

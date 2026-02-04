@@ -127,17 +127,23 @@ const statementBlocks = {
     'show_variable': (ctx, block, entityIndex) => {
         const varId = block.params?.[0];
         const variable = ctx.findVariable(varId);
-        return `
-          ;; show_variable: ${variable?.name || 'unknown'}
-          ;; (handled by renderer)`;
+        if (variable) {
+            return `
+          ;; show_variable: ${variable.name}
+          (call $setVarVisible_${variable.memoryIndex} (i32.const 1))`;
+        }
+        return `\n          ;; show_variable: variable not found`;
     },
 
     'hide_variable': (ctx, block, entityIndex) => {
         const varId = block.params?.[0];
         const variable = ctx.findVariable(varId);
-        return `
-          ;; hide_variable: ${variable?.name || 'unknown'}
-          ;; (handled by renderer)`;
+        if (variable) {
+            return `
+          ;; hide_variable: ${variable.name}
+          (call $setVarVisible_${variable.memoryIndex} (i32.const 0))`;
+        }
+        return `\n          ;; hide_variable: variable not found`;
     },
 
     // Function local variable operations
@@ -339,16 +345,24 @@ const statementBlocks = {
 
     'show_list': (ctx, block, entityIndex) => {
         const listId = block.params?.[0];
-        return `
-          ;; show_list: ${listId}
-          ;; (handled by renderer)`;
+        const list = ctx.findList(listId);
+        if (list) {
+            return `
+          ;; show_list: ${list.name}
+          (call $setListVisible_${list.memoryIndex} (i32.const 1))`;
+        }
+        return `\n          ;; show_list: list not found`;
     },
 
     'hide_list': (ctx, block, entityIndex) => {
         const listId = block.params?.[0];
-        return `
-          ;; hide_list: ${listId}
-          ;; (handled by renderer)`;
+        const list = ctx.findList(listId);
+        if (list) {
+            return `
+          ;; hide_list: ${list.name}
+          (call $setListVisible_${list.memoryIndex} (i32.const 0))`;
+        }
+        return `\n          ;; hide_list: list not found`;
     }
 };
 
