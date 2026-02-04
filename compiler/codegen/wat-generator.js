@@ -161,7 +161,9 @@ class WATGenerator {
   (global $currentEntityIndex (mut i32) (i32.const 0))
   (global $currentScene (mut i32) (i32.const 0))
   (global $sceneCount (mut i32) (i32.const ${this.project.scenes.length}))
-  (global $sceneJustChanged (mut i32) (i32.const 0))`;
+  (global $sceneJustChanged (mut i32) (i32.const 0))
+  (global $prevMouseClicked (mut i32) (i32.const 0))
+  (global $clickedEntityIndex (mut i32) (i32.const -1))`;
         
         // Add variable visibility globals
         const variables = this.project.variables.variables || [];
@@ -623,11 +625,56 @@ class WATGenerator {
       (f64.add (f64.mul (local.get $dx) (local.get $dx)) (f64.mul (local.get $dy) (local.get $dy)))
       (f64.const 2500)))
   
-  ;; Check if object is clicked (stub - returns mouse clicked state for simplicity)
+  ;; Check if object is clicked (mouse pressed and touching object)
   (func $isObjectClicked (param $idx i32) (result i32)
     (i32.and
       (call $isMouseClicked)
       (call $isTouchingMouse (local.get $idx))))
+  
+  ;; Find which entity is under the mouse (for click events)
+  ;; Returns entity index or -1 if no entity under mouse
+  ;; Checks entities in order 0, 1, 2, ... (entity 0 is on top in EntryJS)
+  (func $findClickedEntity (result i32)
+    (local $i i32)
+    (local $entityCount i32)
+    (local.set $entityCount (i32.const ${this.project.objects.length}))
+    (local.set $i (i32.const 0))
+    (block $found (result i32)
+      (block $notfound
+        (loop $loop
+          (br_if $notfound (i32.ge_u (local.get $i) (local.get $entityCount)))
+          ;; Check if entity is visible and in current scene and mouse is touching it
+          (if (i32.and
+                (i32.and
+                  (call $getVisible (local.get $i))
+                  (i32.eq (call $getSceneIndex (local.get $i)) (global.get $currentScene)))
+                (call $isTouchingMouse (local.get $i)))
+            (then (br $found (local.get $i))))
+          (local.set $i (i32.add (local.get $i) (i32.const 1)))
+          (br $loop)))
+      (i32.const -1)))  ;; Return -1 if no entity found
+  
+  ;; Update click tracking state at start of tick
+  ;; Detects new clicks and sets clickedEntityIndex
+  (func $updateClickState
+    (local $mouseNow i32)
+    (local.set $mouseNow (call $isMouseClicked))
+    ;; Detect new click (mouse now pressed, was not pressed before)
+    (if (i32.and (local.get $mouseNow) (i32.eqz (global.get $prevMouseClicked)))
+      (then
+        ;; New click - find which entity is clicked
+        (global.set $clickedEntityIndex (call $findClickedEntity)))))
+  
+  ;; Finalize click state at end of tick
+  (func $finalizeClickState
+    (local $mouseNow i32)
+    (local.set $mouseNow (call $isMouseClicked))
+    ;; If mouse was released, clear clicked entity
+    (if (i32.and (i32.eqz (local.get $mouseNow)) (global.get $prevMouseClicked))
+      (then
+        (global.set $clickedEntityIndex (i32.const -1))))
+    ;; Update previous mouse state
+    (global.set $prevMouseClicked (local.get $mouseNow)))
   
   ;; Note: Brush/drawing functions and dialog functions are imported from JS
   ;; See imports section above
@@ -1562,6 +1609,8 @@ class WATGenerator {
     generateMainLoop() {
         let eventHandlers = '';
         let sceneStartHandlers = '';
+        let objectClickHandlers = '';
+        let objectClickCanceledHandlers = '';
         let threadCalls = '';
         
         let threadIndex = 0;
@@ -1611,6 +1660,37 @@ class WATGenerator {
         (global.set $thread_${threadIndex}_waiting (f64.const 0))
         (global.set $thread_${threadIndex}_loopCounter (i32.const -1))
         (global.set $thread_${threadIndex}_active (i32.const 1))))`;
+                } else if (eventType === 'when_object_click') {
+                    // Activate when this entity is clicked (new click on entity)
+                    // $clickedEntityIndex is set by $updateClickState when a new click is detected
+                    objectClickHandlers += `
+    ;; Activate thread ${threadIndex} when object ${objIdx} is clicked
+    (if (i32.and
+          ;; Check if this entity was just clicked
+          (i32.eq (global.get $clickedEntityIndex) (i32.const ${objIdx}))
+          ;; And this is a new click (prev was not clicked)
+          (i32.eqz (global.get $prevMouseClicked)))
+      (then
+        (global.set $thread_${threadIndex}_pc (i32.const 0))
+        (global.set $thread_${threadIndex}_waiting (f64.const 0))
+        (global.set $thread_${threadIndex}_loopCounter (i32.const -1))
+        (global.set $thread_${threadIndex}_active (i32.const 1))))`;
+                } else if (eventType === 'when_object_click_canceled') {
+                    // Activate when click is released on this entity
+                    objectClickCanceledHandlers += `
+    ;; Activate thread ${threadIndex} when object ${objIdx} click is released
+    (if (i32.and
+          ;; Check if this entity was the clicked entity
+          (i32.eq (global.get $clickedEntityIndex) (i32.const ${objIdx}))
+          ;; And click was just released (prev was clicked, now is not)
+          (i32.and
+            (global.get $prevMouseClicked)
+            (i32.eqz (call $isMouseClicked))))
+      (then
+        (global.set $thread_${threadIndex}_pc (i32.const 0))
+        (global.set $thread_${threadIndex}_waiting (f64.const 0))
+        (global.set $thread_${threadIndex}_loopCounter (i32.const -1))
+        (global.set $thread_${threadIndex}_active (i32.const 1))))`;
                 }
 
                 // Generate thread execution call
@@ -1633,6 +1713,9 @@ class WATGenerator {
     ;; Reset scene to first scene
     (global.set $currentScene (i32.const 0))
     (global.set $sceneJustChanged (i32.const 0))
+    ;; Reset click tracking state
+    (global.set $prevMouseClicked (i32.const 0))
+    (global.set $clickedEntityIndex (i32.const -1))
     ${this.generateEntityInitialization()}
     ${this.generateVariableInitialization()}
     ${this.generateListInitialization()}
@@ -1642,17 +1725,29 @@ class WATGenerator {
   (func $tick (param $dt f64)
     (global.set $deltaTime (local.get $dt))
     
+    ;; Update click tracking state (detect new clicks)
+    (call $updateClickState)
+    
     ;; Handle scene change events (when_scene_start)
     ${sceneStartHandlers}
     
     ;; Reset scene changed flag after processing
     (global.set $sceneJustChanged (i32.const 0))
     
+    ;; Handle object click events (when_object_click)
+    ${objectClickHandlers}
+    
+    ;; Handle object click canceled events (when_object_click_canceled)
+    ${objectClickCanceledHandlers}
+    
     ;; Check events and activate threads
     ${eventHandlers}
     
     ;; Execute active threads
     ${threadCalls}
+    
+    ;; Finalize click state (update prevMouseClicked, clear clickedEntityIndex on release)
+    (call $finalizeClickState)
     
     ;; Increment frame counter
     (global.set $frameCount (i32.add (global.get $frameCount) (i32.const 1))))

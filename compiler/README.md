@@ -32,6 +32,8 @@ node compiler/output/server.js
 ### 이벤트/시작
 - `when_run_button_click` - 시작하기 버튼 클릭
 - `when_some_key_pressed` - 키 눌렀을 때
+- `when_object_click` - 오브젝트를 클릭했을 때
+- `when_object_click_canceled` - 오브젝트 클릭을 해제했을 때
 - `when_scene_start` - 장면이 시작되었을 때
 - `start_scene` - 장면 시작하기
 - `start_neighbor_scene` - 다음/이전 장면 시작하기
@@ -65,6 +67,7 @@ node compiler/output/server.js
 - `boolean_and`, `boolean_or`, `boolean_not` - 논리 연산
 - `is_key_pressed` - 키 눌림 확인
 - `is_clicked` - 마우스 클릭 확인
+- `is_object_clicked` - 오브젝트 클릭 확인
 
 ### 계산
 - `calc_basic` - 사칙연산
