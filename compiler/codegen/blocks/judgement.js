@@ -18,9 +18,29 @@ const booleanBlocks = {
     },
 
     'boolean_basic_operator': (ctx, block, entityIndex) => {
-        const left = ctx.transpileValue(block.params?.[0], entityIndex);
+        const leftParam = block.params?.[0];
         const operator = block.params?.[1];
-        const right = ctx.transpileValue(block.params?.[2], entityIndex);
+        const rightParam = block.params?.[2];
+        
+        // Check if either operand is a string value
+        const leftIsString = ctx.isStringValue(leftParam);
+        const rightIsString = ctx.isStringValue(rightParam);
+        
+        // If either is a string, use string comparison for EQUAL/NOT_EQUAL
+        if ((leftIsString || rightIsString) && (operator === 'EQUAL' || operator === 'NOT_EQUAL')) {
+            const leftStr = ctx.transpileStringValue(leftParam, entityIndex);
+            const rightStr = ctx.transpileStringValue(rightParam, entityIndex);
+            
+            if (operator === 'EQUAL') {
+                return `(call $str_equals ${leftStr} ${rightStr})`;
+            } else {
+                return `(i32.eqz (call $str_equals ${leftStr} ${rightStr}))`;
+            }
+        }
+        
+        // Numeric comparison
+        const left = ctx.transpileValue(leftParam, entityIndex);
+        const right = ctx.transpileValue(rightParam, entityIndex);
 
         switch (operator) {
             case 'EQUAL':
@@ -94,9 +114,24 @@ const booleanBlocks = {
     },
 
     'boolean_comparison': (ctx, block, entityIndex) => {
-        const left = ctx.transpileValue(block.params?.[0], entityIndex);
+        const leftParam = block.params?.[0];
         const operator = block.params?.[1];
-        const right = ctx.transpileValue(block.params?.[2], entityIndex);
+        const rightParam = block.params?.[2];
+        
+        // Check if either operand is a string value for equality comparison
+        const leftIsString = ctx.isStringValue(leftParam);
+        const rightIsString = ctx.isStringValue(rightParam);
+        
+        // If either is a string, use string comparison for EQUAL
+        if ((leftIsString || rightIsString) && (operator === '=' || operator === 'EQUAL')) {
+            const leftStr = ctx.transpileStringValue(leftParam, entityIndex);
+            const rightStr = ctx.transpileStringValue(rightParam, entityIndex);
+            return `(call $str_equals ${leftStr} ${rightStr})`;
+        }
+        
+        // Numeric comparison
+        const left = ctx.transpileValue(leftParam, entityIndex);
+        const right = ctx.transpileValue(rightParam, entityIndex);
 
         switch (operator) {
             case '=':

@@ -24,16 +24,20 @@ class BlockTranspiler {
      * Create a context object for block handlers
      * @param {number} entityIndex - Current entity index
      * @param {number} threadIndex - Current thread index
+     * @param {number} loopDepth - Current loop nesting depth (for thread-based loops)
      * @returns {Object} Context object with helper methods
      */
-    createContext(entityIndex, threadIndex) {
+    createContext(entityIndex, threadIndex, loopDepth = 0) {
         return {
             generator: this.generator,
             entityIndex,
             threadIndex,
-            transpile: (block, entIdx, thrIdx) => this.transpile(block, entIdx ?? entityIndex, thrIdx ?? threadIndex),
+            loopDepth,
+            transpile: (block, entIdx, thrIdx, lpDepth) => this.transpile(block, entIdx ?? entityIndex, thrIdx ?? threadIndex, lpDepth ?? loopDepth),
             transpileValue: (block, entIdx) => this.transpileValue(block, entIdx ?? entityIndex),
             transpileBoolean: (block, entIdx) => this.transpileBoolean(block, entIdx ?? entityIndex),
+            transpileStringValue: (block, entIdx) => this.transpileStringValue(block, entIdx ?? entityIndex),
+            isStringValue: (block) => this.isStringValue(block),
             findVariable: (varId) => this.findVariable(varId),
             findList: (listId) => this.findList(listId)
         };
@@ -44,14 +48,15 @@ class BlockTranspiler {
      * @param {Object} block - Parsed block
      * @param {number} entityIndex - Current entity index
      * @param {number} threadIndex - Current thread index
+     * @param {number} loopDepth - Current loop nesting depth (for thread-based loops)
      * @returns {string} WAT code
      */
-    transpile(block, entityIndex, threadIndex) {
+    transpile(block, entityIndex, threadIndex, loopDepth = 0) {
         if (!block || !block.type) return '';
 
         const handler = getStatementHandler(block.type);
         if (handler) {
-            const ctx = this.createContext(entityIndex, threadIndex);
+            const ctx = this.createContext(entityIndex, threadIndex, loopDepth);
             return handler(ctx, block, entityIndex, threadIndex);
         }
 
@@ -144,9 +149,23 @@ class BlockTranspiler {
             return '(i32.const 0)'; // null string pointer
         }
 
-        // String literal
+        // String literal - allocate in string pool
         if (typeof param === 'string') {
-            return this.createStringLiteral(param);
+            const bytes = Buffer.from(param, 'utf8');
+            const len = bytes.length;
+            
+            if (len === 0) {
+                return `(call $str_alloc (i32.const 0))`;
+            }
+            
+            // Generate code to allocate string and copy bytes
+            let code = `(local.set $temp_str_ptr (call $str_alloc (i32.const ${len})))`;
+            for (let i = 0; i < len; i++) {
+                code += `\n          (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const ${i})) (i32.const ${bytes[i]}))`;
+            }
+            code += `\n          (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const ${len})) (i32.const 0))`;
+            code += `\n          (local.get $temp_str_ptr)`;
+            return code;
         }
 
         // Number - convert to string
@@ -169,13 +188,18 @@ class BlockTranspiler {
             ];
 
             if (stringBlocks.includes(blockType)) {
-                // Call the string block handler
                 return this.transpileStringBlock(param, entityIndex);
             }
 
             // value_of_index_from_list can return string
             if (blockType === 'value_of_index_from_list') {
                 return this.transpileListGetAsStr(param, entityIndex);
+            }
+
+            // Function string parameters (stringParam_xxx) - stored as f64, convert to i32
+            if (blockType.startsWith('stringParam_')) {
+                const numericValue = this.transpileValue(param, entityIndex);
+                return `(i32.trunc_f64_s ${numericValue})`;
             }
 
             // Other blocks - treat as numeric and convert to string
@@ -364,8 +388,8 @@ class BlockTranspiler {
             if (['FIRST', 'LAST', 'RANDOM', 'TRUE', 'FALSE'].includes(upper)) {
                 return false;
             }
-            // Empty string is still a string
-            return param.length > 0 || param === '';
+            // Any remaining string (including empty) is a string value
+            return true;
         }
         
         // Check if it's a string-producing block
@@ -378,62 +402,27 @@ class BlockTranspiler {
                 'replace_string',
                 'change_string_case'
             ];
-            return pureStringBlocks.includes(param.type);
+            if (pureStringBlocks.includes(param.type)) {
+                return true;
+            }
+            
+            // Check for text block with non-numeric content
+            if (param.type === 'text') {
+                const textVal = param.params?.[0];
+                if (typeof textVal === 'string' && isNaN(parseFloat(textVal))) {
+                    return true;
+                }
+            }
+            
+            // Check for function string parameters (stringParam_xxx)
+            if (param.type && param.type.startsWith('stringParam_')) {
+                return true;
+            }
         }
         
         return false;
     }
 
-    /**
-     * Transpile a value parameter as a string pointer (i32)
-     * @param {*} param - The parameter to transpile
-     * @param {number} entityIndex - Current entity index
-     * @returns {string} WAT code returning i32 string pointer
-     */
-    transpileStringValue(param, entityIndex) {
-        // If it's a literal string, allocate it in the string pool
-        if (typeof param === 'string') {
-            const bytes = Buffer.from(param, 'utf8');
-            const len = bytes.length;
-            
-            if (len === 0) {
-                // Empty string
-                return `(call $str_alloc (i32.const 0))`;
-            }
-            
-            // Generate code to allocate string and copy bytes
-            // Uses $temp_str_ptr local variable
-            let code = `(local.set $temp_str_ptr (call $str_alloc (i32.const ${len})))`;
-            for (let i = 0; i < len; i++) {
-                code += `\n          (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const ${i})) (i32.const ${bytes[i]}))`;
-            }
-            // Null terminate
-            code += `\n          (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const ${len})) (i32.const 0))`;
-            code += `\n          (local.get $temp_str_ptr)`;
-            
-            return code;
-        }
-        
-        // If it's a string-producing block (combine_something, char_at, etc.)
-        // use transpileStringBlock which returns i32 string pointer
-        if (param && typeof param === 'object' && param.type) {
-            const stringBlocks = [
-                'combine_something',
-                'char_at', 
-                'substring',
-                'replace_string',
-                'change_string_case',
-                'text'
-            ];
-            if (stringBlocks.includes(param.type)) {
-                // These blocks return i32 string pointer
-                return this.transpileStringBlock(param, entityIndex);
-            }
-        }
-        
-        // Fallback: convert number to string
-        return `(call $f64_to_str ${this.transpileValue(param, entityIndex)})`;
-    }
 }
 
 module.exports = { BlockTranspiler };

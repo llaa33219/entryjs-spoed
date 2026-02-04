@@ -24,12 +24,91 @@ class WATGenerator {
         this.options = options;
         this.blockTranspiler = new BlockTranspiler(this);
         this.labelCounter = 0;
+        this.loopIterCounter = 0; // Counter for unique loop iteration variables in user functions
         this.localVars = new Map();
         this.currentFuncParamMap = null; // Map of param block types to indices
         this.currentFuncLocalVarMap = null; // Map of local variable IDs to indices
+        this.threadLoopDepths = []; // Max loop nesting depth for each thread
+    }
+
+    /**
+     * Get a new unique loop iteration variable name
+     * Used in user functions to ensure nested loops have separate counters
+     * @returns {string} Variable name like "iter_0", "iter_1", etc.
+     */
+    getNewLoopIterVar() {
+        return `iter_${this.loopIterCounter++}`;
+    }
+
+    /**
+     * Analyze the maximum loop nesting depth in a block tree
+     * @param {Object|Array} blockOrBlocks - Block or array of blocks to analyze
+     * @param {number} currentDepth - Current nesting depth
+     * @returns {number} Maximum nesting depth found
+     */
+    analyzeLoopNesting(blockOrBlocks, currentDepth = 0) {
+        if (!blockOrBlocks) return currentDepth;
+        
+        const blocks = Array.isArray(blockOrBlocks) ? blockOrBlocks : [blockOrBlocks];
+        let maxDepth = currentDepth;
+        
+        for (const block of blocks) {
+            if (!block || !block.type) continue;
+            
+            // Check if this block is a loop that uses thread loopCounter
+            const loopBlocks = ['repeat_basic', 'repeat_while_true', 'repeat_inf'];
+            const isLoop = loopBlocks.includes(block.type);
+            const newDepth = isLoop ? currentDepth + 1 : currentDepth;
+            
+            if (newDepth > maxDepth) maxDepth = newDepth;
+            
+            // Recursively analyze statements
+            if (block.statements) {
+                for (const stmts of block.statements) {
+                    const depth = this.analyzeLoopNesting(stmts, newDepth);
+                    if (depth > maxDepth) maxDepth = depth;
+                }
+            }
+            
+            // Recursively analyze params (for nested blocks in conditions)
+            if (block.params) {
+                for (const param of block.params) {
+                    if (param && typeof param === 'object' && param.type) {
+                        const depth = this.analyzeLoopNesting(param, currentDepth);
+                        if (depth > maxDepth) maxDepth = depth;
+                    }
+                }
+            }
+        }
+        
+        return maxDepth;
+    }
+
+    /**
+     * Analyze all threads and store their max loop nesting depths
+     */
+    analyzeAllThreadLoopDepths() {
+        this.threadLoopDepths = [];
+        
+        for (const obj of this.project.objects) {
+            for (const thread of obj.scripts) {
+                if (!thread || thread.length === 0) {
+                    this.threadLoopDepths.push(1); // Default to at least 1
+                    continue;
+                }
+                // Skip event block (index 0), analyze body blocks
+                const bodyBlocks = thread.slice(1);
+                const maxDepth = this.analyzeLoopNesting(bodyBlocks, 0);
+                // Ensure at least depth 1 for safety
+                this.threadLoopDepths.push(Math.max(1, maxDepth));
+            }
+        }
     }
 
     generate() {
+        // Analyze loop nesting depths before generating code
+        this.analyzeAllThreadLoopDepths();
+        
         const sections = [
             this.generateHeader(),
             this.generateImports(),
@@ -205,7 +284,11 @@ class WATGenerator {
                 code += `\n  (global $thread_${threadIndex}_pc (mut i32) (i32.const 0))`;
                 code += `\n  (global $thread_${threadIndex}_waiting (mut f64) (f64.const 0))`;
                 code += `\n  (global $thread_${threadIndex}_active (mut i32) (i32.const 0))`;
-                code += `\n  (global $thread_${threadIndex}_loopCounter (mut i32) (i32.const -1))`;
+                // Generate multiple loop counters based on max nesting depth
+                const maxLoopDepth = this.threadLoopDepths[threadIndex] || 1;
+                for (let depth = 0; depth < maxLoopDepth; depth++) {
+                    code += `\n  (global $thread_${threadIndex}_loopCounter_${depth} (mut i32) (i32.const -1))`;
+                }
                 threadIndex++;
             }
         }
@@ -1306,6 +1389,34 @@ class WATGenerator {
     (i32.store8 (i32.add (i32.add (local.get $ptr) (i32.const 4)) (i32.add (local.get $digits) (local.get $isNeg))) (i32.const 0))
     (local.get $ptr))
   
+  ;; Compare two strings for equality (returns i32: 1 if equal, 0 if not)
+  (func $str_equals (param $ptr1 i32) (param $ptr2 i32) (result i32)
+    (local $len1 i32)
+    (local $len2 i32)
+    (local $i i32)
+    ;; Handle null pointers
+    (if (i32.and (i32.eqz (local.get $ptr1)) (i32.eqz (local.get $ptr2)))
+      (then (return (i32.const 1))))
+    (if (i32.or (i32.eqz (local.get $ptr1)) (i32.eqz (local.get $ptr2)))
+      (then (return (i32.const 0))))
+    ;; Compare lengths first
+    (local.set $len1 (i32.load (local.get $ptr1)))
+    (local.set $len2 (i32.load (local.get $ptr2)))
+    (if (i32.ne (local.get $len1) (local.get $len2))
+      (then (return (i32.const 0))))
+    ;; Compare byte by byte
+    (local.set $i (i32.const 0))
+    (block $not_equal
+      (loop $compare
+        (br_if $not_equal (i32.ge_s (local.get $i) (local.get $len1)))
+        (if (i32.ne
+              (i32.load8_u (i32.add (i32.add (local.get $ptr1) (i32.const 4)) (local.get $i)))
+              (i32.load8_u (i32.add (i32.add (local.get $ptr2) (i32.const 4)) (local.get $i))))
+          (then (return (i32.const 0))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $compare)))
+    (i32.const 1))
+  
   ;; Convert string to f64
   (func $str_to_f64 (param $ptr i32) (result f64)
     (local $len i32)
@@ -1444,19 +1555,11 @@ class WATGenerator {
         const paramDecls = params.map((p, idx) => `(param $param_${idx} f64)`).join(' ');
         const resultDecl = isValueFunc ? '(result f64)' : '';
 
-        // Generate local variable declarations
-        let localsDecl = `
-    (local $temp f64)
-    (local $iterCount i32)
-    (local $condResult i32)
-    (local $temp_str_ptr i32)`;
+        // Reset loop iteration counter for this function
+        // This counter is used to generate unique loop variables for nested loops
+        this.loopIterCounter = 0;
 
-        // Add local variable declarations for function local variables
-        localVars.forEach((v, idx) => {
-            localsDecl += `\n    (local $local_${idx} f64) ;; ${v.name}`;
-        });
-
-        // Generate function body
+        // Generate function body FIRST so we know how many loop iter vars are needed
         // Use a special entity index marker that will be replaced with the local $entityIdx
         let bodyCode = '';
         for (const block of bodyBlocks) {
@@ -1481,6 +1584,22 @@ class WATGenerator {
                 returnCode = '\n    ;; Default return value\n    (f64.const 0)';
             }
         }
+
+        // Now generate local variable declarations (after body so we know how many loop vars needed)
+        let localsDecl = `
+    (local $temp f64)
+    (local $condResult i32)
+    (local $temp_str_ptr i32)`;
+
+        // Add loop iteration variables (one for each nested loop in the function)
+        for (let i = 0; i < this.loopIterCounter; i++) {
+            localsDecl += `\n    (local $iter_${i} i32)`;
+        }
+
+        // Add local variable declarations for function local variables
+        localVars.forEach((v, idx) => {
+            localsDecl += `\n    (local $local_${idx} f64) ;; ${v.name}`;
+        });
 
         // Clear param map and local var map
         this.currentFuncParamMap = null;
@@ -1640,7 +1759,7 @@ class WATGenerator {
         (block $pc_${pc}
           (br_if $pc_${pc} (i32.ne (local.get $pc) (i32.const ${pc})))`;
             
-            code += this.blockTranspiler.transpile(block, entityIndex, threadIndex);
+            code += this.blockTranspiler.transpile(block, entityIndex, threadIndex, 0);  // Start at loopDepth 0
             
             code += `
           (local.set $pc (i32.add (local.get $pc) (i32.const 1)))
@@ -1687,27 +1806,40 @@ class WATGenerator {
                 const eventType = eventBlock.type;
                 if (eventType === 'when_run_button_click') {
                     // Only activate if entity is in current scene
+                    const maxLoopDepth = this.threadLoopDepths[threadIndex] || 1;
+                    let resetLoopCounters = '';
+                    for (let d = 0; d < maxLoopDepth; d++) {
+                        resetLoopCounters += `\n        (global.set $thread_${threadIndex}_loopCounter_${d} (i32.const -1))`;
+                    }
                     eventHandlers += `
     ;; Activate thread ${threadIndex} on start (entity scene: ${objSceneIndex})
     (if (i32.and
           (i32.eqz (global.get $frameCount))
           (i32.eq (i32.const ${objSceneIndex}) (global.get $currentScene)))
-      (then
-        (global.set $thread_${threadIndex}_loopCounter (i32.const -1))
+      (then${resetLoopCounters}
         (global.set $thread_${threadIndex}_active (i32.const 1))))`;
                 } else if (eventType === 'when_some_key_pressed') {
                     const keycode = eventBlock.params?.[1] || 81;
                     // Only activate if entity is in current scene
+                    const maxLoopDepth = this.threadLoopDepths[threadIndex] || 1;
+                    let resetLoopCounters = '';
+                    for (let d = 0; d < maxLoopDepth; d++) {
+                        resetLoopCounters += `\n        (global.set $thread_${threadIndex}_loopCounter_${d} (i32.const -1))`;
+                    }
                     eventHandlers += `
     ;; Activate thread ${threadIndex} on key ${keycode} (entity scene: ${objSceneIndex})
     (if (i32.and
           (call $isKeyPressed (i32.const ${keycode}))
           (i32.eq (i32.const ${objSceneIndex}) (global.get $currentScene)))
-      (then
-        (global.set $thread_${threadIndex}_loopCounter (i32.const -1))
+      (then${resetLoopCounters}
         (global.set $thread_${threadIndex}_active (i32.const 1))))`;
                 } else if (eventType === 'when_scene_start') {
                     // Activate when scene changes to this entity's scene
+                    const maxLoopDepth = this.threadLoopDepths[threadIndex] || 1;
+                    let resetLoopCounters = '';
+                    for (let d = 0; d < maxLoopDepth; d++) {
+                        resetLoopCounters += `\n        (global.set $thread_${threadIndex}_loopCounter_${d} (i32.const -1))`;
+                    }
                     sceneStartHandlers += `
     ;; Activate thread ${threadIndex} on scene start (entity scene: ${objSceneIndex})
     (if (i32.and
@@ -1715,12 +1847,16 @@ class WATGenerator {
           (i32.eq (i32.const ${objSceneIndex}) (global.get $currentScene)))
       (then
         (global.set $thread_${threadIndex}_pc (i32.const 0))
-        (global.set $thread_${threadIndex}_waiting (f64.const 0))
-        (global.set $thread_${threadIndex}_loopCounter (i32.const -1))
+        (global.set $thread_${threadIndex}_waiting (f64.const 0))${resetLoopCounters}
         (global.set $thread_${threadIndex}_active (i32.const 1))))`;
                 } else if (eventType === 'when_object_click') {
                     // Activate when this entity is clicked (new click on entity)
                     // $clickedEntityIndex is set by $updateClickState when a new click is detected
+                    const maxLoopDepth = this.threadLoopDepths[threadIndex] || 1;
+                    let resetLoopCounters = '';
+                    for (let d = 0; d < maxLoopDepth; d++) {
+                        resetLoopCounters += `\n        (global.set $thread_${threadIndex}_loopCounter_${d} (i32.const -1))`;
+                    }
                     objectClickHandlers += `
     ;; Activate thread ${threadIndex} when object ${objIdx} is clicked
     (if (i32.and
@@ -1730,11 +1866,15 @@ class WATGenerator {
           (i32.eqz (global.get $prevMouseClicked)))
       (then
         (global.set $thread_${threadIndex}_pc (i32.const 0))
-        (global.set $thread_${threadIndex}_waiting (f64.const 0))
-        (global.set $thread_${threadIndex}_loopCounter (i32.const -1))
+        (global.set $thread_${threadIndex}_waiting (f64.const 0))${resetLoopCounters}
         (global.set $thread_${threadIndex}_active (i32.const 1))))`;
                 } else if (eventType === 'when_object_click_canceled') {
                     // Activate when click is released on this entity
+                    const maxLoopDepth = this.threadLoopDepths[threadIndex] || 1;
+                    let resetLoopCounters = '';
+                    for (let d = 0; d < maxLoopDepth; d++) {
+                        resetLoopCounters += `\n        (global.set $thread_${threadIndex}_loopCounter_${d} (i32.const -1))`;
+                    }
                     objectClickCanceledHandlers += `
     ;; Activate thread ${threadIndex} when object ${objIdx} click is released
     (if (i32.and
@@ -1746,8 +1886,7 @@ class WATGenerator {
             (i32.eqz (call $isMouseClicked))))
       (then
         (global.set $thread_${threadIndex}_pc (i32.const 0))
-        (global.set $thread_${threadIndex}_waiting (f64.const 0))
-        (global.set $thread_${threadIndex}_loopCounter (i32.const -1))
+        (global.set $thread_${threadIndex}_waiting (f64.const 0))${resetLoopCounters}
         (global.set $thread_${threadIndex}_active (i32.const 1))))`;
                 } else if (eventType === 'when_message_cast') {
                     // Activate when the corresponding message is sent
@@ -1756,6 +1895,11 @@ class WATGenerator {
                     const message = this.project.messages.find(m => m.id === messageId);
                     const msgIndex = message?.index ?? -1;
                     if (msgIndex >= 0) {
+                        const maxLoopDepth = this.threadLoopDepths[threadIndex] || 1;
+                        let resetLoopCounters = '';
+                        for (let d = 0; d < maxLoopDepth; d++) {
+                            resetLoopCounters += `\n        (global.set $thread_${threadIndex}_loopCounter_${d} (i32.const -1))`;
+                        }
                         messageHandlers += `
     ;; Activate thread ${threadIndex} when message "${message?.name || messageId}" is received (entity scene: ${objSceneIndex})
     (if (i32.and
@@ -1763,8 +1907,7 @@ class WATGenerator {
           (i32.eq (i32.const ${objSceneIndex}) (global.get $currentScene)))
       (then
         (global.set $thread_${threadIndex}_pc (i32.const 0))
-        (global.set $thread_${threadIndex}_waiting (f64.const 0))
-        (global.set $thread_${threadIndex}_loopCounter (i32.const -1))
+        (global.set $thread_${threadIndex}_waiting (f64.const 0))${resetLoopCounters}
         (global.set $thread_${threadIndex}_active (i32.const 1))))`;
                     }
                 }
