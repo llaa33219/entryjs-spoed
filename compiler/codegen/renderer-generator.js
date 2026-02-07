@@ -1435,6 +1435,13 @@ function updateDialogBubbles() {
             continue;
         }
         
+        // Hide dialog bubble if entity is not visible (hidden)
+        const entityVisible = wasm.getVisible(i);
+        if (!entityVisible) {
+            bubble.container.visible = false;
+            continue;
+        }
+        
         // Get text from WASM memory
         const textPtr = wasm['getDialogTextPtr_' + i] ? wasm['getDialogTextPtr_' + i]() : 0;
         const dialogText = readStringFromWasm(textPtr);
