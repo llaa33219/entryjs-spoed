@@ -227,10 +227,7 @@ function parseVariables(variables) {
                 visible: v.visible !== false,
                 object: v.object // null for global, objectId for local
             });
-        } else if (v.variableType === 'variable' || !v.variableType) {
-            // Skip timer and answer special variables
-            if (v.variableType === 'timer' || v.variableType === 'answer') continue;
-            
+        } else {
             result.variables.push({
                 id: v.id,
                 name: v.name,

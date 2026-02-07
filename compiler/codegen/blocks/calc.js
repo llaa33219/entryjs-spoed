@@ -276,6 +276,27 @@ const valueBlocks = {
         return '(f64.const 0) ;; current_date_time_format - string not supported';
     },
 
+    // Color block - returns packed color as f64 (R*65536 + G*256 + B)
+    'color': (ctx, block, entityIndex) => {
+        const colorStr = block.params?.[0] || '#000000';
+        if (typeof colorStr === 'string' && colorStr.startsWith('#')) {
+            const hex = colorStr.slice(1);
+            let r = 0, g = 0, b = 0;
+            if (hex.length === 6) {
+                r = parseInt(hex.slice(0, 2), 16) || 0;
+                g = parseInt(hex.slice(2, 4), 16) || 0;
+                b = parseInt(hex.slice(4, 6), 16) || 0;
+            } else if (hex.length === 3) {
+                r = parseInt(hex[0] + hex[0], 16) || 0;
+                g = parseInt(hex[1] + hex[1], 16) || 0;
+                b = parseInt(hex[2] + hex[2], 16) || 0;
+            }
+            const packed = r * 65536 + g * 256 + b;
+            return `(f64.const ${packed})`;
+        }
+        return '(f64.const 0)';
+    },
+
     // Color conversion - returns packed color as f64 (R*65536 + G*256 + B)
     'change_rgb_to_hex': (ctx, block, entityIndex) => {
         const r = ctx.transpileValue(block.params?.[0], entityIndex);

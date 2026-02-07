@@ -414,10 +414,8 @@ class BlockTranspiler {
                 }
             }
             
-            // Check for function string parameters (stringParam_xxx)
-            if (param.type && param.type.startsWith('stringParam_')) {
-                return true;
-            }
+            // Note: stringParam_xxx types are stored as f64 in WASM,
+            // so they should use numeric comparison, not string comparison
         }
         
         return false;

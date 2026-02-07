@@ -64,7 +64,8 @@ node compiler/output/server.js
 
 ### 판단
 - `boolean_basic_operator` - 비교 연산
-- `boolean_and`, `boolean_or`, `boolean_not` - 논리 연산
+- `boolean_and_or` - 논리 AND/OR 연산
+- `boolean_not` - 논리 NOT 연산
 - `is_key_pressed` - 키 눌림 확인
 - `is_clicked` - 마우스 클릭 확인
 - `is_object_clicked` - 오브젝트 클릭 확인
@@ -73,7 +74,9 @@ node compiler/output/server.js
 - `calc_basic` - 사칙연산
 - `calc_rand` - 랜덤 숫자
 - `calc_operation` - 수학 함수
+- `quotient_and_mod` - 몫과 나머지
 - `coordinate_object` - 오브젝트 좌표
+- `color` - 색상 블록 (hex 색상을 packed RGB 값으로 변환: R*65536 + G*256 + B)
 
 ### 문자열
 - `combine_something` - 문자열 결합
@@ -87,6 +90,7 @@ node compiler/output/server.js
 ### 변수
 - `get_variable`, `set_variable`, `change_variable` - 변수 조작
 - `show_variable`, `hide_variable` - 변수 표시 (화면에 변수명과 값 표시)
+- `get_func_variable`, `set_func_variable` - 함수 지역변수 조작
 
 ### 리스트
 - `add_value_to_list` - 리스트에 값 추가
@@ -131,7 +135,7 @@ EntryJS와 동일한 실행 동작을 위해, 반복문은 **한 번 반복할 �
 - 반복이 끝나면 `loopCounter`를 -1로 리셋하고 다음 블록으로 진행
 
 ### 제한사항
-- **중첩 반복문 미지원**: 현재 각 쓰레드당 하나의 `loopCounter`만 사용하므로, `repeat_basic` 블록을 중첩하면 올바르게 동작하지 않습니다. (향후 스택 기반 카운터로 개선 예정)
+- **중첩 반복문 지원**: 각 쓰레드당 루프 깊이별 별도 `loopCounter`를 사용하여 중첩 반복문을 지원합니다. 컴파일 시 최대 중첩 깊이를 분석하여 필요한 만큼의 카운터를 생성합니다.
 - **음수 반복 횟수**: EntryJS는 에러를 발생시키지만, WASM 컴파일러는 0회 반복으로 처리합니다.
 - **리스트 최대 용량**: 각 리스트당 최대 1,000,000개 요소 지원 (약 8MB/리스트)
 - **리스트 값 타입**: 숫자와 문자열 값 모두 지원 (타입 태깅으로 구분)

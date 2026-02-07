@@ -4,6 +4,31 @@
  * Handles blocks related to loops, conditionals, and timing.
  */
 
+/**
+ * Split a loop body into pre-loop blocks and from-loop-onwards blocks.
+ * Used for resume depth logic: when resuming from a deeper nested loop,
+ * blocks before the first nested loop are skipped.
+ */
+function splitLoopBody(ctx, block, entityIndex, threadIndex, loopDepth) {
+    const loopBlockTypes = ['repeat_basic', 'repeat_while_true', 'repeat_inf'];
+    const innerStatements = block.statements?.[0] || [];
+    let innerCode = '', preLoopCode = '', fromLoopCode = '';
+    let foundNestedLoop = false;
+    for (const innerBlock of innerStatements) {
+        const code = ctx.transpile(innerBlock, entityIndex, threadIndex, loopDepth + 1);
+        innerCode += code;
+        if (!foundNestedLoop && loopBlockTypes.includes(innerBlock?.type)) {
+            foundNestedLoop = true;
+        }
+        if (foundNestedLoop) {
+            fromLoopCode += code;
+        } else {
+            preLoopCode += code;
+        }
+    }
+    return { innerCode, preLoopCode, fromLoopCode, foundNestedLoop };
+}
+
 const statementBlocks = {
     'wait_second': (ctx, block, entityIndex, threadIndex) => {
         const seconds = ctx.transpileValue(block.params?.[0], entityIndex);
@@ -22,13 +47,7 @@ const statementBlocks = {
         const count = ctx.transpileValue(block.params?.[0], entityIndex);
         const loopDepth = ctx.loopDepth || 0;
         
-        // Inner blocks execute at loopDepth + 1
-        let innerCode = '';
-        if (block.statements?.[0]) {
-            for (const innerBlock of block.statements[0]) {
-                innerCode += ctx.transpile(innerBlock, entityIndex, threadIndex, loopDepth + 1);
-            }
-        }
+        const { innerCode, preLoopCode, fromLoopCode, foundNestedLoop } = splitLoopBody(ctx, block, entityIndex, threadIndex, loopDepth);
         
         // In user functions (threadIndex === -1), use traditional WASM loop
         // Functions cannot use tick-based iteration
@@ -53,10 +72,38 @@ const statementBlocks = {
           )`;
         }
         
-        // EntryJS-compatible repeat: each iteration runs once per tick
-        // Uses thread's loop counter global to persist count across ticks
-        // -1 means uninitialized, >= 0 means iterations remaining
-        // Uses loopDepth to support nested loops with separate counters
+        // Thread-based path with nested loop: use resume depth to avoid
+        // re-executing preamble blocks when resuming from a deeper loop
+        if (foundNestedLoop) {
+            const skipCond = `(i32.gt_s (global.get $thread_${threadIndex}_resumeDepth) (i32.const ${loopDepth + 1}))`;
+            return `
+          ;; repeat_basic (EntryJS-compatible: one iteration per tick, depth ${loopDepth}, has nested loop)
+          ;; Only init counter when NOT resuming from deeper loop
+          (if (i32.eqz ${skipCond})
+            (then
+              (if (i32.eq (global.get $thread_${threadIndex}_loopCounter_${loopDepth}) (i32.const -1))
+                (then
+                  (global.set $thread_${threadIndex}_loopCounter_${loopDepth} (i32.trunc_f64_s ${count}))))))
+          ;; Check if iterations remain (counter > 0) OR resuming from deeper loop
+          (if (i32.or ${skipCond} (i32.gt_s (global.get $thread_${threadIndex}_loopCounter_${loopDepth}) (i32.const 0)))
+            (then
+              ;; Only decrement and execute preamble when NOT resuming from deeper
+              (if (i32.eqz ${skipCond})
+                (then
+                  (global.set $thread_${threadIndex}_loopCounter_${loopDepth}
+                    (i32.sub (global.get $thread_${threadIndex}_loopCounter_${loopDepth}) (i32.const 1)))
+                  ${preLoopCode}))
+              ;; Always execute from nested loop onwards
+              ${fromLoopCode}
+              ;; Yield (reached when nested loop finished and fell through)
+              (global.set $thread_${threadIndex}_resumeDepth (i32.const ${loopDepth + 1}))
+              (global.set $thread_${threadIndex}_waiting (f64.const 0.001))
+              (return (i32.const 1))))
+          ;; Loop finished - reset counter for potential re-entry
+          (global.set $thread_${threadIndex}_loopCounter_${loopDepth} (i32.const -1))`;
+        }
+        
+        // No nested loop - standard tick-based iteration
         return `
           ;; repeat_basic (EntryJS-compatible: one iteration per tick, depth ${loopDepth})
           ;; Initialize loop counter on first entry (when counter is -1)
@@ -72,6 +119,7 @@ const statementBlocks = {
               ;; Execute inner blocks
               ${innerCode}
               ;; Add tiny delay and stay at same PC for next iteration
+              (global.set $thread_${threadIndex}_resumeDepth (i32.const ${loopDepth + 1}))
               (global.set $thread_${threadIndex}_waiting (f64.const 0.001))
               (return (i32.const 1))))
           ;; Loop finished - reset counter for potential re-entry
@@ -81,13 +129,7 @@ const statementBlocks = {
     'repeat_inf': (ctx, block, entityIndex, threadIndex) => {
         const loopDepth = ctx.loopDepth || 0;
         
-        // Inner blocks execute at loopDepth + 1
-        let innerCode = '';
-        if (block.statements?.[0]) {
-            for (const innerBlock of block.statements[0]) {
-                innerCode += ctx.transpile(innerBlock, entityIndex, threadIndex, loopDepth + 1);
-            }
-        }
+        const { innerCode, preLoopCode, fromLoopCode, foundNestedLoop } = splitLoopBody(ctx, block, entityIndex, threadIndex, loopDepth);
         
         // In user functions (threadIndex === -1), infinite loop is dangerous
         // We limit to a maximum number of iterations to prevent browser freeze
@@ -112,11 +154,29 @@ const statementBlocks = {
           )`;
         }
         
-        // EntryJS-compatible: run inner blocks once per tick, then wait and repeat
+        // Thread-based path with nested loop: skip preamble when resuming
+        if (foundNestedLoop) {
+            const skipCond = `(i32.gt_s (global.get $thread_${threadIndex}_resumeDepth) (i32.const ${loopDepth + 1}))`;
+            return `
+          ;; repeat_inf (EntryJS-compatible: one iteration per tick, depth ${loopDepth}, has nested loop)
+          ;; Only execute preamble when NOT resuming from deeper loop
+          (if (i32.eqz ${skipCond})
+            (then
+              ${preLoopCode}))
+          ;; Always execute from nested loop onwards
+          ${fromLoopCode}
+          ;; Yield (reached when nested loop finished and fell through)
+          (global.set $thread_${threadIndex}_resumeDepth (i32.const ${loopDepth + 1}))
+          (global.set $thread_${threadIndex}_waiting (f64.const 0.001))
+          (return (i32.const 1))`;
+        }
+        
+        // No nested loop - standard tick-based iteration
         return `
           ;; repeat_inf (EntryJS-compatible: one iteration per tick, depth ${loopDepth})
           ${innerCode}
           ;; Add tiny delay and stay at same PC for next iteration
+          (global.set $thread_${threadIndex}_resumeDepth (i32.const ${loopDepth + 1}))
           (global.set $thread_${threadIndex}_waiting (f64.const 0.001))
           (return (i32.const 1))`;
     },
@@ -219,13 +279,8 @@ const statementBlocks = {
         const option = block.params?.[1] || 'until';  // 'until' or 'while'
         const loopDepth = ctx.loopDepth || 0;
         
-        // Inner blocks execute at loopDepth + 1
-        let innerCode = '';
-        if (block.statements?.[0]) {
-            for (const innerBlock of block.statements[0]) {
-                innerCode += ctx.transpile(innerBlock, entityIndex, threadIndex, loopDepth + 1);
-            }
-        }
+        const { innerCode, preLoopCode, fromLoopCode, foundNestedLoop } = splitLoopBody(ctx, block, entityIndex, threadIndex, loopDepth);
+
         // EntryJS has two modes: 'until' (repeat until condition becomes true) and 'while' (repeat while condition is true)
         // For 'until': continue if condition is FALSE (i.e., negate the condition)
         // For 'while': continue if condition is TRUE
@@ -250,12 +305,34 @@ const statementBlocks = {
           )`;
         }
         
+        // Thread-based path with nested loop: skip preamble when resuming
+        if (foundNestedLoop) {
+            const skipCond = `(i32.gt_s (global.get $thread_${threadIndex}_resumeDepth) (i32.const ${loopDepth + 1}))`;
+            return `
+          ;; repeat_while_true (mode: ${option}, EntryJS-compatible: one iteration per tick, depth ${loopDepth}, has nested loop)
+          (if ${shouldContinue}
+            (then
+              ;; Only execute preamble when NOT resuming from deeper loop
+              (if (i32.eqz ${skipCond})
+                (then
+                  ${preLoopCode}))
+              ;; Always execute from nested loop onwards
+              ${fromLoopCode}
+              ;; Yield (reached when nested loop finished and fell through)
+              (global.set $thread_${threadIndex}_resumeDepth (i32.const ${loopDepth + 1}))
+              (global.set $thread_${threadIndex}_waiting (f64.const 0.001))
+              (return (i32.const 1))))
+          ;; Condition no longer met - fall through to advance PC`;
+        }
+        
+        // No nested loop - standard tick-based iteration
         return `
           ;; repeat_while_true (mode: ${option}, EntryJS-compatible: one iteration per tick, depth ${loopDepth})
           (if ${shouldContinue}
             (then
               ${innerCode}
               ;; Add tiny delay and stay at same PC for next iteration
+              (global.set $thread_${threadIndex}_resumeDepth (i32.const ${loopDepth + 1}))
               (global.set $thread_${threadIndex}_waiting (f64.const 0.001))
               (return (i32.const 1))))
           ;; Condition no longer met - fall through to advance PC`;

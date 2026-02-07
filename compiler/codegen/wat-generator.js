@@ -275,6 +275,7 @@ class WATGenerator {
         
         // String pool pointer (bump allocator)
         const stringPoolStart = this.project.stringPool?.start || 0;
+        this.stringPoolStart = stringPoolStart;
         code += `\n  (global $str_pool_ptr (mut i32) (i32.const ${stringPoolStart}))`;
         
         // Add thread execution state globals for each thread
@@ -289,6 +290,7 @@ class WATGenerator {
                 for (let depth = 0; depth < maxLoopDepth; depth++) {
                     code += `\n  (global $thread_${threadIndex}_loopCounter_${depth} (mut i32) (i32.const -1))`;
                 }
+                code += `\n  (global $thread_${threadIndex}_resumeDepth (mut i32) (i32.const 0))`;
                 threadIndex++;
             }
         }
@@ -1764,6 +1766,7 @@ class WATGenerator {
             code += `
           (local.set $pc (i32.add (local.get $pc) (i32.const 1)))
           (global.set $thread_${threadIndex}_pc (local.get $pc))
+          (global.set $thread_${threadIndex}_resumeDepth (i32.const 0))
           (br $done))`;
             
             pc++;
@@ -1772,6 +1775,7 @@ class WATGenerator {
         code += `
         ;; End of thread
         (global.set $thread_${threadIndex}_pc (i32.const 0))
+        (global.set $thread_${threadIndex}_resumeDepth (i32.const 0))
         (return (i32.const 0))  ;; Thread finished
       )  ;; $done
     )  ;; $end
@@ -1811,6 +1815,7 @@ class WATGenerator {
                     for (let d = 0; d < maxLoopDepth; d++) {
                         resetLoopCounters += `\n        (global.set $thread_${threadIndex}_loopCounter_${d} (i32.const -1))`;
                     }
+                    resetLoopCounters += `\n        (global.set $thread_${threadIndex}_resumeDepth (i32.const 0))`;
                     eventHandlers += `
     ;; Activate thread ${threadIndex} on start (entity scene: ${objSceneIndex})
     (if (i32.and
@@ -1826,6 +1831,7 @@ class WATGenerator {
                     for (let d = 0; d < maxLoopDepth; d++) {
                         resetLoopCounters += `\n        (global.set $thread_${threadIndex}_loopCounter_${d} (i32.const -1))`;
                     }
+                    resetLoopCounters += `\n        (global.set $thread_${threadIndex}_resumeDepth (i32.const 0))`;
                     eventHandlers += `
     ;; Activate thread ${threadIndex} on key ${keycode} (entity scene: ${objSceneIndex})
     (if (i32.and
@@ -1840,6 +1846,7 @@ class WATGenerator {
                     for (let d = 0; d < maxLoopDepth; d++) {
                         resetLoopCounters += `\n        (global.set $thread_${threadIndex}_loopCounter_${d} (i32.const -1))`;
                     }
+                    resetLoopCounters += `\n        (global.set $thread_${threadIndex}_resumeDepth (i32.const 0))`;
                     sceneStartHandlers += `
     ;; Activate thread ${threadIndex} on scene start (entity scene: ${objSceneIndex})
     (if (i32.and
@@ -1857,6 +1864,7 @@ class WATGenerator {
                     for (let d = 0; d < maxLoopDepth; d++) {
                         resetLoopCounters += `\n        (global.set $thread_${threadIndex}_loopCounter_${d} (i32.const -1))`;
                     }
+                    resetLoopCounters += `\n        (global.set $thread_${threadIndex}_resumeDepth (i32.const 0))`;
                     objectClickHandlers += `
     ;; Activate thread ${threadIndex} when object ${objIdx} is clicked
     (if (i32.and
@@ -1875,6 +1883,7 @@ class WATGenerator {
                     for (let d = 0; d < maxLoopDepth; d++) {
                         resetLoopCounters += `\n        (global.set $thread_${threadIndex}_loopCounter_${d} (i32.const -1))`;
                     }
+                    resetLoopCounters += `\n        (global.set $thread_${threadIndex}_resumeDepth (i32.const 0))`;
                     objectClickCanceledHandlers += `
     ;; Activate thread ${threadIndex} when object ${objIdx} click is released
     (if (i32.and
@@ -1900,6 +1909,7 @@ class WATGenerator {
                         for (let d = 0; d < maxLoopDepth; d++) {
                             resetLoopCounters += `\n        (global.set $thread_${threadIndex}_loopCounter_${d} (i32.const -1))`;
                         }
+                        resetLoopCounters += `\n        (global.set $thread_${threadIndex}_resumeDepth (i32.const 0))`;
                         messageHandlers += `
     ;; Activate thread ${threadIndex} when message "${message?.name || messageId}" is received (entity scene: ${objSceneIndex})
     (if (i32.and
@@ -1942,6 +1952,8 @@ class WATGenerator {
   
   ;; Main tick function - called every frame from JS
   (func $tick (param $dt f64)
+    ;; Reset string pool to reclaim temporary strings from previous tick
+    (global.set $str_pool_ptr (i32.const ${this.stringPoolStart || 0}))
     (global.set $deltaTime (local.get $dt))
     
     ;; Update click tracking state (detect new clicks)
