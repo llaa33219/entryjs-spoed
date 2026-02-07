@@ -185,6 +185,7 @@ class BlockTranspiler {
                 'replace_string',
                 'change_string_case',
                 'text',
+                'color',
             ];
 
             if (stringBlocks.includes(blockType)) {
@@ -257,6 +258,10 @@ class BlockTranspiler {
                 const textValue = block.params?.[0] || '';
                 return this.createStringLiteral(textValue.toString());
             }
+            case 'color': {
+                const colorValue = block.params?.[0] || '#000000';
+                return this.createStringLiteral(colorValue.toString());
+            }
             default:
                 // Unknown string block - return empty string
                 return this.createStringLiteral('');
@@ -323,34 +328,10 @@ class BlockTranspiler {
      */
     createStringLiteral(str) {
         if (str === '' || str === null || str === undefined) {
-            // Return empty string allocation
             return '(call $str_alloc (i32.const 0))';
         }
-
-        // For simple ASCII strings, we can inline the creation
-        // This creates a string at runtime by allocating and copying bytes
-        const bytes = [];
-        for (let i = 0; i < str.length && i < 256; i++) {
-            bytes.push(str.charCodeAt(i) & 0xFF);
-        }
-
-        // Generate inline string creation code
-        // This is less efficient than data sections but works without complex setup
-        const len = bytes.length;
-        let code = `(block (result i32)
-            (local.set $temp (f64.convert_i32_s (call $str_alloc (i32.const ${len}))))`;
-        
-        for (let i = 0; i < len; i++) {
-            code += `
-            (i32.store8 (i32.add (i32.add (i32.trunc_f64_s (local.get $temp)) (i32.const 4)) (i32.const ${i})) (i32.const ${bytes[i]}))`;
-        }
-        
-        // Null terminate
-        code += `
-            (i32.store8 (i32.add (i32.add (i32.trunc_f64_s (local.get $temp)) (i32.const 4)) (i32.const ${len})) (i32.const 0))
-            (i32.trunc_f64_s (local.get $temp)))`;
-        
-        return code;
+        const addr = this.generator.addStaticString(str);
+        return `(i32.const ${addr})`;
     }
 
     /**
@@ -400,7 +381,8 @@ class BlockTranspiler {
                 'char_at', 
                 'substring',
                 'replace_string',
-                'change_string_case'
+                'change_string_case',
+                'color'
             ];
             if (pureStringBlocks.includes(param.type)) {
                 return true;

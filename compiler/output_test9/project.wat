@@ -1526,6 +1526,8 @@
     (i32.const 1))
 
 
+
+
   ;; ===== EXPORTS =====
   (export "init" (func $init))
   (export "tick" (func $tick))

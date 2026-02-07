@@ -57,23 +57,10 @@ const valueBlocks = {
         if (!isNaN(value) && String(textStr).trim() !== '') {
             return `(f64.const ${value})`;
         }
-        // Non-numeric text - create string literal and return as negative f64 pointer
+        // Non-numeric text - use static string in data section
         const str = textStr.toString();
-        const bytes = [];
-        for (let i = 0; i < str.length && i < 256; i++) {
-            bytes.push(str.charCodeAt(i) & 0xFF);
-        }
-        const len = bytes.length;
-        if (len === 0) {
-            return '(f64.const 0)';
-        }
-        let code = `(f64.neg (f64.convert_i32_u (block (result i32)\n        (local.set $temp_str_ptr (call $str_alloc (i32.const ${len})))`;
-        for (let i = 0; i < len; i++) {
-            code += `\n        (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const ${i})) (i32.const ${bytes[i]}))`;
-        }
-        code += `\n        (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const ${len})) (i32.const 0))`;
-        code += `\n        (local.get $temp_str_ptr))))`;
-        return code;
+        const addr = ctx.generator.addStaticString(str);
+        return `(f64.neg (f64.convert_i32_u (i32.const ${addr})))`;
     },
 
     'angle': (ctx, block, entityIndex) => {
@@ -313,25 +300,12 @@ const valueBlocks = {
         return '(f64.const 0) ;; current_date_time_format - string not supported';
     },
 
-    // Color block - returns packed color as f64 (R*65536 + G*256 + B)
+    // Color block - returns hex color string as negative f64 string pointer (static)
     'color': (ctx, block, entityIndex) => {
-        const colorStr = block.params?.[0] || '#000000';
-        if (typeof colorStr === 'string' && colorStr.startsWith('#')) {
-            const hex = colorStr.slice(1);
-            let r = 0, g = 0, b = 0;
-            if (hex.length === 6) {
-                r = parseInt(hex.slice(0, 2), 16) || 0;
-                g = parseInt(hex.slice(2, 4), 16) || 0;
-                b = parseInt(hex.slice(4, 6), 16) || 0;
-            } else if (hex.length === 3) {
-                r = parseInt(hex[0] + hex[0], 16) || 0;
-                g = parseInt(hex[1] + hex[1], 16) || 0;
-                b = parseInt(hex[2] + hex[2], 16) || 0;
-            }
-            const packed = r * 65536 + g * 256 + b;
-            return `(f64.const ${packed})`;
-        }
-        return '(f64.const 0)';
+        const colorStr = (block.params?.[0] || '#000000').toString();
+        if (colorStr.length === 0) return '(f64.const 0)';
+        const addr = ctx.generator.addStaticString(colorStr);
+        return `(f64.neg (f64.convert_i32_u (i32.const ${addr})))`;
     },
 
     // Color conversion - returns packed color as f64 (R*65536 + G*256 + B)
