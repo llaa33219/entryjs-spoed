@@ -49,11 +49,31 @@ const valueBlocks = {
     },
 
     'text': (ctx, block, entityIndex) => {
-        const value = parseFloat(block.params?.[0]);
-        if (!isNaN(value)) {
+        const textStr = block.params?.[0];
+        if (textStr === null || textStr === undefined) {
+            return '(f64.const 0)';
+        }
+        const value = Number(textStr);
+        if (!isNaN(value) && String(textStr).trim() !== '') {
             return `(f64.const ${value})`;
         }
-        return '(f64.const 0)';
+        // Non-numeric text - create string literal and return as negative f64 pointer
+        const str = textStr.toString();
+        const bytes = [];
+        for (let i = 0; i < str.length && i < 256; i++) {
+            bytes.push(str.charCodeAt(i) & 0xFF);
+        }
+        const len = bytes.length;
+        if (len === 0) {
+            return '(f64.const 0)';
+        }
+        let code = `(f64.neg (f64.convert_i32_u (block (result i32)\n        (local.set $temp_str_ptr (call $str_alloc (i32.const ${len})))`;
+        for (let i = 0; i < len; i++) {
+            code += `\n        (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const ${i})) (i32.const ${bytes[i]}))`;
+        }
+        code += `\n        (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const ${len})) (i32.const 0))`;
+        code += `\n        (local.get $temp_str_ptr))))`;
+        return code;
     },
 
     'angle': (ctx, block, entityIndex) => {
@@ -174,9 +194,9 @@ const valueBlocks = {
     },
 
     'quotient_and_mod': (ctx, block, entityIndex) => {
-        const left = ctx.transpileValue(block.params?.[0], entityIndex);
-        const operator = block.params?.[1];
-        const right = ctx.transpileValue(block.params?.[2], entityIndex);
+        const left = ctx.transpileValue(block.params?.[1], entityIndex);
+        const operator = block.params?.[5];
+        const right = ctx.transpileValue(block.params?.[3], entityIndex);
 
         // Protect against division by zero - return 0 if divisor is 0
         if (operator === 'QUOTIENT') {
@@ -201,33 +221,50 @@ const valueBlocks = {
     },
 
     'length_of_string': (ctx, block, entityIndex) => {
-        // String operations are complex in WASM, return placeholder
-        return '(f64.const 0)';
+        const strVal = ctx.transpileValue(block.params?.[1], entityIndex);
+        return `(f64.convert_i32_s (call $str_length (call $f64_to_str_or_deref ${strVal})))`;
     },
 
     'combine_something': (ctx, block, entityIndex) => {
-        // String concatenation is complex in WASM, return placeholder
-        return '(f64.const 0)';
+        const val1 = ctx.transpileValue(block.params?.[1], entityIndex);
+        const val2 = ctx.transpileValue(block.params?.[3], entityIndex);
+        return `(f64.neg (f64.convert_i32_u (call $str_concat (call $f64_to_str_or_deref ${val1}) (call $f64_to_str_or_deref ${val2}))))`;
     },
 
     'char_at': (ctx, block, entityIndex) => {
-        // String indexing is complex in WASM, return placeholder
-        return '(f64.const 0)';
+        const strVal = ctx.transpileValue(block.params?.[1], entityIndex);
+        const idxVal = ctx.transpileValue(block.params?.[3], entityIndex);
+        return `(f64.neg (f64.convert_i32_u (call $str_char_at_str (call $f64_to_str_or_deref ${strVal}) (i32.trunc_f64_s ${idxVal}))))`;
     },
 
     'substring': (ctx, block, entityIndex) => {
-        // String substring is complex in WASM, return placeholder
-        return '(f64.const 0)';
+        const strVal = ctx.transpileValue(block.params?.[1], entityIndex);
+        const startVal = ctx.transpileValue(block.params?.[3], entityIndex);
+        const endVal = ctx.transpileValue(block.params?.[5], entityIndex);
+        return `(f64.neg (f64.convert_i32_u (call $str_substring (call $f64_to_str_or_deref ${strVal}) (i32.trunc_f64_s ${startVal}) (i32.trunc_f64_s ${endVal}))))`;
     },
 
     'index_of_string': (ctx, block, entityIndex) => {
-        // String search is complex in WASM, return placeholder
-        return '(f64.const 0)';
+        const strVal = ctx.transpileValue(block.params?.[1], entityIndex);
+        const searchVal = ctx.transpileValue(block.params?.[3], entityIndex);
+        return `(f64.convert_i32_s (call $str_index_of (call $f64_to_str_or_deref ${strVal}) (call $f64_to_str_or_deref ${searchVal})))`;
     },
 
     'replace_string': (ctx, block, entityIndex) => {
-        // String replace is complex in WASM, return placeholder
-        return '(f64.const 0)';
+        const strVal = ctx.transpileValue(block.params?.[1], entityIndex);
+        const oldVal = ctx.transpileValue(block.params?.[3], entityIndex);
+        const newVal = ctx.transpileValue(block.params?.[5], entityIndex);
+        return `(f64.neg (f64.convert_i32_u (call $str_replace (call $f64_to_str_or_deref ${strVal}) (call $f64_to_str_or_deref ${oldVal}) (call $f64_to_str_or_deref ${newVal}))))`;
+    },
+
+    'change_string_case': (ctx, block, entityIndex) => {
+        const strVal = ctx.transpileValue(block.params?.[1], entityIndex);
+        const mode = block.params?.[3];
+        const modeStr = (typeof mode === 'string') ? mode.toLowerCase() : 'upper';
+        if (modeStr.includes('lower')) {
+            return `(f64.neg (f64.convert_i32_u (call $str_to_lower (call $f64_to_str_or_deref ${strVal}))))`;
+        }
+        return `(f64.neg (f64.convert_i32_u (call $str_to_upper (call $f64_to_str_or_deref ${strVal}))))`;
     },
 
     'get_project_timer_value': (ctx, block, entityIndex) => {
@@ -327,10 +364,10 @@ const booleanBlocks = {
 // String operation blocks
 const stringBlocks = {
     // Combine/concatenate strings
-    // combine_something: params[0] = value1, params[1] = value2
+    // combine_something: params[1] = value1, params[3] = value2 (null-interleaved)
     combine_something: (block, ctx) => {
-        const value1 = block.params?.[0];
-        const value2 = block.params?.[1];
+        const value1 = block.params?.[1];
+        const value2 = block.params?.[3];
         
         const str1 = ctx.transpileStringValue(value1);
         const str2 = ctx.transpileStringValue(value2);
@@ -339,10 +376,10 @@ const stringBlocks = {
     },
 
     // Get character at index (1-based)
-    // char_at: params[0] = index, params[1] = string
+    // char_at: params[1] = string, params[3] = index (null-interleaved)
     char_at: (block, ctx) => {
-        const indexParam = block.params?.[0];
         const stringParam = block.params?.[1];
+        const indexParam = block.params?.[3];
         
         const strCode = ctx.transpileStringValue(stringParam);
         const idxCode = transpileAsI32(indexParam, ctx);
@@ -351,11 +388,11 @@ const stringBlocks = {
     },
 
     // Get substring (1-based start and end indices)
-    // substring: params[0] = start, params[1] = end, params[2] = string
+    // substring: params[1] = string, params[3] = start, params[5] = end (null-interleaved)
     substring: (block, ctx) => {
-        const startParam = block.params?.[0];
-        const endParam = block.params?.[1];
-        const stringParam = block.params?.[2];
+        const stringParam = block.params?.[1];
+        const startParam = block.params?.[3];
+        const endParam = block.params?.[5];
         
         const strCode = ctx.transpileStringValue(stringParam);
         const startCode = transpileAsI32(startParam, ctx);
@@ -365,10 +402,10 @@ const stringBlocks = {
     },
 
     // Find index of substring (returns 1-based index, 0 if not found)
-    // index_of_string: params[0] = search, params[1] = string
+    // index_of_string: params[1] = haystack, params[3] = needle (null-interleaved)
     index_of_string: (block, ctx) => {
-        const searchParam = block.params?.[0];
         const stringParam = block.params?.[1];
+        const searchParam = block.params?.[3];
         
         const strCode = ctx.transpileStringValue(stringParam);
         const searchCode = ctx.transpileStringValue(searchParam);
@@ -378,11 +415,11 @@ const stringBlocks = {
     },
 
     // Replace substring
-    // replace_string: params[0] = old, params[1] = new, params[2] = string
+    // replace_string: params[1] = string, params[3] = old, params[5] = new (null-interleaved)
     replace_string: (block, ctx) => {
-        const oldParam = block.params?.[0];
-        const newParam = block.params?.[1];
-        const stringParam = block.params?.[2];
+        const stringParam = block.params?.[1];
+        const oldParam = block.params?.[3];
+        const newParam = block.params?.[5];
         
         const strCode = ctx.transpileStringValue(stringParam);
         const oldCode = ctx.transpileStringValue(oldParam);
@@ -392,9 +429,9 @@ const stringBlocks = {
     },
 
     // Get string length
-    // length_of_string: params[0] = string
+    // length_of_string: params[1] = string (null-interleaved)
     length_of_string: (block, ctx) => {
-        const stringParam = block.params?.[0];
+        const stringParam = block.params?.[1];
         const strCode = ctx.transpileStringValue(stringParam);
         
         // Returns i32, convert to f64 for consistency
@@ -402,15 +439,15 @@ const stringBlocks = {
     },
 
     // Change string case
-    // change_string_case: params[0] = mode (upper/lower), params[1] = string
+    // change_string_case: params[1] = string, params[3] = mode (null-interleaved)
     change_string_case: (block, ctx) => {
-        const modeParam = block.params?.[0];
         const stringParam = block.params?.[1];
+        const modeParam = block.params?.[3];
         
         const strCode = ctx.transpileStringValue(stringParam);
         const mode = (typeof modeParam === 'string') ? modeParam.toLowerCase() : 'upper';
         
-        if (mode === 'lower' || mode === 'LOWER') {
+        if (mode.includes('lower')) {
             return `(call $str_to_lower ${strCode})`;
         } else {
             return `(call $str_to_upper ${strCode})`;

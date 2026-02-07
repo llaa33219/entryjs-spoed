@@ -80,8 +80,8 @@ class BlockTranspiler {
         }
 
         if (typeof block === 'string') {
-            const num = parseFloat(block);
-            if (!isNaN(num)) {
+            const num = Number(block);
+            if (!isNaN(num) && block.trim() !== '') {
                 return `(f64.const ${num})`;
             }
             // String value - return 0 for now (string handling is complex in WASM)
@@ -196,15 +196,15 @@ class BlockTranspiler {
                 return this.transpileListGetAsStr(param, entityIndex);
             }
 
-            // Function string parameters (stringParam_xxx) - stored as f64, convert to i32
+            // Function string parameters (stringParam_xxx) - stored as f64, may be negative string pointer
             if (blockType.startsWith('stringParam_')) {
                 const numericValue = this.transpileValue(param, entityIndex);
-                return `(i32.trunc_f64_s ${numericValue})`;
+                return `(call $f64_to_str_or_deref ${numericValue})`;
             }
 
-            // Other blocks - treat as numeric and convert to string
+            // Other blocks - treat as numeric and convert to string (or deref if negative string pointer)
             const numericValue = this.transpileValue(param, entityIndex);
-            return `(call $f64_to_str ${numericValue})`;
+            return `(call $f64_to_str_or_deref ${numericValue})`;
         }
 
         // Default - convert to string
@@ -224,31 +224,31 @@ class BlockTranspiler {
 
         switch (block.type) {
             case 'combine_something': {
-                const str1 = this.transpileStringValue(block.params?.[0], entityIndex);
-                const str2 = this.transpileStringValue(block.params?.[1], entityIndex);
+                const str1 = this.transpileStringValue(block.params?.[1], entityIndex);
+                const str2 = this.transpileStringValue(block.params?.[3], entityIndex);
                 return `(call $str_concat ${str1} ${str2})`;
             }
             case 'char_at': {
                 const strCode = this.transpileStringValue(block.params?.[1], entityIndex);
-                const idxCode = this.transpileAsI32(block.params?.[0], entityIndex);
+                const idxCode = this.transpileAsI32(block.params?.[3], entityIndex);
                 return `(call $str_char_at_str ${strCode} ${idxCode})`;
             }
             case 'substring': {
-                const strCode = this.transpileStringValue(block.params?.[2], entityIndex);
-                const startCode = this.transpileAsI32(block.params?.[0], entityIndex);
-                const endCode = this.transpileAsI32(block.params?.[1], entityIndex);
+                const strCode = this.transpileStringValue(block.params?.[1], entityIndex);
+                const startCode = this.transpileAsI32(block.params?.[3], entityIndex);
+                const endCode = this.transpileAsI32(block.params?.[5], entityIndex);
                 return `(call $str_substring ${strCode} ${startCode} ${endCode})`;
             }
             case 'replace_string': {
-                const strCode = this.transpileStringValue(block.params?.[2], entityIndex);
-                const oldCode = this.transpileStringValue(block.params?.[0], entityIndex);
-                const newCode = this.transpileStringValue(block.params?.[1], entityIndex);
+                const strCode = this.transpileStringValue(block.params?.[1], entityIndex);
+                const oldCode = this.transpileStringValue(block.params?.[3], entityIndex);
+                const newCode = this.transpileStringValue(block.params?.[5], entityIndex);
                 return `(call $str_replace ${strCode} ${oldCode} ${newCode})`;
             }
             case 'change_string_case': {
                 const strCode = this.transpileStringValue(block.params?.[1], entityIndex);
-                const mode = (typeof block.params?.[0] === 'string') ? block.params[0].toLowerCase() : 'upper';
-                if (mode === 'lower') {
+                const mode = (typeof block.params?.[3] === 'string') ? block.params[3].toLowerCase() : 'upper';
+                if (mode.includes('lower')) {
                     return `(call $str_to_lower ${strCode})`;
                 }
                 return `(call $str_to_upper ${strCode})`;
@@ -380,7 +380,7 @@ class BlockTranspiler {
         // Check if it's a literal string (non-numeric string)
         if (typeof param === 'string') {
             // If it's a numeric string, it's not a string value
-            if (!isNaN(parseFloat(param)) && isFinite(param)) {
+            if (!isNaN(Number(param)) && param.trim() !== '') {
                 return false;
             }
             // Special keywords like FIRST, LAST, RANDOM are not string values
@@ -409,7 +409,7 @@ class BlockTranspiler {
             // Check for text block with non-numeric content
             if (param.type === 'text') {
                 const textVal = param.params?.[0];
-                if (typeof textVal === 'string' && isNaN(parseFloat(textVal))) {
+                if (typeof textVal === 'string' && (isNaN(Number(textVal)) || textVal.trim() === '')) {
                     return true;
                 }
             }
