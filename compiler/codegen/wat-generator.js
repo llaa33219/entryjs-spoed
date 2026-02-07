@@ -302,7 +302,8 @@ class WATGenerator {
   (global $sceneCount (mut i32) (i32.const ${this.project.scenes.length}))
   (global $sceneJustChanged (mut i32) (i32.const 0))
   (global $prevMouseClicked (mut i32) (i32.const 0))
-  (global $clickedEntityIndex (mut i32) (i32.const -1))`;
+  (global $clickedEntityIndex (mut i32) (i32.const -1))
+  (global $isFirstFrame (mut i32) (i32.const 1))`;
         
         // Add message flag globals
         const messages = this.project.messages || [];
@@ -2014,7 +2015,7 @@ class WATGenerator {
                     eventHandlers += `
     ;; Activate thread ${threadIndex} on start (entity scene: ${objSceneIndex})
     (if (i32.and
-          (i32.eqz (global.get $frameCount))
+          (global.get $isFirstFrame)
           (i32.eq (i32.const ${objSceneIndex}) (global.get $currentScene)))
       (then${resetLoopCounters}
         (global.set $thread_${threadIndex}_active (i32.const 1))))`;
@@ -2140,6 +2141,8 @@ class WATGenerator {
     ;; Reset click tracking state
     (global.set $prevMouseClicked (i32.const 0))
     (global.set $clickedEntityIndex (i32.const -1))
+    ;; Reset first frame flag
+    (global.set $isFirstFrame (i32.const 1))
     ;; Reset persistent string pool
     (global.set $persistent_pool_ptr (i32.const ${this.project.persistentPool?.start || 0}))
     ${this.generateEntityInitialization()}
@@ -2184,7 +2187,8 @@ class WATGenerator {
     ;; Finalize click state (update prevMouseClicked, clear clickedEntityIndex on release)
     (call $finalizeClickState)
     
-    ;; Increment frame counter
+    ;; Clear first frame flag and increment frame counter
+    (global.set $isFirstFrame (i32.const 0))
     (global.set $frameCount (i32.add (global.get $frameCount) (i32.const 1))))
   
   ;; Stop execution

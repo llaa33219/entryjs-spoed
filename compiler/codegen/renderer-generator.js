@@ -33,7 +33,10 @@ class RendererGenerator {
 // ===== CONFIGURATION =====
 const STAGE_WIDTH = 640;
 const STAGE_HEIGHT = 360;
-const TARGET_FPS = ${this.project.speed || 60};
+const TICK_RATE = 1000000;
+const FIXED_DT = 1.0 / TICK_RATE;
+const MAX_TICKS_PER_FRAME = 50000;
+const MAX_ACCUMULATOR = 0.05;
 const SCENE_COUNT = ${this.project.scenes.length};
 const VARIABLE_COUNT = ${(this.project.variables.variables || []).length};
 const LIST_COUNT = ${(this.project.variables.lists || []).length};
@@ -147,6 +150,7 @@ let sounds = [];
 let running = false;
 let lastTime = 0;
 let currentScene = 0;
+let accumulator = 0;
 
 // Timer and input state (matching EntryJS engine.js implementation)
 // projectTimer uses real system time for accuracy, not deltaTime accumulation
@@ -306,6 +310,7 @@ async function init() {
     // Start game loop
     running = true;
     lastTime = performance.now();
+    accumulator = 0;
     requestAnimationFrame(gameLoop);
     
     console.log('[Renderer] Started');
@@ -590,14 +595,21 @@ function setupInputHandlers() {
 function gameLoop(currentTime) {
     if (!running) return;
     
-    const deltaTime = (currentTime - lastTime) / 1000;
+    const realDelta = (currentTime - lastTime) / 1000;
     lastTime = currentTime;
     
-    // Note: Project timer is now calculated on-demand in getProjectTimerValue()
-    // No need to update it here - this matches EntryJS behavior for accuracy
+    // Accumulate real elapsed time, capped to prevent catch-up spiral
+    accumulator += Math.min(realDelta, MAX_ACCUMULATOR);
     
-    // Call WASM tick
-    wasm.tick(deltaTime);
+    // Calculate how many WASM ticks to run this frame
+    let ticksToRun = Math.floor(accumulator / FIXED_DT);
+    ticksToRun = Math.min(ticksToRun, MAX_TICKS_PER_FRAME);
+    
+    // Run WASM ticks in tight loop
+    for (let t = 0; t < ticksToRun; t++) {
+        wasm.tick(FIXED_DT);
+    }
+    accumulator -= ticksToRun * FIXED_DT;
     
     // Check for scene changes
     const wasmScene = wasm.getCurrentScene();
@@ -606,10 +618,8 @@ function gameLoop(currentTime) {
         currentScene = wasmScene;
     }
     
-    // Update sprites from WASM state
+    // Render once per animation frame
     updateSprites();
-    
-    // Update variable/list displays and dialog bubbles
     updateVariableDisplays();
     updateListDisplays();
     updateDialogBubbles();
@@ -1541,6 +1551,7 @@ function restart() {
     currentScene = 0;
     running = true;
     lastTime = performance.now();
+    accumulator = 0;
     requestAnimationFrame(gameLoop);
 }
 
