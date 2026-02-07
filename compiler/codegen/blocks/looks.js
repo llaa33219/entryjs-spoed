@@ -35,13 +35,15 @@ const statementBlocks = {
     'show': (ctx, block, entityIndex) => {
         return `
           ;; show
-          (call $setVisible (i32.const ${entityIndex}) (i32.const 1))`;
+          (call $setVisible (i32.const ${entityIndex}) (i32.const 1))
+          (call $setInitialVisible (i32.const ${entityIndex}) (i32.const 1))`;
     },
 
     'hide': (ctx, block, entityIndex) => {
         return `
           ;; hide
-          (call $setVisible (i32.const ${entityIndex}) (i32.const 0))`;
+          (call $setVisible (i32.const ${entityIndex}) (i32.const 0))
+          (call $setInitialVisible (i32.const ${entityIndex}) (i32.const 0))`;
     },
 
     'change_scale_size': (ctx, block, entityIndex) => {

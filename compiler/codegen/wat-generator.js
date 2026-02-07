@@ -711,18 +711,17 @@ class WATGenerator {
         (br $loop))))
   
   ;; Start a specific scene by index
+  ;; Always sets sceneJustChanged even for same-scene transitions
+  ;; (matches EntryJS behavior where start_scene always triggers resetSceneDuringRun + when_scene_start)
   (func $startScene (param $sceneIdx i32)
     ;; Bounds check
     (if (i32.and
           (i32.ge_s (local.get $sceneIdx) (i32.const 0))
           (i32.lt_s (local.get $sceneIdx) (global.get $sceneCount)))
       (then
-        ;; Only change if different scene
-        (if (i32.ne (local.get $sceneIdx) (global.get $currentScene))
-          (then
-            (global.set $currentScene (local.get $sceneIdx))
-            (global.set $sceneJustChanged (i32.const 1))
-            (call $updateSceneVisibility))))))
+        (global.set $currentScene (local.get $sceneIdx))
+        (global.set $sceneJustChanged (i32.const 1))
+        (call $updateSceneVisibility))))
   
   ;; Start neighbor scene (offset: 1 for next, -1 for prev)
   (func $startNeighborScene (param $offset i32)
@@ -2119,14 +2118,39 @@ class WATGenerator {
                 }
 
                 // Generate thread execution call
+                // Guard with sceneJustChanged check to stop remaining threads when scene changes mid-tick
                 threadCalls += `
     ;; Run thread ${threadIndex}
-    (if (global.get $thread_${threadIndex}_active)
+    (if (i32.and (global.get $thread_${threadIndex}_active) (i32.eqz (global.get $sceneJustChanged)))
       (then
         (if (i32.eqz (call $thread_${threadIndex}_run (i32.const ${objIdx})))
           (then (global.set $thread_${threadIndex}_active (i32.const 0))))))`;
 
                 threadIndex++;
+            }
+        }
+
+        // Generate scene change cleanup code (deactivate ALL threads and clear dialogs)
+        let sceneChangeCleanup = '';
+        {
+            let tidx = 0;
+            for (const obj of this.project.objects) {
+                for (let i = 0; i < obj.scripts.length; i++) {
+                    sceneChangeCleanup += `\n        (global.set $thread_${tidx}_active (i32.const 0))`;
+                    sceneChangeCleanup += `\n        (global.set $thread_${tidx}_pc (i32.const 0))`;
+                    sceneChangeCleanup += `\n        (global.set $thread_${tidx}_waiting (f64.const 0))`;
+                    const maxLoopDepth = this.threadLoopDepths[tidx] || 1;
+                    for (let d = 0; d < maxLoopDepth; d++) {
+                        sceneChangeCleanup += `\n        (global.set $thread_${tidx}_loopCounter_${d} (i32.const -1))`;
+                    }
+                    sceneChangeCleanup += `\n        (global.set $thread_${tidx}_resumeDepth (i32.const 0))`;
+                    tidx++;
+                }
+            }
+            // Clear all dialog bubbles
+            for (let i = 0; i < this.project.objects.length; i++) {
+                sceneChangeCleanup += `\n        (global.set $dialog_type_${i} (i32.const 0))`;
+                sceneChangeCleanup += `\n        (global.set $dialog_text_ptr_${i} (i32.const 0))`;
             }
         }
 
@@ -2137,7 +2161,7 @@ class WATGenerator {
   (func $init
     ;; Reset scene to first scene
     (global.set $currentScene (i32.const 0))
-    (global.set $sceneJustChanged (i32.const 0))
+    (global.set $sceneJustChanged (i32.const 1))
     ;; Reset click tracking state
     (global.set $prevMouseClicked (i32.const 0))
     (global.set $clickedEntityIndex (i32.const -1))
@@ -2158,6 +2182,11 @@ class WATGenerator {
     
     ;; Update click tracking state (detect new clicks)
     (call $updateClickState)
+    
+    ;; On scene change: deactivate ALL threads and clear dialog bubbles
+    ;; This matches EntryJS behavior where resetSceneDuringRun() clears all executors
+    (if (global.get $sceneJustChanged)
+      (then${sceneChangeCleanup}))
     
     ;; Handle scene change events (when_scene_start)
     ${sceneStartHandlers}

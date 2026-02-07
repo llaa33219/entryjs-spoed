@@ -173,12 +173,13 @@ function getProjectTimerValue() {
 }
 
 // ===== BRUSH/DRAWING STATE =====
-// Entity containers hold: fillGraphics (bottom) → brushGraphics (middle) → sprite (top)
+// Entity containers hold: frozenFill (bottom) → activeFill → brushGraphics → sprite (top)
 // This matches EntryJS z-order where each entity's brush is below its sprite but above previous entities
 // Visibility is controlled on the sprite only, so brush traces remain visible when entity is hidden
 let entityContainers = [];  // PIXI.Container per entity
 let brushGraphics = [];     // PIXI.Graphics per entity for stroke drawing
-let fillGraphics = [];      // PIXI.Graphics per entity for fill drawing
+let frozenFillGraphics = []; // PIXI.Graphics per entity for completed fills (rarely redrawn)
+let activeFillGraphics = []; // PIXI.Graphics per entity for current fill session (redrawn each vertex)
 let stampContainer = null;  // Container for stamps (rendered above all entities)
 let stamps = [];            // Array of stamp sprites
 
@@ -429,7 +430,7 @@ async function loadAssets() {
 // ===== SPRITE CREATION =====
 function createSprites() {
     // Create entities with proper z-order matching EntryJS:
-    // Each entityContainer holds: fillGraphics (bottom) → brushGraphics (middle) → sprite (top)
+    // Each entityContainer holds: frozenFill (bottom) → activeFill → brushGraphics → sprite (top)
     // 
     // This ensures entity N's brush is below entity N's sprite but ABOVE entity N-1's sprite.
     // Visibility is controlled on the sprite only, so brush traces remain visible when entity is hidden.
@@ -447,16 +448,17 @@ function createSprites() {
         const entityTextures = textures[i] || [];
         
         // Create container for this entity (positioned at stage center)
-        // Container holds: fillGraphics → brushGraphics → sprite (bottom to top)
+        // Container holds: frozenFill → activeFill → brushGraphics → sprite (bottom to top)
         const container = new PIXI.Container();
         container.x = STAGE_WIDTH / 2;
         container.y = STAGE_HEIGHT / 2;
         entityContainers.push(container);
         
-        // Initialize fill graphics (will be created on first use, added at index 0)
-        fillGraphics.push(null);
+        // Initialize fill graphics (will be created on first use)
+        frozenFillGraphics.push(null);
+        activeFillGraphics.push(null);
         
-        // Initialize brush graphics (will be created on first use, added at index 1 or after fill)
+        // Initialize brush graphics (will be created on first use)
         brushGraphics.push(null);
         
         // Get first valid texture or use placeholder
@@ -510,6 +512,9 @@ function createSprites() {
             // Completed fill segments (each segment has its own color/opacity, preserved when style changes)
             // Format: [{ points: [{x,y}...], color: 0xRRGGBB, opacity: 0-1 }, ...]
             fillSegments: [],
+            // Completed fills from previous fill sessions (persisted across start_fill/stop_fill cycles)
+            // Format: [{ points: [{x,y}...], color: 0xRRGGBB, opacity: 0-1, closed: true/false }, ...]
+            completedFills: [],
             // Track last applied style to avoid redundant lineStyle calls
             _lastColor: -1,
             _lastThickness: -1,
@@ -690,33 +695,43 @@ function entryToPixiX(x) { return x; }          // X is same
 function entryToPixiY(y) { return -y; }         // Y is inverted
 
 // Get or create brush graphics for entity
-// Brush graphics are added to entityContainer, positioned after fill but before sprite
+// Brush graphics are added to entityContainer after fill layers but before sprite
 function getOrCreateBrushGraphics(entityIdx) {
     if (!brushGraphics[entityIdx]) {
         const g = new PIXI.Graphics();
         brushGraphics[entityIdx] = g;
         const container = entityContainers[entityIdx];
-        // Insert before sprite (which is always last child)
-        // Order: fillGraphics (0) → brushGraphics (1) → sprite (last)
-        const insertIdx = fillGraphics[entityIdx] ? 1 : 0;
+        // Insert before sprite (last child)
+        // Order: frozenFill(0) → activeFill(1) → brush(2) → sprite(last)
+        let insertIdx = 0;
+        if (frozenFillGraphics[entityIdx]) insertIdx++;
+        if (activeFillGraphics[entityIdx]) insertIdx++;
         container.addChildAt(g, insertIdx);
     }
     return brushGraphics[entityIdx];
 }
 
-// Get or create fill graphics for entity
-// Fill graphics are added to entityContainer at index 0 (bottom, below brush and sprite)
-function getOrCreateFillGraphics(entityIdx) {
-    if (!fillGraphics[entityIdx]) {
+// Get or create frozen fill graphics for entity (completed fills, rarely redrawn)
+function getOrCreateFrozenFillGraphics(entityIdx) {
+    if (!frozenFillGraphics[entityIdx]) {
         const g = new PIXI.Graphics();
-        fillGraphics[entityIdx] = g;
+        frozenFillGraphics[entityIdx] = g;
         const container = entityContainers[entityIdx];
-        // Insert at bottom of container
         container.addChildAt(g, 0);
-        // If brush graphics exists, it needs to stay after fill
-        // Since we inserted at 0, brush (if exists) is now at 1, sprite at 2 - correct order
     }
-    return fillGraphics[entityIdx];
+    return frozenFillGraphics[entityIdx];
+}
+
+// Get or create active fill graphics for entity (current fill session, redrawn each vertex)
+function getOrCreateActiveFillGraphics(entityIdx) {
+    if (!activeFillGraphics[entityIdx]) {
+        getOrCreateFrozenFillGraphics(entityIdx);
+        const g = new PIXI.Graphics();
+        activeFillGraphics[entityIdx] = g;
+        const container = entityContainers[entityIdx];
+        container.addChildAt(g, 1);
+    }
+    return activeFillGraphics[entityIdx];
 }
 
 // Read brush color from WASM memory and return as packed 0xRRGGBB
@@ -859,10 +874,12 @@ function changeBrushTransparency(entityIdx, amount) {
     // This matches EntryJS behavior: existing fill keeps old style, new drawing uses new style
     if (state.isFilling && state.fillPoints.length > 1) {
         // Save current path as completed segment with OLD opacity
+        // Marked closed to match EntryJS transparency change which calls closePath() via paint.endFill()
         state.fillSegments.push({
             points: state.fillPoints.slice(),
             color: state.fillColor,
-            opacity: state.fillOpacity
+            opacity: state.fillOpacity,
+            closed: true
         });
         // Start new path from current position with NEW opacity
         const lastPoint = state.fillPoints[state.fillPoints.length - 1];
@@ -872,9 +889,9 @@ function changeBrushTransparency(entityIdx, amount) {
     // Now update fill opacity for future drawing
     state.fillOpacity = state.opacity;
     
-    // Redraw all segments + current path
-    if (state.isFilling && fillGraphics[entityIdx]) {
-        redrawAllFill(entityIdx);
+    // Redraw active fill layer
+    if (state.isFilling && activeFillGraphics[entityIdx]) {
+        redrawActiveFill(entityIdx);
     }
 }
 
@@ -899,10 +916,12 @@ function setBrushTransparency(entityIdx, transparency) {
     // This matches EntryJS behavior: existing fill keeps old style, new drawing uses new style
     if (state.isFilling && state.fillPoints.length > 1) {
         // Save current path as completed segment with OLD opacity
+        // Marked closed to match EntryJS transparency change which calls closePath() via paint.endFill()
         state.fillSegments.push({
             points: state.fillPoints.slice(),
             color: state.fillColor,
-            opacity: state.fillOpacity
+            opacity: state.fillOpacity,
+            closed: true
         });
         // Start new path from current position with NEW opacity
         const lastPoint = state.fillPoints[state.fillPoints.length - 1];
@@ -912,18 +931,25 @@ function setBrushTransparency(entityIdx, transparency) {
     // Now update fill opacity for future drawing
     state.fillOpacity = newOpacity;
     
-    // Redraw all segments + current path
-    if (state.isFilling && fillGraphics[entityIdx]) {
-        redrawAllFill(entityIdx);
+    // Redraw active fill layer
+    if (state.isFilling && activeFillGraphics[entityIdx]) {
+        redrawActiveFill(entityIdx);
     }
 }
 
 // Start fill mode
+// If already filling, auto-close previous fill (matches EntryJS beginFill → endFill behavior)
 function startFillMode(entityIdx) {
     if (entityIdx < 0 || entityIdx >= brushStates.length) return;
     
     const state = brushStates[entityIdx];
-    const g = getOrCreateFillGraphics(entityIdx);
+    
+    // If already filling, save current session to completedFills first
+    if (state.isFilling) {
+        saveCurrentFillSession(entityIdx);
+    }
+    
+    const g = getOrCreateActiveFillGraphics(entityIdx);
     
     // Read fill color from WASM memory
     state.fillColor = readFillColorFromWasm(entityIdx);
@@ -936,16 +962,68 @@ function startFillMode(entityIdx) {
     state.fillLastY = entryToPixiY(y);
     
     // Initialize fillPoints with starting position
-    // We store all points to redraw the entire path on each update
-    // (PixiJS v7 requires endFill() to render fill, so we must redraw each time)
     state.fillPoints = [{ x: state.fillLastX, y: state.fillLastY }];
-    state.fillSegments = [];  // Clear any previous segments
+    state.fillSegments = [];  // Clear current session segments (completedFills preserved)
     
-    // Draw initial point (single point won't show, but sets up the graphics)
+    // Clear active layer; frozen layer already shows completedFills from previous sessions
     g.clear();
-    g.beginFill(state.fillColor, state.fillOpacity);
-    g.moveTo(state.fillLastX, state.fillLastY);
-    g.endFill();
+}
+
+// Save current fill session to completedFills and append to frozen graphics
+function saveCurrentFillSession(entityIdx) {
+    const state = brushStates[entityIdx];
+    const newFills = [];
+    
+    // Collect all current session segments
+    for (const segment of state.fillSegments) {
+        if (segment.points.length > 1) {
+            const fill = {
+                points: segment.points,
+                color: segment.color,
+                opacity: segment.opacity,
+                closed: true
+            };
+            state.completedFills.push(fill);
+            newFills.push(fill);
+        }
+    }
+    
+    // Save current path with closePath
+    if (state.fillPoints && state.fillPoints.length > 1) {
+        const fill = {
+            points: state.fillPoints.slice(),
+            color: state.fillColor,
+            opacity: state.fillOpacity,
+            closed: true
+        };
+        state.completedFills.push(fill);
+        newFills.push(fill);
+    }
+    
+    // Clear current session data
+    state.fillPoints = [];
+    state.fillSegments = [];
+    
+    // Append only new fills to frozen graphics (incremental, no full redraw)
+    if (newFills.length > 0) {
+        const fg = getOrCreateFrozenFillGraphics(entityIdx);
+        for (const fill of newFills) {
+            fg.beginFill(fill.color, fill.opacity);
+            fg.moveTo(fill.points[0].x, fill.points[0].y);
+            for (let i = 1; i < fill.points.length; i++) {
+                fg.lineTo(fill.points[i].x, fill.points[i].y);
+            }
+            if (fill.closed) {
+                fg.closePath();
+            }
+            fg.endFill();
+        }
+    }
+    
+    // Clear active layer
+    if (activeFillGraphics[entityIdx]) {
+        activeFillGraphics[entityIdx].clear();
+    }
 }
 
 // Stop fill mode
@@ -953,39 +1031,12 @@ function stopFillMode(entityIdx) {
     if (entityIdx < 0 || entityIdx >= brushStates.length) return;
     
     const state = brushStates[entityIdx];
-    if (state.isFilling && fillGraphics[entityIdx]) {
-        const g = fillGraphics[entityIdx];
-        
-        // Final redraw: all segments + current path with closePath on final segment
-        g.clear();
-        
-        // Draw all completed segments
-        for (const segment of state.fillSegments) {
-            if (segment.points.length > 1) {
-                g.beginFill(segment.color, segment.opacity);
-                g.moveTo(segment.points[0].x, segment.points[0].y);
-                for (let i = 1; i < segment.points.length; i++) {
-                    g.lineTo(segment.points[i].x, segment.points[i].y);
-                }
-                g.endFill();
-            }
-        }
-        
-        // Draw current path with closePath
-        const points = state.fillPoints;
-        if (points && points.length > 1) {
-            g.beginFill(state.fillColor, state.fillOpacity);
-            g.moveTo(points[0].x, points[0].y);
-            for (let i = 1; i < points.length; i++) {
-                g.lineTo(points[i].x, points[i].y);
-            }
-            g.closePath();
-            g.endFill();
-        }
+    if (state.isFilling) {
+        saveCurrentFillSession(entityIdx);
     }
     state.isFilling = false;
-    state.fillPoints = [];  // Clear points array
-    state.fillSegments = [];  // Clear segments array
+    state.fillPoints = [];
+    state.fillSegments = [];
 }
 
 // Sync fill color from WASM memory
@@ -999,10 +1050,12 @@ function syncFillColorFromWasm(entityIdx) {
     // If fill is active and color changed, save current path as a segment
     if (state.isFilling && state.fillColor !== newColor && state.fillPoints.length > 1) {
         // Save current path as completed segment with OLD color
+        // Marked closed to match EntryJS set_fill_color which calls closePath() via paint.endFill()
         state.fillSegments.push({
             points: state.fillPoints.slice(),
             color: state.fillColor,
-            opacity: state.fillOpacity
+            opacity: state.fillOpacity,
+            closed: true
         });
         // Start new path from current position
         const lastPoint = state.fillPoints[state.fillPoints.length - 1];
@@ -1012,27 +1065,30 @@ function syncFillColorFromWasm(entityIdx) {
     // Update fill color
     state.fillColor = newColor;
     
-    // Redraw all segments + current path
-    if (state.isFilling && fillGraphics[entityIdx]) {
-        redrawAllFill(entityIdx);
+    // Redraw active fill layer
+    if (state.isFilling && activeFillGraphics[entityIdx]) {
+        redrawActiveFill(entityIdx);
     }
 }
 
-// Helper function to redraw all fill segments + current path
-function redrawAllFill(entityIdx) {
+// Redraw active fill layer (current session segments + current path only)
+function redrawActiveFill(entityIdx) {
     const state = brushStates[entityIdx];
-    const g = fillGraphics[entityIdx];
+    const g = activeFillGraphics[entityIdx];
     if (!g) return;
     
     g.clear();
     
-    // Draw all completed segments (each with their own color/opacity)
+    // Draw current session's completed segments (from color/opacity changes)
     for (const segment of state.fillSegments) {
         if (segment.points.length > 1) {
             g.beginFill(segment.color, segment.opacity);
             g.moveTo(segment.points[0].x, segment.points[0].y);
             for (let i = 1; i < segment.points.length; i++) {
                 g.lineTo(segment.points[i].x, segment.points[i].y);
+            }
+            if (segment.closed) {
+                g.closePath();
             }
             g.endFill();
         }
@@ -1059,7 +1115,7 @@ function fillLineTo(entityIdx, x, y) {
     const state = brushStates[entityIdx];
     if (!state.isFilling) return;
     
-    const g = fillGraphics[entityIdx];
+    const g = activeFillGraphics[entityIdx];
     if (!g) return;
     
     // Sync fill color from WASM (in case it changed)
@@ -1075,8 +1131,8 @@ function fillLineTo(entityIdx, x, y) {
         state.fillLastX = pixiX;
         state.fillLastY = pixiY;
         
-        // Redraw all segments + current path
-        redrawAllFill(entityIdx);
+        // Redraw active layer only (frozen layer unchanged)
+        redrawActiveFill(entityIdx);
     }
 }
 
@@ -1108,17 +1164,20 @@ function clearAllBrush() {
     for (let i = 0; i < brushGraphics.length; i++) {
         if (brushGraphics[i]) {
             brushGraphics[i].clear();
-            // Reset style tracking
-            if (brushStates[i]) {
-                brushStates[i]._lastColor = -1;
-                brushStates[i]._lastThickness = -1;
-                brushStates[i]._lastOpacity = -1;
-                brushStates[i].fillPoints = [];  // Clear fill path
-                brushStates[i].fillSegments = [];  // Clear fill segments
-            }
         }
-        if (fillGraphics[i]) {
-            fillGraphics[i].clear();
+        if (brushStates[i]) {
+            brushStates[i]._lastColor = -1;
+            brushStates[i]._lastThickness = -1;
+            brushStates[i]._lastOpacity = -1;
+            brushStates[i].fillPoints = [];
+            brushStates[i].fillSegments = [];
+            brushStates[i].completedFills = [];
+        }
+        if (frozenFillGraphics[i]) {
+            frozenFillGraphics[i].clear();
+        }
+        if (activeFillGraphics[i]) {
+            activeFillGraphics[i].clear();
         }
     }
     
@@ -1537,6 +1596,7 @@ function restart() {
         brushStates[i].fillLastY = 0;
         brushStates[i].fillPoints = [];  // Clear fill path points
         brushStates[i].fillSegments = [];  // Clear fill segments
+        brushStates[i].completedFills = [];  // Clear completed fills
         brushStates[i]._lastColor = -1;
         brushStates[i]._lastThickness = -1;
         brushStates[i]._lastOpacity = -1;

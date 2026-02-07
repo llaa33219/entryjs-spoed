@@ -220,12 +220,20 @@ EntryJS와 동일한 브러시/채우기 동작을 구현합니다:
 
 ### 작동 방식
 1. 각 오브젝트는 특정 장면에 속합니다 (`obj.scene` 속성)
-2. 시작 시 첫 번째 장면의 오브젝트만 보입니다
+2. 시작 시 첫 번째 장면의 오브젝트만 보이고, `when_scene_start` 이벤트가 발생합니다
 3. `start_scene` 또는 `start_neighbor_scene` 블록으로 장면 전환
-4. 장면 전환 시:
+4. 장면 전환 시 (EntryJS `resetSceneDuringRun` 동작과 동일):
+   - **모든 실행 중인 쓰레드가 즉시 중지됩니다** (이전 장면뿐만 아니라 전체)
    - 이전 장면의 오브젝트들이 숨겨집니다
    - 새 장면의 오브젝트들이 보입니다
-   - `when_scene_start` 이벤트가 발생합니다
+   - 모든 말풍선이 초기화됩니다
+   - `when_scene_start` 이벤트가 새 장면의 오브젝트에 대해 발생합니다
+5. `show`/`hide` 블록은 `visible`과 함께 `initialVisible`도 업데이트하여, 장면 전환 후 돌아왔을 때 올바른 표시 상태를 유지합니다
+
+### 초기 장면 시작
+- 프로그램 시작 시 `$init`에서 `sceneJustChanged`를 1로 설정합니다
+- 첫 번째 틱에서 `when_scene_start`와 `when_run_button_click` 이벤트가 모두 발생합니다
+- 이는 EntryJS에서 초기 장면의 `when_scene_start`가 실행되는 것과 동일합니다
 
 ### 예제
 
