@@ -336,6 +336,9 @@ class WATGenerator {
         // String pool pointer (bump allocator - starts after static strings)
         code += `\n  (global $str_pool_ptr (mut i32) (i32.const ${this.getEffectivePoolStart()}))`;
         
+        // Persistent string pool pointer (for strings stored in lists - never reset per tick)
+        code += `\n  (global $persistent_pool_ptr (mut i32) (i32.const ${this.project.persistentPool?.start || 0}))`;
+        
         // Add thread execution state globals for each thread
         let threadIndex = 0;
         for (const obj of this.project.objects) {
@@ -933,7 +936,7 @@ class WATGenerator {
         (local.set $offset (call $list_element_offset (local.get $listIdx) (local.get $index)))
         (f64.store (local.get $offset) (f64.const 0))  ;; value = 0
         (i32.store (i32.add (local.get $offset) (i32.const 8)) (i32.const 1))  ;; type = string
-        (i32.store (i32.add (local.get $offset) (i32.const 12)) (local.get $strPtr)))))
+        (i32.store (i32.add (local.get $offset) (i32.const 12)) (call $str_persist (local.get $strPtr))))))
   
   ;; Push numeric value to end of list
   (func $list_push (param $listIdx i32) (param $value f64)
@@ -967,7 +970,7 @@ class WATGenerator {
         ;; Store string at end (16-byte element)
         (f64.store (local.get $offset) (f64.const 0))  ;; value = 0 (unused for strings)
         (i32.store (i32.add (local.get $offset) (i32.const 8)) (i32.const 1))  ;; type = 1 (string)
-        (i32.store (i32.add (local.get $offset) (i32.const 12)) (local.get $strPtr)) ;; str_ptr
+        (i32.store (i32.add (local.get $offset) (i32.const 12)) (call $str_persist (local.get $strPtr))) ;; str_ptr (persisted)
         ;; Increment length
         (call $list_set_length (local.get $listIdx) (i32.add (local.get $len) (i32.const 1))))))
   
@@ -1043,7 +1046,7 @@ class WATGenerator {
         (local.set $dstOffset (call $list_element_offset (local.get $listIdx) (local.get $index)))
         (f64.store (local.get $dstOffset) (f64.const 0))  ;; value = 0 (unused for strings)
         (i32.store (i32.add (local.get $dstOffset) (i32.const 8)) (i32.const 1))  ;; type = 1 (string)
-        (i32.store (i32.add (local.get $dstOffset) (i32.const 12)) (local.get $strPtr)) ;; str_ptr
+        (i32.store (i32.add (local.get $dstOffset) (i32.const 12)) (call $str_persist (local.get $strPtr))) ;; str_ptr (persisted)
         ;; Increment length
         (call $list_set_length (local.get $listIdx) (i32.add (local.get $len) (i32.const 1))))))
   
@@ -1534,6 +1537,45 @@ class WATGenerator {
     (if (result i32) (f64.lt (local.get $val) (f64.const 0))
       (then (i32.trunc_f64_s (f64.neg (local.get $val))))
       (else (call $f64_to_str (local.get $val)))))
+  
+  ;; Persist string to persistent pool (for strings stored in lists)
+  ;; Strings in the temp pool are invalidated each tick - this copies them to a permanent location
+  (func $str_persist (param $ptr i32) (result i32)
+    (local $len i32)
+    (local $newPtr i32)
+    (local $i i32)
+    ;; If null, return null
+    (if (i32.eqz (local.get $ptr))
+      (then (return (i32.const 0))))
+    ;; If pointer is a static string (below dynamic pool start), it's permanent - return as-is
+    (if (i32.lt_u (local.get $ptr) (i32.const ${this.getEffectivePoolStart()}))
+      (then (return (local.get $ptr))))
+    ;; If already in persistent pool, return as-is
+    (if (i32.ge_u (local.get $ptr) (i32.const ${this.project.persistentPool?.start || 0}))
+      (then (return (local.get $ptr))))
+    ;; Copy string to persistent pool
+    (local.set $len (i32.load (local.get $ptr)))
+    (local.set $newPtr (global.get $persistent_pool_ptr))
+    ;; Store length
+    (i32.store (local.get $newPtr) (local.get $len))
+    ;; Copy bytes
+    (local.set $i (i32.const 0))
+    (block $break
+      (loop $copy
+        (br_if $break (i32.ge_s (local.get $i) (local.get $len)))
+        (i32.store8
+          (i32.add (i32.add (local.get $newPtr) (i32.const 4)) (local.get $i))
+          (i32.load8_u (i32.add (i32.add (local.get $ptr) (i32.const 4)) (local.get $i))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $copy)))
+    ;; Null terminate
+    (i32.store8 (i32.add (i32.add (local.get $newPtr) (i32.const 4)) (local.get $len)) (i32.const 0))
+    ;; Advance persistent pool pointer (aligned to 4 bytes)
+    (global.set $persistent_pool_ptr
+      (i32.and
+        (i32.add (i32.add (local.get $newPtr) (i32.add (local.get $len) (i32.const 5))) (i32.const 3))
+        (i32.const -4)))
+    (local.get $newPtr))
   
   ;; Convert a hex character ASCII code to its digit value (0-15)
   ;; '0'-'9' (48-57) -> 0-9, 'A'-'F' (65-70) -> 10-15, 'a'-'f' (97-102) -> 10-15
@@ -2098,6 +2140,8 @@ class WATGenerator {
     ;; Reset click tracking state
     (global.set $prevMouseClicked (i32.const 0))
     (global.set $clickedEntityIndex (i32.const -1))
+    ;; Reset persistent string pool
+    (global.set $persistent_pool_ptr (i32.const ${this.project.persistentPool?.start || 0}))
     ${this.generateEntityInitialization()}
     ${this.generateVariableInitialization()}
     ${this.generateListInitialization()}
