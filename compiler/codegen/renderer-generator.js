@@ -164,6 +164,28 @@ const wasmImports = {
         startFill: (entityIdx) => startFillMode(entityIdx),
         stopFill: (entityIdx) => stopFillMode(entityIdx),
         notifyPosition: (entityIdx, x, y) => brushNotifyPosition(entityIdx, x, y)
+    },
+    util: {
+        f64ToString: (val) => {
+            if (!wasm || !wasm.str_alloc) return 0;
+            let str;
+            if (isNaN(val) || !isFinite(val)) {
+                str = '0';
+            } else if (Number.isInteger(val)) {
+                str = val.toString();
+            } else {
+                str = parseFloat(val.toFixed(2)).toString();
+            }
+            const encoder = new TextEncoder();
+            const bytes = encoder.encode(str);
+            const ptr = wasm.str_alloc(bytes.length);
+            const mem = new Uint8Array(wasm.memory.buffer);
+            for (let k = 0; k < bytes.length; k++) {
+                mem[ptr + 4 + k] = bytes[k];
+            }
+            mem[ptr + 4 + bytes.length] = 0;
+            return ptr;
+        }
     }
 };
 

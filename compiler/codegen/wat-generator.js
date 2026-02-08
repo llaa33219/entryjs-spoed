@@ -272,7 +272,10 @@ class WATGenerator {
   (import "brush" "startFill" (func $startFill (param i32)))
   (import "brush" "stopFill" (func $stopFill (param i32)))
   ;; Note: setFillColor is now internal - colors stored in entity memory
-  (import "brush" "notifyPosition" (func $brushNotifyPosition (param i32 f64 f64)))`;
+  (import "brush" "notifyPosition" (func $brushNotifyPosition (param i32 f64 f64)))
+  
+  ;; Util functions (JS-implemented for complex operations)
+  (import "util" "f64ToString" (func $f64_to_str_import (param f64) (result i32)))`;
     }
 
     generateMemory() {
@@ -661,8 +664,15 @@ class WATGenerator {
   (func $getVariable (param $varOffset i32) (result f64)
     (f64.load (local.get $varOffset)))
   
-  ;; Set variable value
+  ;; Set variable value (persists string pointers to avoid dangling temp pool references)
+  ;; Threshold -1000: string pointers are memory addresses (millions+), safe from normal negative numbers
   (func $setVariable (param $varOffset i32) (param $val f64)
+    (if (f64.lt (local.get $val) (f64.const -1000))
+      (then
+        (f64.store (local.get $varOffset)
+          (f64.neg (f64.convert_i32_s
+            (call $str_persist (i32.trunc_f64_s (f64.neg (local.get $val)))))))
+        (return)))
     (f64.store (local.get $varOffset) (local.get $val)))
   
   ;; Random number between min and max
@@ -1422,47 +1432,9 @@ class WATGenerator {
         (i32.store8 (i32.add (i32.add (local.get $newPtr) (i32.const 4)) (local.get $len)) (i32.const 0))
         (local.get $newPtr))))
   
-  ;; Convert f64 to string (simple integer conversion for now)
+  ;; Convert f64 to string (delegates to JS for proper decimal formatting)
   (func $f64_to_str (param $val f64) (result i32)
-    (local $intVal i32)
-    (local $isNeg i32)
-    (local $ptr i32)
-    (local $digits i32)
-    (local $temp i32)
-    (local $i i32)
-    ;; Simple conversion - just handle integers for now
-    (local.set $intVal (i32.trunc_f64_s (local.get $val)))
-    (local.set $isNeg (i32.lt_s (local.get $intVal) (i32.const 0)))
-    (if (local.get $isNeg) (then (local.set $intVal (i32.sub (i32.const 0) (local.get $intVal)))))
-    ;; Count digits
-    (local.set $digits (i32.const 1))
-    (local.set $temp (local.get $intVal))
-    (block $countDone
-      (loop $count
-        (local.set $temp (i32.div_u (local.get $temp) (i32.const 10)))
-        (br_if $countDone (i32.eqz (local.get $temp)))
-        (local.set $digits (i32.add (local.get $digits) (i32.const 1)))
-        (br $count)))
-    ;; Allocate string
-    (local.set $ptr (call $str_alloc (i32.add (local.get $digits) (local.get $isNeg))))
-    ;; Write digits in reverse
-    (local.set $temp (local.get $intVal))
-    (local.set $i (i32.sub (i32.add (local.get $digits) (local.get $isNeg)) (i32.const 1)))
-    (block $writeDone
-      (loop $write
-        (i32.store8
-          (i32.add (i32.add (local.get $ptr) (i32.const 4)) (local.get $i))
-          (i32.add (i32.const 48) (i32.rem_u (local.get $temp) (i32.const 10))))
-        (local.set $temp (i32.div_u (local.get $temp) (i32.const 10)))
-        (local.set $i (i32.sub (local.get $i) (i32.const 1)))
-        (br_if $writeDone (i32.lt_s (local.get $i) (local.get $isNeg)))
-        (br $write)))
-    ;; Write negative sign if needed
-    (if (local.get $isNeg)
-      (then (i32.store8 (i32.add (local.get $ptr) (i32.const 4)) (i32.const 45))))
-    ;; Null terminate
-    (i32.store8 (i32.add (i32.add (local.get $ptr) (i32.const 4)) (i32.add (local.get $digits) (local.get $isNeg))) (i32.const 0))
-    (local.get $ptr))
+    (call $f64_to_str_import (local.get $val)))
   
   ;; Compare two strings for equality (returns i32: 1 if equal, 0 if not)
   (func $str_equals (param $ptr1 i32) (param $ptr2 i32) (result i32)

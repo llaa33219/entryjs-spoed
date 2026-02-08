@@ -175,9 +175,9 @@ const statementBlocks = {
         } else if (typeof textParam === 'number') {
             textCode = `(call $f64_to_str (f64.const ${textParam}))`;
         } else if (textParam && textParam.type) {
-            // It's a value block - convert result to string
+            // It's a value block - convert result to string (use _or_deref to handle string pointers)
             const valueCode = ctx.transpileValue(textParam, entityIndex);
-            textCode = `(call $f64_to_str ${valueCode})`;
+            textCode = `(call $f64_to_str_or_deref ${valueCode})`;
         } else {
             textCode = generateStringAllocation('');
         }
@@ -213,7 +213,7 @@ const statementBlocks = {
             textCode = `(call $f64_to_str (f64.const ${textParam}))`;
         } else if (textParam && textParam.type) {
             const valueCode = ctx.transpileValue(textParam, entityIndex);
-            textCode = `(call $f64_to_str ${valueCode})`;
+            textCode = `(call $f64_to_str_or_deref ${valueCode})`;
         } else {
             textCode = generateStringAllocation('');
         }
