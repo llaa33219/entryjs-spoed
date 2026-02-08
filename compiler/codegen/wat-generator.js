@@ -28,6 +28,7 @@ class WATGenerator {
         this.localVars = new Map();
         this.currentFuncParamMap = null; // Map of param block types to indices
         this.currentFuncLocalVarMap = null; // Map of local variable IDs to indices
+        this.currentFuncIsValue = false; // Whether currently generating a value-returning function
         this.threadLoopDepths = []; // Max loop nesting depth for each thread
         this.staticStrings = new Map();
         this.staticStringOffset = 0;
@@ -1953,6 +1954,9 @@ class WATGenerator {
         const paramDecls = params.map((p, idx) => `(param $param_${idx} f64)`).join(' ');
         const resultDecl = isValueFunc ? '(result f64)' : '';
 
+        // Track whether current function returns a value (for stop_object return handling)
+        this.currentFuncIsValue = isValueFunc;
+
         // Reset loop iteration counter for this function
         // This counter is used to generate unique loop variables for nested loops
         this.loopIterCounter = 0;
@@ -1999,9 +2003,10 @@ class WATGenerator {
             localsDecl += `\n    (local $local_${idx} f64) ;; ${v.name}`;
         });
 
-        // Clear param map and local var map
+        // Clear param map, local var map, and value function flag
         this.currentFuncParamMap = null;
         this.currentFuncLocalVarMap = null;
+        this.currentFuncIsValue = false;
 
         return `
   

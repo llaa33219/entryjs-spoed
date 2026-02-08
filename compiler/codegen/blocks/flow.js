@@ -346,6 +346,11 @@ const statementBlocks = {
         
         // In user functions (threadIndex === -1), we can only return from the function
         if (threadIndex === -1) {
+            if (ctx.generator.currentFuncIsValue) {
+                return `
+          ;; stop_object (in value function - returns default 0)
+          (return (f64.const 0))`;
+            }
             return `
           ;; stop_object (in user function - just returns)
           (return)`;

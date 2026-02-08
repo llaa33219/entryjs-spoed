@@ -385,7 +385,7 @@ const valueBlocks = {
             const localIdx = localVarMap[varId];
             return `(local.get $local_${localIdx})`;
         }
-        return `(f64.const 0) ;; func_variable not found: ${varId}`;
+        return `(f64.const 0)`;
     },
 
     'value_of_index_from_list': (ctx, block, entityIndex) => {

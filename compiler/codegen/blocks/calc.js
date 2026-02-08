@@ -335,7 +335,7 @@ const valueBlocks = {
 
     'current_date_time_format': (ctx, block, entityIndex) => {
         // Date/time format - complex string operation, return timestamp
-        return '(f64.const 0) ;; current_date_time_format - string not supported';
+        return '(f64.const 0)';
     },
 
     // Color block - returns hex color string as negative f64 string pointer (static)

@@ -403,7 +403,7 @@ const valueBlocks = {
         const effectType = block.params?.[0];
         // Effect values would need to be stored in entity memory
         // For now return 0 as placeholder
-        return `(f64.const 0) ;; get_effect_value: ${effectType}`;
+        return `(f64.const 0)`;
     },
 
     'current_picture_name': (ctx, block, entityIndex) => {

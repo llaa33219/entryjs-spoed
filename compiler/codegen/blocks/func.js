@@ -142,6 +142,12 @@ function transpileFunctionCall(ctx, block, entityIndex, threadIndex) {
         }
     }
 
+    // Pad missing arguments with (f64.const 0) to match expected param count
+    const expectedParams = ctx.generator.parseFunctionContent(func).params.length;
+    while (args.length < expectedParams) {
+        args.push('(f64.const 0)');
+    }
+
     // Generate the function call
     const argsCode = args.length > 0 ? ' ' + args.join(' ') : '';
     
@@ -171,7 +177,7 @@ function transpileFunctionValue(ctx, block, entityIndex) {
     const func = functions.find(f => f.id === funcId);
     
     if (!func) {
-        return `(f64.const 0) ;; Function not found: ${funcId}`;
+        return `(f64.const 0)`;
     }
 
     // Collect arguments
@@ -212,6 +218,12 @@ function transpileFunctionValue(ctx, block, entityIndex) {
         }
     }
 
+    // Pad missing arguments with (f64.const 0) to match expected param count
+    const expectedParams = ctx.generator.parseFunctionContent(func).params.length;
+    while (args.length < expectedParams) {
+        args.push('(f64.const 0)');
+    }
+
     const argsCode = args.length > 0 ? ' ' + args.join(' ') : '';
     return `(call $user_func_${funcId} (i32.const ${entityIndex})${argsCode})`;
 }
@@ -234,7 +246,7 @@ function transpileParamValue(ctx, block, entityIndex) {
         return `(local.get $param_${paramIndex})`;
     }
     
-    return `(f64.const 0) ;; Unknown param: ${paramType}`;
+    return `(f64.const 0)`;
 }
 
 /**
