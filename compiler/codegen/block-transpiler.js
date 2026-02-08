@@ -60,8 +60,8 @@ class BlockTranspiler {
             return handler(ctx, block, entityIndex, threadIndex);
         }
 
-        // Unknown block - add comment
-        return `\n          ;; TODO: Unsupported block type: ${block.type}`;
+        // Unknown block - add nop with comment (nop ensures valid WAT when inside then/else blocks)
+        return `\n          ;; TODO: Unsupported block type: ${block.type}\n          (nop)`;
     }
 
     /**

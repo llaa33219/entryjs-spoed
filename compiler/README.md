@@ -78,6 +78,7 @@ node compiler/output/server.js
 - `quotient_and_mod` - 몫과 나머지
 - `coordinate_object` - 오브젝트 좌표
 - `color` - 색상 블록 (hex 색상을 packed RGB 값으로 변환: R*65536 + G*256 + B)
+- `get_date` - 현재 날짜/시간 (년/월/일/시/분/초)
 
 ### 문자열
 - `combine_something` - 문자열 결합
@@ -388,6 +389,7 @@ compiler/
 │       ├── brush.js
 │       ├── func.js       # 함수 블록 핸들러
 │       └── index.js
+│   └── server-generator.js    # Express 서버 생성
 └── examples/
     ├── sample-project.json
     └── test-functions.json  # 함수 테스트 프로젝트

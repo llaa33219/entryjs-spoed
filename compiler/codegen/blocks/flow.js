@@ -193,7 +193,8 @@ const statementBlocks = {
         return `
           ;; _if
           (if ${condition}
-            (then ${thenCode}))`;
+            (then ${thenCode}
+            ))`;
     },
 
     'if_else': (ctx, block, entityIndex, threadIndex) => {
@@ -214,8 +215,10 @@ const statementBlocks = {
         return `
           ;; if_else
           (if ${condition}
-            (then ${thenCode})
-            (else ${elseCode}))`;
+            (then ${thenCode}
+            )
+            (else ${elseCode}
+            ))`;
     },
 
     'stop_repeat': (ctx, block, entityIndex, threadIndex) => {

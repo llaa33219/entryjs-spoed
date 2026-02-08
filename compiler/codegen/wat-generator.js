@@ -228,6 +228,7 @@ class WATGenerator {
   (import "timer" "stopProjectTimer" (func $stopProjectTimer))
   (import "timer" "resetProjectTimer" (func $resetProjectTimer))
   (import "timer" "setProjectTimerVisible" (func $setProjectTimerVisible (param i32)))
+  (import "timer" "getDate" (func $getDate (param i32) (result f64)))
   
   ;; Answer/Input functions
   (import "input" "askAndWait" (func $askAndWait (param i32)))

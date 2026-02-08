@@ -97,6 +97,18 @@ const wasmImports = {
             if (timerDisplayIndex >= 0 && variableDisplays[timerDisplayIndex]) {
                 variableDisplays[timerDisplayIndex].container.visible = timerVisible;
             }
+        },
+        getDate: (type) => {
+            const d = new Date();
+            switch (type) {
+                case 0: return d.getFullYear();
+                case 1: return d.getMonth() + 1;
+                case 2: return d.getDate();
+                case 3: return d.getHours();
+                case 4: return d.getMinutes();
+                case 5: return d.getSeconds();
+                default: return 0;
+            }
         }
     },
     input: {
