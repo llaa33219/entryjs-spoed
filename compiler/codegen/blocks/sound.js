@@ -46,6 +46,25 @@ const statementBlocks = {
           (call $playSoundFromTo (i32.const ${entityIndex}) (i32.const ${soundIndex}) ${startTime} ${endTime})`;
     },
 
+    'sound_something_second_with_block': (ctx, block, entityIndex) => {
+        let soundBlock = block.params?.[0];
+        const seconds = ctx.transpileValue(block.params?.[1], entityIndex);
+        let soundIndex = 0;
+        
+        if (soundBlock && typeof soundBlock === 'object' && soundBlock.type === 'get_sounds') {
+            const soundId = soundBlock.params?.[0];
+            const obj = ctx.generator.project.objects[entityIndex];
+            soundIndex = obj?.sounds?.findIndex(s => s.id === soundId) || 0;
+        } else if (soundBlock) {
+            const obj = ctx.generator.project.objects[entityIndex];
+            soundIndex = obj?.sounds?.findIndex(s => s.id === soundBlock) || 0;
+        }
+        
+        return `
+          ;; sound_something_second_with_block
+          (call $playSoundForSeconds (i32.const ${entityIndex}) (i32.const ${soundIndex}) ${seconds})`;
+    },
+
     'sound_something_wait_with_block': (ctx, block, entityIndex, threadIndex) => {
         // Get sound from block parameter (could be get_sounds block)
         let soundBlock = block.params?.[0];

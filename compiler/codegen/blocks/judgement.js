@@ -196,18 +196,44 @@ const booleanBlocks = {
     },
 
     'boolean_contain': (ctx, block, entityIndex) => {
-        // String contains - complex in WASM
-        return '(i32.const 0)';
+        const haystackStr = ctx.transpileStringValue(block.params?.[0], entityIndex);
+        const needleStr = ctx.transpileStringValue(block.params?.[2], entityIndex);
+        return `(i32.gt_s (call $str_index_of ${haystackStr} ${needleStr}) (i32.const 0))`;
     },
 
     'boolean_start_with': (ctx, block, entityIndex) => {
-        // String starts with - complex in WASM
-        return '(i32.const 0)';
+        const haystackStr = ctx.transpileStringValue(block.params?.[0], entityIndex);
+        const needleStr = ctx.transpileStringValue(block.params?.[2], entityIndex);
+        return `(i32.eq (call $str_index_of ${haystackStr} ${needleStr}) (i32.const 1))`;
+    },
+
+    'boolean_between': (ctx, block, entityIndex) => {
+        const value = ctx.transpileValue(block.params?.[0], entityIndex);
+        const min = ctx.transpileValue(block.params?.[2], entityIndex);
+        const max = ctx.transpileValue(block.params?.[4], entityIndex);
+        return `(i32.and (f64.ge ${value} ${min}) (f64.le ${value} ${max}))`;
     },
 
     'is_boost_mode': (ctx, block, entityIndex) => {
         // Check if in boost mode - always return true for compiled WASM
         return '(i32.const 1)';
+    },
+
+    'is_current_device_type': (ctx, block, entityIndex) => {
+        const device = block.params?.[0] || 'desktop';
+        if (device === 'desktop') {
+            // desktop = type is 0 (not mobile and not tablet)
+            return `(i32.eqz (call $getDeviceType))`;
+        } else if (device === 'tablet') {
+            return `(i32.eq (call $getDeviceType) (i32.const 1))`;
+        } else {
+            // mobile
+            return `(i32.eq (call $getDeviceType) (i32.const 2))`;
+        }
+    },
+
+    'is_touch_supported': (ctx, block, entityIndex) => {
+        return '(call $isTouchSupported)';
     },
 
     'boolean_shell': (ctx, block, entityIndex) => {

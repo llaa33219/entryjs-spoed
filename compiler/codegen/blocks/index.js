@@ -16,6 +16,7 @@ const sound = require('./sound');
 const event = require('./event');
 const brush = require('./brush');
 const func = require('./func');
+const text = require('./text');
 
 // List of all block categories
 const categories = [
@@ -28,7 +29,8 @@ const categories = [
     sound,
     event,
     brush,
-    func
+    func,
+    text
 ];
 
 /**

@@ -221,6 +221,8 @@ class WATGenerator {
   ;; System callbacks
   (import "system" "log" (func $sysLog (param f64)))
   (import "system" "playSound" (func $playSound (param i32 i32)))
+  (import "system" "getDeviceType" (func $getDeviceType (result i32)))
+  (import "system" "isTouchSupported" (func $isTouchSupported (result i32)))
   
   ;; Timer functions
   (import "timer" "getProjectTimer" (func $getProjectTimer (result f64)))
@@ -274,6 +276,10 @@ class WATGenerator {
   (import "brush" "stopFill" (func $stopFill (param i32)))
   ;; Note: setFillColor is now internal - colors stored in entity memory
   (import "brush" "notifyPosition" (func $brushNotifyPosition (param i32 f64 f64)))
+  
+  ;; Effect functions
+  (import "effect" "setTransparency" (func $setTransparency (param i32 f64)))
+  (import "effect" "changeTransparency" (func $changeTransparency (param i32 f64)))
   
   ;; Util functions (JS-implemented for complex operations)
   (import "util" "f64ToString" (func $f64_to_str_import (param f64) (result i32)))`;
@@ -1498,7 +1504,98 @@ class WATGenerator {
             (br $parse)))
         (if (result f64) (local.get $isNeg)
           (then (f64.neg (local.get $result)))
-          (else (local.get $result))))))    ;; Get list value as string pointer (converts number to string if needed)
+          (else (local.get $result))))))
+  
+  ;; Count non-overlapping occurrences of search string in str
+  (func $str_count_of (param $str i32) (param $search i32) (result i32)
+    (local $strLen i32)
+    (local $searchLen i32)
+    (local $count i32)
+    (local $i i32)
+    (local $j i32)
+    (local $match i32)
+    (if (result i32) (i32.or (i32.eqz (local.get $str)) (i32.eqz (local.get $search)))
+      (then (i32.const 0))
+      (else
+        (local.set $strLen (i32.load (local.get $str)))
+        (local.set $searchLen (i32.load (local.get $search)))
+        (if (result i32) (i32.or (i32.eqz (local.get $searchLen)) (i32.gt_s (local.get $searchLen) (local.get $strLen)))
+          (then (i32.const 0))
+          (else
+            (local.set $count (i32.const 0))
+            (local.set $i (i32.const 0))
+            (block $done
+              (loop $outer
+                (br_if $done (i32.gt_s (local.get $i) (i32.sub (local.get $strLen) (local.get $searchLen))))
+                (local.set $match (i32.const 1))
+                (local.set $j (i32.const 0))
+                (block $nomatch
+                  (loop $inner
+                    (br_if $nomatch (i32.ge_s (local.get $j) (local.get $searchLen)))
+                    (if (i32.ne
+                          (i32.load8_u (i32.add (i32.add (local.get $str) (i32.const 4)) (i32.add (local.get $i) (local.get $j))))
+                          (i32.load8_u (i32.add (i32.add (local.get $search) (i32.const 4)) (local.get $j))))
+                      (then
+                        (local.set $match (i32.const 0))
+                        (br $nomatch)))
+                    (local.set $j (i32.add (local.get $j) (i32.const 1)))
+                    (br $inner)))
+                (if (local.get $match)
+                  (then
+                    (local.set $count (i32.add (local.get $count) (i32.const 1)))
+                    (local.set $i (i32.add (local.get $i) (local.get $searchLen)))
+                    (br $outer)))
+                (local.set $i (i32.add (local.get $i) (i32.const 1)))
+                (br $outer)))
+            (local.get $count))))))
+  
+  ;; Reverse string
+  (func $str_reverse (param $ptr i32) (result i32)
+    (local $len i32)
+    (local $newPtr i32)
+    (local $i i32)
+    (if (result i32) (i32.eqz (local.get $ptr))
+      (then (call $str_alloc (i32.const 0)))
+      (else
+        (local.set $len (i32.load (local.get $ptr)))
+        (local.set $newPtr (call $str_alloc (local.get $len)))
+        (local.set $i (i32.const 0))
+        (block $break
+          (loop $copy
+            (br_if $break (i32.ge_s (local.get $i) (local.get $len)))
+            (i32.store8
+              (i32.add (i32.add (local.get $newPtr) (i32.const 4)) (local.get $i))
+              (i32.load8_u (i32.add (i32.add (local.get $ptr) (i32.const 4)) (i32.sub (i32.sub (local.get $len) (i32.const 1)) (local.get $i)))))
+            (local.set $i (i32.add (local.get $i) (i32.const 1)))
+            (br $copy)))
+        (i32.store8 (i32.add (i32.add (local.get $newPtr) (i32.const 4)) (local.get $len)) (i32.const 0))
+        (local.get $newPtr))))
+  
+  ;; Extract RGB component from hex string "#RRGGBB" or "RRGGBB"
+  ;; component: 0=R, 1=G, 2=B
+  (func $hexToRgbComponent (param $strPtr i32) (param $component i32) (result i32)
+    (local $len i32)
+    (local $dataStart i32)
+    (local $offset i32)
+    (if (i32.eqz (local.get $strPtr))
+      (then (return (i32.const 0))))
+    (local.set $len (call $str_length (local.get $strPtr)))
+    ;; Check for "#RRGGBB" format (len >= 7 and starts with '#')
+    (if (i32.and
+          (i32.ge_s (local.get $len) (i32.const 7))
+          (i32.eq (i32.load8_u (i32.add (local.get $strPtr) (i32.const 4))) (i32.const 35)))
+      (then (local.set $dataStart (i32.add (local.get $strPtr) (i32.const 5))))
+      (else
+        ;; "RRGGBB" format - need at least 6 chars
+        (if (i32.lt_s (local.get $len) (i32.const 6))
+          (then (return (i32.const 0))))
+        (local.set $dataStart (i32.add (local.get $strPtr) (i32.const 4)))))
+    (local.set $offset (i32.mul (local.get $component) (i32.const 2)))
+    (i32.add
+      (i32.mul (call $hexCharToDigit (i32.load8_u (i32.add (local.get $dataStart) (local.get $offset)))) (i32.const 16))
+      (call $hexCharToDigit (i32.load8_u (i32.add (local.get $dataStart) (i32.add (local.get $offset) (i32.const 1)))))))
+  
+    ;; Get list value as string pointer (converts number to string if needed)
   (func $list_get_as_str (param $listIdx i32) (param $index i32) (result i32)
     ;; For now, just convert the numeric value to string
     ;; TODO: Support mixed-type lists with type tagging

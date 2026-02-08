@@ -33,26 +33,61 @@ node compiler/output/server.js
 ### 이벤트/시작
 - `when_run_button_click` - 시작하기 버튼 클릭
 - `when_some_key_pressed` - 키 눌렀을 때
+- `mouse_clicked` - 마우스를 클릭했을 때
+- `mouse_click_cancled` - 마우스 클릭을 해제했을 때
 - `when_object_click` - 오브젝트를 클릭했을 때
 - `when_object_click_canceled` - 오브젝트 클릭을 해제했을 때
+- `when_message_cast` - 신호를 받았을 때
+- `message_cast` - 신호 보내기
+- `message_cast_wait` - 신호 보내고 기다리기
 - `when_scene_start` - 장면이 시작되었을 때
 - `start_scene` - 장면 시작하기
 - `start_neighbor_scene` - 다음/이전 장면 시작하기
 
 ### 이동
 - `move_direction` - 방향으로 이동
+- `bounce_wall` - 벽에 닿으면 튕기기
 - `move_x`, `move_y` - X/Y 좌표 변경
+- `move_xy_time` - 시간 동안 X/Y만큼 이동
 - `locate_x`, `locate_y`, `locate_xy` - 좌표 설정
+- `locate_xy_time` - 시간 동안 좌표로 이동
+- `locate` - 마우스 포인터 위치로 이동
+- `locate_object_time` - 시간 동안 오브젝트 위치로 이동
 - `rotate_relative`, `rotate_absolute` - 회전
+- `rotate_by_time` - 시간 동안 회전
 - `direction_relative`, `direction_absolute` - 이동 방향
+- `direction_relative_duration` - 시간 동안 이동 방향 변경
+- `see_angle_object` - 오브젝트를 향해 방향 설정
+- `move_to_angle` - 각도 방향으로 이동
 
 ### 형태
 - `show`, `hide` - 보이기/숨기기
-- `change_size`, `set_size` - 크기 변경
-- `change_to_next_shape` - 다음 모양으로 변경
 - `dialog` - 말풍선 표시 (말하기/생각하기)
-- `dialog_time` - 지정 시간 동안 말풍선 표시
+- `dialog_time` - 지정 시간 동안 말풍선 표시 후 자동 제거
 - `remove_dialog` - 말풍선 지우기
+- `change_to_some_shape` - 모양 바꾸기
+- `change_to_next_shape` - 다음/이전 모양으로 변경
+- `add_effect_amount` - 효과 변경하기 (투명도)
+- `change_effect_amount` - 효과 정하기 (투명도)
+- `set_effect_amount` - 효과 값 변경하기 (투명도)
+- `erase_all_effects` - 효과 모두 지우기
+- `change_effect_volume` - 효과 변경 (투명도)
+- `set_effect_volume` - 효과 정하기 (투명도)
+- `clear_effect` - 효과 지우기
+- `set_effect` - 효과 정하기
+- `change_effect` - 효과 변경하기
+- `change_scale_size` - 크기 변경하기
+- `set_scale_size` - 크기 정하기
+- `stretch_scale_size` - 가로/세로 크기 변경하기
+- `reset_scale_size` - 크기 원래대로
+- `flip_x` - 좌우 뒤집기
+- `flip_y` - 상하 뒤집기
+- `change_object_index` - 순서 변경하기
+- `change_object_index_to` - 순서 정하기
+- `get_size` - 크기 값
+- `get_pictures` - 모양 값
+- `get_effect_value` - 효과 값
+- `current_picture_name` - 현재 모양 이름
 
 ### 흐름제어
 - `wait_second` - 초 기다리기
@@ -60,25 +95,60 @@ node compiler/output/server.js
 - `repeat_inf` - 계속 반복하기 (EntryJS와 동일하게 한 번 반복당 한 틱 대기)
 - `repeat_while_true` - 조건 만족할 때까지 반복 (EntryJS와 동일하게 한 번 반복당 한 틱 대기)
 - `_if`, `if_else` - 조건문
+- `wait_until_true` - 조건이 참이 될 때까지 기다리기
 - `stop_repeat` - 반복 중단하기
 - `continue_repeat` - 다음 반복으로 건너뛰기
+- `stop_object` - 오브젝트 실행 중단
+- `stop_run` - 프로젝트 실행 중단
+- `restart_project` - 프로젝트 다시 시작
+- `when_clone_start` - 복제되었을 때
+- `create_clone` - 복제하기
+- `delete_clone` - 복제본 삭제
+- `remove_all_clones` - 모든 복제본 삭제
 
 ### 판단
-- `boolean_basic_operator` - 비교 연산
+- `boolean_basic_operator` - 비교 연산 (=, ≠, >, <, ≥, ≤)
+- `boolean_comparison` - 비교 연산 (문자열 비교 포함)
 - `boolean_and_or` - 논리 AND/OR 연산
 - `boolean_not` - 논리 NOT 연산
-- `is_key_pressed` - 키 눌림 확인
+- `boolean_shell` - 불리언 래퍼
+- `boolean_contain` - 문자열 포함 여부
+- `boolean_start_with` - 문자열 시작 여부
+- `boolean_between` - 값이 범위 내에 있는지
 - `is_clicked` - 마우스 클릭 확인
+- `is_clicked_mouse` - 마우스 버튼 클릭 확인
+- `is_press_some_key` - 키 눌림 확인
 - `is_object_clicked` - 오브젝트 클릭 확인
+- `is_touched` - 오브젝트 접촉 확인
+- `reach_something` - 벽/마우스/오브젝트에 닿았는지
+- `object_is_visible` - 오브젝트 보이기 상태 확인
+- `is_type` - 값 타입 확인
+- `is_boost_mode` - 부스트 모드 여부 (항상 true)
+- `is_current_device_type` - 현재 기기 타입 확인 (데스크탑/태블릿/모바일)
+- `is_touch_supported` - 터치 지원 여부 확인
 
 ### 계산
+- `number`, `text`, `angle` - 숫자/문자/각도 리터럴
 - `calc_basic` - 사칙연산
 - `calc_rand` - 랜덤 숫자
-- `calc_operation` - 수학 함수
+- `calc_operation` - 수학 함수 (제곱, 루트, 절대값, 올림, 내림, 반올림, 삼각함수, 로그 등)
+- `calc_mod` - 나머지 연산
 - `quotient_and_mod` - 몫과 나머지
-- `coordinate_object` - 오브젝트 좌표
-- `color` - 색상 블록 (hex 색상을 packed RGB 값으로 변환: R*65536 + G*256 + B)
+- `coordinate_mouse` - 마우스 좌표
+- `coordinate_object` - 오브젝트 좌표/속성
+- `distance_something` - 거리 측정
 - `get_date` - 현재 날짜/시간 (년/월/일/시/분/초)
+- `get_project_timer_value` - 초시계 값
+- `choose_project_timer_action` - 초시계 시작/정지/리셋
+- `set_visible_project_timer` - 초시계 표시/숨기기
+- `get_sound_duration` - 소리 길이
+- `get_boolean_value` - 불리언 값을 숫자로 변환
+- `color` - 색상 블록 (hex 색상을 packed RGB 값으로 변환)
+- `change_rgb_to_hex` - RGB를 hex로 변환
+- `change_hex_to_rgb` - hex를 RGB 컴포넌트로 변환
+- `get_user_name` - 사용자 이름
+- `get_nickname` - 사용자 닉네임
+- `get_block_count` - 블록 수
 
 ### 문자열
 - `combine_something` - 문자열 결합
@@ -88,10 +158,52 @@ node compiler/output/server.js
 - `replace_string` - 문자열 치환 (첫 번째만)
 - `length_of_string` - 문자열 길이
 - `change_string_case` - 대소문자 변환 (upper/lower)
+- `count_of_string` - 문자열 포함 횟수
+- `count_match_string` - 문자열 일치 횟수
+- `reverse_of_string` - 문자열 뒤집기
+
+### 소리
+- `sound_something_with_block` - 소리 재생하기
+- `sound_something_second_with_block` - 소리를 초 동안 재생하기
+- `sound_from_to` - 소리 구간 재생하기
+- `sound_something_wait_with_block` - 소리 재생하고 기다리기
+- `sound_something_second_wait_with_block` - 소리를 초 동안 재생하고 기다리기
+- `sound_from_to_and_wait` - 소리 구간 재생하고 기다리기
+- `sound_volume_change` - 소리 크기 변경
+- `sound_volume_set` - 소리 크기 정하기
+- `get_sound_volume` - 소리 크기 값
+- `sound_speed_change` - 소리 빠르기 변경
+- `sound_speed_set` - 소리 빠르기 정하기
+- `get_sound_speed` - 소리 빠르기 값
+- `sound_silent_all` - 모든 소리 멈추기
+- `play_bgm` - 배경음악 재생
+- `stop_bgm` - 배경음악 멈추기
+- `get_sound_duration` - 소리 길이
+
+### 붓
+- `start_drawing` - 그리기 시작
+- `stop_drawing` - 그리기 멈추기
+- `set_color` - 붓 색상 정하기
+- `set_random_color` - 붓 랜덤 색상
+- `set_fill_color` - 채우기 색상 정하기
+- `change_thickness` - 굵기 변경
+- `set_thickness` - 굵기 정하기
+- `set_brush_color_to` - 붓 색상 설정
+- `set_brush_thickness` - 붓 굵기 설정
+- `change_brush_thickness` - 붓 굵기 변경
+- `change_brush_transparency` - 붓 투명도 변경
+- `set_brush_tranparency` / `set_brush_transparency` - 붓 투명도 정하기
+- `start_fill` - 채우기 시작
+- `stop_fill` - 채우기 멈추기
+- `brush_stamp` - 도장 찍기
+- `brush_erase_all` / `brush_clear` - 모두 지우기
 
 ### 변수
 - `get_variable`, `set_variable`, `change_variable` - 변수 조작
 - `show_variable`, `hide_variable` - 변수 표시 (화면에 변수명과 값 표시)
+- `set_visible_answer` - 대답 표시/숨기기
+- `ask_and_wait` - 묻고 기다리기
+- `get_canvas_input_value` - 대답 값
 - `get_func_variable`, `set_func_variable` - 함수 지역변수 조작
 
 ### 리스트
@@ -105,10 +217,16 @@ node compiler/output/server.js
 - `delete_all_list` - 리스트 비우기
 - `show_list`, `hide_list` - 리스트 표시 (화면에 리스트명과 항목 표시)
 
-### 형태 (말풍선)
-- `dialog` - 말풍선 표시 (말하기/생각하기)
-- `dialog_time` - 지정 시간 동안 말풍선 표시 후 자동 제거
-- `remove_dialog` - 말풍선 지우기
+### 글상자
+- `text_write` - 글상자에 쓰기 (스텁)
+- `text_append` - 글상자에 추가 (스텁)
+- `text_prepend` - 글상자 앞에 추가 (스텁)
+- `text_flush` - 글상자 비우기 (스텁)
+- `text_read` - 글상자 읽기 (스텁)
+- `text_change_effect` - 글상자 효과 변경 (스텁)
+- `text_change_font` - 글상자 글꼴 변경 (스텁)
+- `text_change_font_color` - 글상자 글자색 변경 (스텁)
+- `text_change_bg_color` - 글상자 배경색 변경 (스텁)
 
 ### 함수
 - `func_<id>` - 사용자 정의 함수 호출
@@ -388,6 +506,7 @@ compiler/
 │       ├── event.js
 │       ├── brush.js
 │       ├── func.js       # 함수 블록 핸들러
+│       ├── text.js       # 글상자 블록 핸들러
 │       └── index.js
 │   └── server-generator.js    # Express 서버 생성
 └── examples/

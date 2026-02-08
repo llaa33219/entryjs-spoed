@@ -63,7 +63,16 @@ const wasmImports = {
     system: {
         log: (value) => console.log('[WASM]', value),
         playSound: (entityIdx, soundIdx) => playSound(entityIdx, soundIdx),
-        sendMessage: (msgIdx) => handleMessage(msgIdx)
+        sendMessage: (msgIdx) => handleMessage(msgIdx),
+        getDeviceType: () => {
+            const ua = navigator.userAgent;
+            if (/Mobi|Android/i.test(ua)) return 2;
+            if (/Tablet|iPad/i.test(ua)) return 1;
+            return 0;
+        },
+        isTouchSupported: () => {
+            return ('ontouchstart' in window || navigator.maxTouchPoints > 0) ? 1 : 0;
+        }
     },
     timer: {
         getProjectTimer: () => getProjectTimerValue(),
@@ -176,6 +185,20 @@ const wasmImports = {
         startFill: (entityIdx) => startFillMode(entityIdx),
         stopFill: (entityIdx) => stopFillMode(entityIdx),
         notifyPosition: (entityIdx, x, y) => brushNotifyPosition(entityIdx, x, y)
+    },
+    effect: {
+        setTransparency: (entityIdx, value) => {
+            if (sprites[entityIdx]) {
+                sprites[entityIdx].sprite.alpha = 1 - Math.max(0, Math.min(100, value)) / 100;
+            }
+        },
+        changeTransparency: (entityIdx, amount) => {
+            if (sprites[entityIdx]) {
+                const current = (1 - sprites[entityIdx].sprite.alpha) * 100;
+                const newVal = Math.max(0, Math.min(100, current + amount));
+                sprites[entityIdx].sprite.alpha = 1 - newVal / 100;
+            }
+        }
     },
     util: {
         f64ToString: (val) => {

@@ -137,26 +137,33 @@ const statementBlocks = {
     'set_effect_volume': (ctx, block, entityIndex) => {
         const effectType = block.params?.[0];
         const value = ctx.transpileValue(block.params?.[1], entityIndex);
-        // Effect types: transparency, color, brightness, etc.
+        if (effectType === 'transparency') {
+            return `
+          ;; set_effect_volume: set transparency to value
+          (call $setTransparency (i32.const ${entityIndex}) ${value})`;
+        }
         return `
           ;; set_effect_volume: ${effectType}
-          ;; TODO: Implement effect system
           (drop ${value})`;
     },
 
     'change_effect_volume': (ctx, block, entityIndex) => {
         const effectType = block.params?.[0];
         const value = ctx.transpileValue(block.params?.[1], entityIndex);
+        if (effectType === 'transparency') {
+            return `
+          ;; change_effect_volume: add transparency by amount
+          (call $changeTransparency (i32.const ${entityIndex}) ${value})`;
+        }
         return `
           ;; change_effect_volume: ${effectType}
-          ;; TODO: Implement effect system
           (drop ${value})`;
     },
 
     'clear_effect': (ctx, block, entityIndex) => {
         return `
           ;; clear_effect
-          ;; TODO: Reset all effects`;
+          (call $setTransparency (i32.const ${entityIndex}) (f64.const 0))`;
     },
 
     'dialog': (ctx, block, entityIndex, threadIndex) => {
@@ -254,16 +261,71 @@ const statementBlocks = {
     'add_effect_amount': (ctx, block, entityIndex) => {
         const effectType = block.params?.[0];
         const value = ctx.transpileValue(block.params?.[1], entityIndex);
+        if (effectType === 'transparency') {
+            return `
+          ;; add_effect_amount: transparency
+          (call $changeTransparency (i32.const ${entityIndex}) ${value})`;
+        }
         return `
           ;; add_effect_amount: ${effectType}
-          ;; TODO: Implement effect system
+          (drop ${value})`;
+    },
+
+    'change_effect_amount': (ctx, block, entityIndex) => {
+        const effectType = block.params?.[0];
+        const value = ctx.transpileValue(block.params?.[1], entityIndex);
+        if (effectType === 'transparency') {
+            return `
+          ;; change_effect_amount: set transparency to value
+          (call $setTransparency (i32.const ${entityIndex}) ${value})`;
+        }
+        return `
+          ;; change_effect_amount: ${effectType}
+          (drop ${value})`;
+    },
+
+    'set_effect_amount': (ctx, block, entityIndex) => {
+        const effectType = block.params?.[0];
+        const value = ctx.transpileValue(block.params?.[1], entityIndex);
+        if (effectType === 'transparency') {
+            return `
+          ;; set_effect_amount: add transparency by amount
+          (call $changeTransparency (i32.const ${entityIndex}) ${value})`;
+        }
+        return `
+          ;; set_effect_amount: ${effectType}
           (drop ${value})`;
     },
 
     'erase_all_effects': (ctx, block, entityIndex) => {
         return `
           ;; erase_all_effects
-          ;; TODO: Reset all effects to default`;
+          (call $setTransparency (i32.const ${entityIndex}) (f64.const 0))`;
+    },
+
+    'stretch_scale_size': (ctx, block, entityIndex) => {
+        const direction = block.params?.[0];
+        const value = ctx.transpileValue(block.params?.[1], entityIndex);
+        if (direction === 'WIDTH') {
+            return `
+          ;; stretch_scale_size: width
+          (call $setScaleX (i32.const ${entityIndex})
+            (f64.add (call $getScaleX (i32.const ${entityIndex}))
+              (f64.div ${value} (f64.const 100))))`;
+        }
+        return `
+          ;; stretch_scale_size: height
+          (call $setScaleY (i32.const ${entityIndex})
+            (f64.add (call $getScaleY (i32.const ${entityIndex}))
+              (f64.div ${value} (f64.const 100))))`;
+    },
+
+    'reset_scale_size': (ctx, block, entityIndex) => {
+        return `
+          ;; reset_scale_size
+          (call $setScaleX (i32.const ${entityIndex}) (f64.const 1))
+          (call $setScaleY (i32.const ${entityIndex}) (f64.const 1))
+          (call $setSize (i32.const ${entityIndex}) (f64.const 100))`;
     },
 
     'flip_x': (ctx, block, entityIndex) => {
@@ -301,18 +363,26 @@ const statementBlocks = {
     'set_effect': (ctx, block, entityIndex) => {
         const effectType = block.params?.[0];
         const value = ctx.transpileValue(block.params?.[1], entityIndex);
+        if (effectType === 'transparency') {
+            return `
+          ;; set_effect: set transparency to value
+          (call $setTransparency (i32.const ${entityIndex}) ${value})`;
+        }
         return `
           ;; set_effect: ${effectType}
-          ;; TODO: Implement effect system
           (drop ${value})`;
     },
 
     'change_effect': (ctx, block, entityIndex) => {
         const effectType = block.params?.[0];
         const value = ctx.transpileValue(block.params?.[1], entityIndex);
+        if (effectType === 'transparency') {
+            return `
+          ;; change_effect: add transparency by amount
+          (call $changeTransparency (i32.const ${entityIndex}) ${value})`;
+        }
         return `
           ;; change_effect: ${effectType}
-          ;; TODO: Implement effect system
           (drop ${value})`;
     }
 };

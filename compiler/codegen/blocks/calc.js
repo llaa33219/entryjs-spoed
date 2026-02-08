@@ -254,6 +254,44 @@ const valueBlocks = {
         return `(f64.neg (f64.convert_i32_u (call $str_to_upper (call $f64_to_str_or_deref ${strVal}))))`;
     },
 
+    'count_of_string': (ctx, block, entityIndex) => {
+        const strVal = ctx.transpileValue(block.params?.[1], entityIndex);
+        const searchVal = ctx.transpileValue(block.params?.[3], entityIndex);
+        return `(f64.convert_i32_s (call $str_count_of (call $f64_to_str_or_deref ${strVal}) (call $f64_to_str_or_deref ${searchVal})))`;
+    },
+
+    'count_match_string': (ctx, block, entityIndex) => {
+        const strVal = ctx.transpileValue(block.params?.[0], entityIndex);
+        const searchVal = ctx.transpileValue(block.params?.[2], entityIndex);
+        return `(f64.convert_i32_s (call $str_count_of (call $f64_to_str_or_deref ${strVal}) (call $f64_to_str_or_deref ${searchVal})))`;
+    },
+
+    'reverse_of_string': (ctx, block, entityIndex) => {
+        const strVal = ctx.transpileValue(block.params?.[1], entityIndex);
+        return `(f64.neg (f64.convert_i32_u (call $str_reverse (call $f64_to_str_or_deref ${strVal}))))`;
+    },
+
+    'get_user_name': (ctx, block, entityIndex) => {
+        const addr = ctx.generator.addStaticString(' ');
+        return `(f64.neg (f64.convert_i32_u (i32.const ${addr})))`;
+    },
+
+    'get_nickname': (ctx, block, entityIndex) => {
+        const addr = ctx.generator.addStaticString(' ');
+        return `(f64.neg (f64.convert_i32_u (i32.const ${addr})))`;
+    },
+
+    'get_block_count': (ctx, block, entityIndex) => {
+        return '(f64.const 0)';
+    },
+
+    'change_hex_to_rgb': (ctx, block, entityIndex) => {
+        const hexVal = ctx.transpileValue(block.params?.[0], entityIndex);
+        const component = block.params?.[1];
+        const componentCode = component === 'r' ? 0 : component === 'g' ? 1 : 2;
+        return `(f64.convert_i32_s (call $hexToRgbComponent (call $f64_to_str_or_deref ${hexVal}) (i32.const ${componentCode})))`;
+    },
+
     'get_project_timer_value': (ctx, block, entityIndex) => {
         return `(call $getProjectTimer)`;
     },
