@@ -88,7 +88,8 @@ const statementBlocks = {
         return `
           ;; change_to_next_shape
           (call $setPictureIndex (i32.const ${entityIndex})
-            (i32.add (call $getPictureIndex (i32.const ${entityIndex})) (i32.const ${direction})))`;
+            (i32.add (call $getPictureIndex (i32.const ${entityIndex})) (i32.const ${direction})))
+          (call $updateEntityDimensions (i32.const ${entityIndex}) (call $getPictureIndex (i32.const ${entityIndex})))`;
     },
 
     'change_to_some_shape': (ctx, block, entityIndex) => {
@@ -131,7 +132,8 @@ const statementBlocks = {
         
         return `
           ;; change_to_some_shape
-          (call $setPictureIndex (i32.const ${entityIndex}) (i32.const ${pictureIndex}))`;
+          (call $setPictureIndex (i32.const ${entityIndex}) (i32.const ${pictureIndex}))
+          (call $updateEntityDimensions (i32.const ${entityIndex}) (i32.const ${pictureIndex}))`;
     },
 
     'set_effect_volume': (ctx, block, entityIndex) => {

@@ -340,7 +340,7 @@ function parseFunctions(functions) {
  * 
  * Memory Layout:
  * - 0-1023: Reserved for system
- * - 1024+: Entity data (each entity uses 120 bytes)
+ * - 1024+: Entity data (each entity uses 136 bytes)
  *   - 0-7: x (f64)
  *   - 8-15: y (f64)
  *   - 16-23: rotation (f64)
@@ -353,6 +353,8 @@ function parseFunctions(functions) {
  *   - 64-67: sceneIndex (i32)
  *   - 68-115: brush/fill colors
  *   - 116-119: initialVisible (i32)
+ *   - 120-127: width (f64)
+ *   - 128-135: height (f64)
  * - After entities: Variables (8 bytes each, f64)
  * - After variables: List metadata (24 bytes per list)
  *   - 0-3: length (i32)
@@ -365,7 +367,7 @@ function parseFunctions(functions) {
  */
 function assignMemoryIndices(parsed) {
     let memOffset = 1024;
-    const ENTITY_SIZE = 120;
+    const ENTITY_SIZE = 136;
     const VARIABLE_SIZE = 8;
     const LIST_META_SIZE = 24;
     const LIST_ELEMENT_SIZE = 16; // 8 bytes f64 value + 4 bytes type + 4 bytes str_ptr

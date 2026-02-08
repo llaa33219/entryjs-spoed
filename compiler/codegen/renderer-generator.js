@@ -37,6 +37,11 @@ const TICK_RATE = 1000000;
 const FIXED_DT = 1.0 / TICK_RATE;
 const MAX_TICKS_PER_FRAME = 50000;
 const MAX_ACCUMULATOR = 0.05;
+
+// Dynamic tick rate adaptation
+const TARGET_TICK_MS = 10;
+const MIN_TICKS_PER_FRAME = 100;
+let dynamicMaxTicks = 10000;
 const SCENE_COUNT = ${this.project.scenes.length};
 const VARIABLE_COUNT = ${(this.project.variables.variables || []).length};
 const LIST_COUNT = ${(this.project.variables.lists || []).length};
@@ -872,15 +877,26 @@ function gameLoop(currentTime) {
     // Accumulate real elapsed time, capped to prevent catch-up spiral
     accumulator += Math.min(realDelta, MAX_ACCUMULATOR);
     
-    // Calculate how many WASM ticks to run this frame
+    // Calculate how many WASM ticks to run this frame (dynamically adjusted)
     let ticksToRun = Math.floor(accumulator / FIXED_DT);
-    ticksToRun = Math.min(ticksToRun, MAX_TICKS_PER_FRAME);
+    ticksToRun = Math.min(ticksToRun, dynamicMaxTicks);
     
     // Run WASM ticks in tight loop (pause when waiting for input)
     if (!isWaitingForInput) {
+        const tickStart = performance.now();
         for (let t = 0; t < ticksToRun; t++) {
             wasm.tick(FIXED_DT);
         }
+        const tickTime = performance.now() - tickStart;
+        
+        // Dynamic tick rate adaptation: adjust max ticks based on actual performance
+        if (ticksToRun > 0 && tickTime > 0) {
+            const timePerTick = tickTime / ticksToRun;
+            const idealTicks = Math.floor(TARGET_TICK_MS / Math.max(timePerTick, 0.0001));
+            dynamicMaxTicks = Math.floor(dynamicMaxTicks * 0.8 + idealTicks * 0.2);
+            dynamicMaxTicks = Math.max(MIN_TICKS_PER_FRAME, Math.min(MAX_TICKS_PER_FRAME, dynamicMaxTicks));
+        }
+        
         accumulator -= ticksToRun * FIXED_DT;
     } else {
         accumulator = 0;
@@ -2136,6 +2152,7 @@ function restart() {
     running = true;
     lastTime = performance.now();
     accumulator = 0;
+    dynamicMaxTicks = 10000;
     requestAnimationFrame(gameLoop);
 }
 

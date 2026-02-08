@@ -120,24 +120,10 @@ const statementBlocks = {
     },
 
     'bounce_wall': (ctx, block, entityIndex) => {
-        // Bounce off wall by reflecting direction
-        // When touching edge, reverse direction component based on which edge
+        // Bounce off wall using AABB with position clamping
         return `
-          ;; bounce_wall
-          ;; Check left/right edges and flip horizontal component
-          (if (i32.or
-                (f64.le (call $getX (i32.const ${entityIndex})) (f64.const -240))
-                (f64.ge (call $getX (i32.const ${entityIndex})) (f64.const 240)))
-            (then
-              (call $setDirection (i32.const ${entityIndex})
-                (f64.sub (f64.const 180) (call $getDirection (i32.const ${entityIndex}))))))
-          ;; Check top/bottom edges and flip vertical component
-          (if (i32.or
-                (f64.le (call $getY (i32.const ${entityIndex})) (f64.const -135))
-                (f64.ge (call $getY (i32.const ${entityIndex})) (f64.const 135)))
-            (then
-              (call $setDirection (i32.const ${entityIndex})
-                (f64.mul (call $getDirection (i32.const ${entityIndex})) (f64.const -1)))))`;
+          ;; bounce_wall (AABB with position clamping)
+          (call $bounceWall (i32.const ${entityIndex}))`;
     },
 
     'locate': (ctx, block, entityIndex) => {

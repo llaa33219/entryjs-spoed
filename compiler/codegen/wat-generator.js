@@ -195,7 +195,7 @@ class WATGenerator {
   ;; Memory Layout:
   ;; - 0-63: System state (frame count, time, mouse, keys, etc.)
   ;; - 64-1023: Reserved
-  ;; - 1024+: Entity data (64 bytes each)
+  ;; - 1024+: Entity data (136 bytes each)
   ;; - After entities: Variables (8 bytes each)`;
     }
 
@@ -438,11 +438,11 @@ class WATGenerator {
     }
 
     generateEntityFunctions() {
-        const ENTITY_SIZE = 120; // Expanded for brush state
+        const ENTITY_SIZE = 136; // Expanded for brush state + width/height
         return `
   ;; ===== ENTITY ACCESSOR FUNCTIONS =====
   
-  ;; Get entity base offset: 1024 + entityIndex * 72
+  ;; Get entity base offset: 1024 + entityIndex * 136
   (func $getEntityOffset (param $idx i32) (result i32)
     (i32.add
       (i32.const 1024)
@@ -564,6 +564,32 @@ class WATGenerator {
   (func $setInitialVisible (param $idx i32) (param $val i32)
     (i32.store (i32.add (call $getEntityOffset (local.get $idx)) (i32.const 116)) (local.get $val)))
   
+  ;; Width (offset 120, f64) - original image width for bounding box
+  (func $getWidth (param $idx i32) (result f64)
+    (f64.load (i32.add (call $getEntityOffset (local.get $idx)) (i32.const 120))))
+  
+  (func $setWidth (param $idx i32) (param $val f64)
+    (f64.store (i32.add (call $getEntityOffset (local.get $idx)) (i32.const 120)) (local.get $val)))
+  
+  ;; Height (offset 128, f64) - original image height for bounding box
+  (func $getHeight (param $idx i32) (result f64)
+    (f64.load (i32.add (call $getEntityOffset (local.get $idx)) (i32.const 128))))
+  
+  (func $setHeight (param $idx i32) (param $val f64)
+    (f64.store (i32.add (call $getEntityOffset (local.get $idx)) (i32.const 128)) (local.get $val)))
+  
+  ;; Half-width for bounding box: width * |scaleX| / 2
+  (func $getHalfW (param $idx i32) (result f64)
+    (f64.div
+      (f64.mul (call $getWidth (local.get $idx)) (call $abs (call $getScaleX (local.get $idx))))
+      (f64.const 2)))
+  
+  ;; Half-height for bounding box: height * |scaleY| / 2
+  (func $getHalfH (param $idx i32) (result f64)
+    (f64.div
+      (f64.mul (call $getHeight (local.get $idx)) (call $abs (call $getScaleY (local.get $idx))))
+      (f64.const 2)))
+  
   ;; Set brush color RGB (convenience function)
   (func $setBrushColorRGB (param $idx i32) (param $r f64) (param $g f64) (param $b f64)
     (call $setBrushColorR (local.get $idx) (local.get $r))
@@ -637,7 +663,53 @@ class WATGenerator {
     ;; y -= distance * sin(rad)
     (call $setY (local.get $idx)
       (f64.sub (call $getY (local.get $idx))
-        (f64.mul (local.get $distance) (call $sin (local.get $rad))))))`;
+        (f64.mul (local.get $distance) (call $sin (local.get $rad))))))`
+        + this.generateUpdateEntityDimensionsFunction();
+    }
+
+    generateUpdateEntityDimensionsFunction() {
+        let code = `
+  
+  ;; Update entity width/height based on picture index (for AABB accuracy on picture change)
+  (func $updateEntityDimensions (param $idx i32) (param $picIdx i32)
+    (local $wrappedIdx i32)`;
+
+        for (let i = 0; i < this.project.objects.length; i++) {
+            const obj = this.project.objects[i];
+            const pics = obj.pictures || [];
+            if (pics.length === 0) continue;
+
+            code += `\n    (if (i32.eq (local.get $idx) (i32.const ${i}))`;
+            code += `\n      (then`;
+
+            if (pics.length === 1) {
+                const w = pics[0].dimension?.width || 100;
+                const h = pics[0].dimension?.height || 100;
+                code += `\n        (call $setWidth (local.get $idx) (f64.const ${w}))`;
+                code += `\n        (call $setHeight (local.get $idx) (f64.const ${h}))`;
+            } else {
+                code += `\n        (local.set $wrappedIdx`;
+                code += `\n          (i32.rem_u`;
+                code += `\n            (i32.add`;
+                code += `\n              (i32.rem_s (local.get $picIdx) (i32.const ${pics.length}))`;
+                code += `\n              (i32.const ${pics.length}))`;
+                code += `\n            (i32.const ${pics.length})))`;
+
+                for (let j = 0; j < pics.length; j++) {
+                    const w = pics[j].dimension?.width || 100;
+                    const h = pics[j].dimension?.height || 100;
+                    code += `\n        (if (i32.eq (local.get $wrappedIdx) (i32.const ${j}))`;
+                    code += `\n          (then`;
+                    code += `\n            (call $setWidth (local.get $idx) (f64.const ${w}))`;
+                    code += `\n            (call $setHeight (local.get $idx) (f64.const ${h}))))`;
+                }
+            }
+
+            code += `))`;
+        }
+
+        code += `)`;
+        return code;
     }
 
     generateBlockFunctions() {
@@ -754,58 +826,98 @@ class WATGenerator {
         (call $updateSceneVisibility))))
   
   ;; ===== COLLISION DETECTION FUNCTIONS =====
+  ;; Uses AABB (axis-aligned bounding box) based on entity width/height and scale
   
-  ;; Check if entity touches any edge (simple bounds check)
+  ;; Check if entity touches any edge (AABB bounds check)
   (func $isTouchingEdge (param $idx i32) (result i32)
     (local $x f64)
     (local $y f64)
+    (local $hw f64)
+    (local $hh f64)
     (local.set $x (call $getX (local.get $idx)))
     (local.set $y (call $getY (local.get $idx)))
+    (local.set $hw (call $getHalfW (local.get $idx)))
+    (local.set $hh (call $getHalfH (local.get $idx)))
     (i32.or
       (i32.or
-        (f64.le (local.get $x) (f64.const -240))
-        (f64.ge (local.get $x) (f64.const 240)))
+        (f64.le (f64.sub (local.get $x) (local.get $hw)) (f64.const -240))
+        (f64.ge (f64.add (local.get $x) (local.get $hw)) (f64.const 240)))
       (i32.or
-        (f64.le (local.get $y) (f64.const -135))
-        (f64.ge (local.get $y) (f64.const 135)))))
+        (f64.le (f64.sub (local.get $y) (local.get $hh)) (f64.const -135))
+        (f64.ge (f64.add (local.get $y) (local.get $hh)) (f64.const 135)))))
   
   ;; Check if entity touches top edge
   (func $isTouchingEdgeTop (param $idx i32) (result i32)
-    (f64.ge (call $getY (local.get $idx)) (f64.const 135)))
+    (f64.ge (f64.add (call $getY (local.get $idx)) (call $getHalfH (local.get $idx))) (f64.const 135)))
   
   ;; Check if entity touches bottom edge
   (func $isTouchingEdgeBottom (param $idx i32) (result i32)
-    (f64.le (call $getY (local.get $idx)) (f64.const -135)))
+    (f64.le (f64.sub (call $getY (local.get $idx)) (call $getHalfH (local.get $idx))) (f64.const -135)))
   
   ;; Check if entity touches left edge
   (func $isTouchingEdgeLeft (param $idx i32) (result i32)
-    (f64.le (call $getX (local.get $idx)) (f64.const -240)))
+    (f64.le (f64.sub (call $getX (local.get $idx)) (call $getHalfW (local.get $idx))) (f64.const -240)))
   
   ;; Check if entity touches right edge
   (func $isTouchingEdgeRight (param $idx i32) (result i32)
-    (f64.ge (call $getX (local.get $idx)) (f64.const 240)))
+    (f64.ge (f64.add (call $getX (local.get $idx)) (call $getHalfW (local.get $idx))) (f64.const 240)))
   
-  ;; Check if entity touches mouse position (distance-based)
+  ;; Check if entity touches mouse position (AABB point-in-box test)
   (func $isTouchingMouse (param $idx i32) (result i32)
-    (local $dx f64)
-    (local $dy f64)
-    (local.set $dx (f64.sub (call $getX (local.get $idx)) (call $getMouseX)))
-    (local.set $dy (f64.sub (call $getY (local.get $idx)) (call $getMouseY)))
-    ;; Check if distance < 50 (simple approximation)
-    (f64.lt
-      (f64.add (f64.mul (local.get $dx) (local.get $dx)) (f64.mul (local.get $dy) (local.get $dy)))
-      (f64.const 2500)))
+    (local $hw f64)
+    (local $hh f64)
+    (local.set $hw (call $getHalfW (local.get $idx)))
+    (local.set $hh (call $getHalfH (local.get $idx)))
+    (i32.and
+      (f64.le (call $abs (f64.sub (call $getX (local.get $idx)) (call $getMouseX))) (local.get $hw))
+      (f64.le (call $abs (f64.sub (call $getY (local.get $idx)) (call $getMouseY))) (local.get $hh))))
   
-  ;; Check if two entities touch each other (distance-based)
+  ;; Check if two entities touch each other (AABB overlap test)
   (func $isTouchingObject (param $idx1 i32) (param $idx2 i32) (result i32)
-    (local $dx f64)
-    (local $dy f64)
-    (local.set $dx (f64.sub (call $getX (local.get $idx1)) (call $getX (local.get $idx2))))
-    (local.set $dy (f64.sub (call $getY (local.get $idx1)) (call $getY (local.get $idx2))))
-    ;; Check if distance < 50 (simple approximation)
-    (f64.lt
-      (f64.add (f64.mul (local.get $dx) (local.get $dx)) (f64.mul (local.get $dy) (local.get $dy)))
-      (f64.const 2500)))
+    (i32.and
+      (f64.le
+        (call $abs (f64.sub (call $getX (local.get $idx1)) (call $getX (local.get $idx2))))
+        (f64.add (call $getHalfW (local.get $idx1)) (call $getHalfW (local.get $idx2))))
+      (f64.le
+        (call $abs (f64.sub (call $getY (local.get $idx1)) (call $getY (local.get $idx2))))
+        (f64.add (call $getHalfH (local.get $idx1)) (call $getHalfH (local.get $idx2))))))
+  
+  ;; Bounce off wall: reflect direction and clamp position using AABB
+  (func $bounceWall (param $idx i32)
+    (local $hw f64)
+    (local $hh f64)
+    (local $x f64)
+    (local $y f64)
+    (local $dir f64)
+    (local.set $hw (call $getHalfW (local.get $idx)))
+    (local.set $hh (call $getHalfH (local.get $idx)))
+    (local.set $x (call $getX (local.get $idx)))
+    (local.set $y (call $getY (local.get $idx)))
+    (local.set $dir (call $getDirection (local.get $idx)))
+    ;; Check right edge: x + halfW >= 240 (else check left)
+    (if (f64.ge (f64.add (local.get $x) (local.get $hw)) (f64.const 240))
+      (then
+        (local.set $dir (f64.sub (f64.const 180) (local.get $dir)))
+        (local.set $x (f64.sub (f64.const 240) (local.get $hw))))
+      (else
+        (if (f64.le (f64.sub (local.get $x) (local.get $hw)) (f64.const -240))
+          (then
+            (local.set $dir (f64.sub (f64.const 180) (local.get $dir)))
+            (local.set $x (f64.add (f64.const -240) (local.get $hw)))))))
+    ;; Check top edge: y + halfH >= 135 (else check bottom)
+    (if (f64.ge (f64.add (local.get $y) (local.get $hh)) (f64.const 135))
+      (then
+        (local.set $dir (f64.mul (local.get $dir) (f64.const -1)))
+        (local.set $y (f64.sub (f64.const 135) (local.get $hh))))
+      (else
+        (if (f64.le (f64.sub (local.get $y) (local.get $hh)) (f64.const -135))
+          (then
+            (local.set $dir (f64.mul (local.get $dir) (f64.const -1)))
+            (local.set $y (f64.add (f64.const -135) (local.get $hh)))))))
+    (call $setDirection (local.get $idx) (local.get $dir))
+    (call $setX (local.get $idx) (local.get $x))
+    (call $setY (local.get $idx) (local.get $y))
+    (call $brushNotifyPosition (local.get $idx) (local.get $x) (local.get $y)))
   
   ;; Check if object is clicked (mouse pressed and touching object)
   (func $isObjectClicked (param $idx i32) (result i32)
@@ -1471,13 +1583,14 @@ class WATGenerator {
         (br $compare)))
     (i32.const 1))
   
-  ;; Convert string to f64
+  ;; Convert string to f64 (supports integer and decimal numbers)
   (func $str_to_f64 (param $ptr i32) (result f64)
     (local $len i32)
     (local $i i32)
     (local $c i32)
     (local $result f64)
     (local $isNeg i32)
+    (local $frac f64)
     (if (result f64) (i32.eqz (local.get $ptr))
       (then (f64.const 0))
       (else
@@ -1490,7 +1603,7 @@ class WATGenerator {
           (then
             (local.set $isNeg (i32.const 1))
             (local.set $i (i32.const 1))))
-        ;; Parse digits
+        ;; Parse integer digits
         (block $done
           (loop $parse
             (br_if $done (i32.ge_s (local.get $i) (local.get $len)))
@@ -1502,6 +1615,24 @@ class WATGenerator {
                 (f64.convert_i32_u (i32.sub (local.get $c) (i32.const 48)))))
             (local.set $i (i32.add (local.get $i) (i32.const 1)))
             (br $parse)))
+        ;; Parse decimal point and fractional digits
+        (if (i32.and
+              (i32.lt_s (local.get $i) (local.get $len))
+              (i32.eq (i32.load8_u (i32.add (i32.add (local.get $ptr) (i32.const 4)) (local.get $i))) (i32.const 46)))
+          (then
+            (local.set $i (i32.add (local.get $i) (i32.const 1)))
+            (local.set $frac (f64.const 0.1))
+            (block $done2
+              (loop $parse2
+                (br_if $done2 (i32.ge_s (local.get $i) (local.get $len)))
+                (local.set $c (i32.load8_u (i32.add (i32.add (local.get $ptr) (i32.const 4)) (local.get $i))))
+                (br_if $done2 (i32.or (i32.lt_u (local.get $c) (i32.const 48)) (i32.gt_u (local.get $c) (i32.const 57))))
+                (local.set $result
+                  (f64.add (local.get $result)
+                    (f64.mul (f64.convert_i32_u (i32.sub (local.get $c) (i32.const 48))) (local.get $frac))))
+                (local.set $frac (f64.mul (local.get $frac) (f64.const 0.1)))
+                (local.set $i (i32.add (local.get $i) (i32.const 1)))
+                (br $parse2)))))
         (if (result f64) (local.get $isNeg)
           (then (f64.neg (local.get $result)))
           (else (local.get $result))))))
@@ -2324,6 +2455,8 @@ class WATGenerator {
     (call $setSize (i32.const ${idx}) (f64.const ${size}))
     (call $setVisible (i32.const ${idx}) (i32.const ${initialVisible}))
     (call $setInitialVisible (i32.const ${idx}) (i32.const ${e.visible ? 1 : 0}))
+    (call $setWidth (i32.const ${idx}) (f64.const ${e.width}))
+    (call $setHeight (i32.const ${idx}) (f64.const ${e.height}))
     (call $setPictureIndex (i32.const ${idx}) (i32.const 0))
     (call $setSceneIndex (i32.const ${idx}) (i32.const ${sceneIdx}))
     ;; Initialize brush colors to default red (255, 0, 0)
@@ -2389,6 +2522,8 @@ class WATGenerator {
   (export "getScaleY" (func $getScaleY))
   (export "getSize" (func $getSize))
   (export "getVisible" (func $getVisible))
+  (export "getWidth" (func $getWidth))
+  (export "getHeight" (func $getHeight))
   (export "getPictureIndex" (func $getPictureIndex))
   (export "getSceneIndex" (func $getSceneIndex))
   (export "getCurrentScene" (func $getCurrentScene))
