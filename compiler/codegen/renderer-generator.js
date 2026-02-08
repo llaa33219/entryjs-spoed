@@ -92,12 +92,39 @@ const wasmImports = {
                 projectTimerPauseStart = current;
             }
         },
-        setProjectTimerVisible: (visible) => { /* TODO: implement timer visibility */ }
+        setProjectTimerVisible: (visible) => {
+            timerVisible = visible !== 0;
+            if (timerDisplayIndex >= 0 && variableDisplays[timerDisplayIndex]) {
+                variableDisplays[timerDisplayIndex].container.visible = timerVisible;
+            }
+        }
     },
     input: {
-        askAndWait: (entityIdx) => { /* TODO: implement ask and wait */ },
-        getAnswer: () => answerValue,
-        setAnswerVisible: (visible) => { /* TODO: implement answer visibility */ }
+        askAndWait: (entityIdx) => {
+            if (isWaitingForInput) return;
+            isWaitingForInput = true;
+            showInputField();
+        },
+        getAnswer: () => {
+            if (answerText === '') return 0;
+            if (!isNaN(answerValue)) return answerValue;
+            if (!wasm || !wasm.str_alloc) return 0;
+            const encoder = new TextEncoder();
+            const bytes = encoder.encode(answerText);
+            const ptr = wasm.str_alloc(bytes.length);
+            const mem = new Uint8Array(wasm.memory.buffer);
+            for (let k = 0; k < bytes.length; k++) {
+                mem[ptr + 4 + k] = bytes[k];
+            }
+            mem[ptr + 4 + bytes.length] = 0;
+            return -ptr;
+        },
+        setAnswerVisible: (visible) => {
+            answerVisible = visible !== 0;
+            if (answerDisplayIndex >= 0 && variableDisplays[answerDisplayIndex]) {
+                variableDisplays[answerDisplayIndex].container.visible = answerVisible;
+            }
+        }
     },
     clone: {
         createClone: (entityIdx) => { /* TODO: implement clone creation */ },
@@ -159,6 +186,11 @@ let projectTimerPausedTime = 0;   // total accumulated paused time
 let projectTimerPauseStart = 0;   // timestamp when pause started (0 if not paused)
 let projectTimerIsInit = false;   // whether timer has been started
 let answerValue = 0;
+let answerText = '';
+let timerVisible = false;
+let answerVisible = false;
+let timerDisplayIndex = -1;
+let answerDisplayIndex = -1;
 
 // Get current project timer value (calculated on-demand for accuracy)
 // Formula matches EntryJS: Math.max((current - start - pausedTime) / 1000, 0)
@@ -184,6 +216,7 @@ let stampContainer = null;  // Container for stamps (rendered above all entities
 let stamps = [];            // Array of stamp sprites
 
 // Variable/List display containers
+let variableLayer = null;   // Scaled container (480x270 coordinate space, matching EntryJS stage)
 let variableDisplays = [];  // Array of variable display objects
 let listDisplays = [];      // Array of list display objects
 
@@ -193,11 +226,24 @@ let dialogBubbles = [];     // Array of dialog bubble objects per entity
 // Brush state per entity: { isDrawing, isFilling, color, thickness, opacity, fillColor, fillOpacity, brushLastX, brushLastY, fillLastX, fillLastY }
 let brushStates = [];
 
+// Drag state for slide variables and list scroll buttons
+let dragState = null;
+
+// Ask-and-wait input state
+let isWaitingForInput = false;
+let inputOverlay = null;
+
 // ===== SCENE DATA =====
 ${this.generateSceneData()}
 
 // ===== VARIABLE DATA =====
 ${this.generateVariableData()}
+
+// ===== TIMER DATA =====
+${this.generateTimerData()}
+
+// ===== ANSWER DATA =====
+${this.generateAnswerData()}
 
 // ===== LIST DATA =====
 ${this.generateListData()}
@@ -551,13 +597,47 @@ function setupInputHandlers() {
         view.setFloat64(24, y, true);
     });
     
-    // Mouse click
-    canvas.addEventListener('mousedown', () => {
+    // Mouse click (also handles slide variable and scroll button drag start)
+    canvas.addEventListener('mousedown', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const layerX = (e.clientX - rect.left) * (480 / rect.width);
+        const layerY = (e.clientY - rect.top) * (270 / rect.height);
+        
+        // Check slide variable drag
+        for (let i = 0; i < variableDisplays.length; i++) {
+            const display = variableDisplays[i];
+            if (!display.container.visible || display.varType !== 'slide') continue;
+            const localX = layerX - display.container.x;
+            const localY = layerY - display.container.y;
+            const ow = display.outerWidth || 90;
+            if (localY >= 12 && localY <= 26 && localX >= 4 && localX <= ow - 2) {
+                dragState = { type: 'slide', index: i };
+                updateSlideFromPosition(i, localX);
+                return;
+            }
+        }
+        
+        // Check list scroll button drag
+        for (let i = 0; i < listDisplays.length; i++) {
+            const display = listDisplays[i];
+            if (!display.container.visible || !display.scrollBtn.visible) continue;
+            const localX = layerX - display.container.x;
+            const localY = layerY - display.container.y;
+            const btnX = display.scrollBtn.x;
+            const btnY = display.scrollBtn.y;
+            if (localX >= btnX - 2 && localX <= btnX + 9 && localY >= btnY && localY <= btnY + 30) {
+                dragState = { type: 'scroll', index: i, offsetY: localY - btnY };
+                return;
+            }
+        }
+        
+        // No drag started - set WASM click state
         const view = new DataView(wasm.memory.buffer);
         view.setInt32(32, 1, true);
     });
     
     canvas.addEventListener('mouseup', () => {
+        if (dragState) return;
         const view = new DataView(wasm.memory.buffer);
         view.setInt32(32, 0, true);
     });
@@ -566,6 +646,7 @@ function setupInputHandlers() {
     const keyStates = new Uint8Array(64); // 512 bits
     
     document.addEventListener('keydown', (e) => {
+        if (isWaitingForInput) return;
         const keycode = e.keyCode;
         if (keycode < 512) {
             const byteIndex = Math.floor(keycode / 8);
@@ -583,6 +664,7 @@ function setupInputHandlers() {
     });
     
     document.addEventListener('keyup', (e) => {
+        if (isWaitingForInput) return;
         const keycode = e.keyCode;
         if (keycode < 512) {
             const byteIndex = Math.floor(keycode / 8);
@@ -594,6 +676,133 @@ function setupInputHandlers() {
             view.set(keyStates);
         }
     });
+    
+    // Mouse wheel for list scroll (matching EntryJS scrollButton_ drag behavior)
+    canvas.addEventListener('wheel', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        // Convert mouse position to 480x270 coordinate space (matching variableLayer)
+        const layerX = (e.clientX - rect.left) * (480 / rect.width);
+        const layerY = (e.clientY - rect.top) * (270 / rect.height);
+        
+        for (let i = 0; i < listDisplays.length; i++) {
+            const display = listDisplays[i];
+            if (!display.container.visible || !display.scrollBtn.visible) continue;
+            const lx = display.container.x;
+            const ly = display.container.y;
+            if (layerX >= lx && layerX <= lx + display.width + 7 &&
+                layerY >= ly && layerY <= ly + display.height + 22) {
+                const delta = e.deltaY > 0 ? 5 : -5;
+                display.scrollBtn.y = Math.max(23, Math.min(display.height - 30, display.scrollBtn.y + delta));
+                e.preventDefault();
+                break;
+            }
+        }
+    }, { passive: false });
+    
+    // Document-level drag handlers for slide variables and list scroll buttons
+    document.addEventListener('mousemove', (e) => {
+        if (!dragState) return;
+        const rect = canvas.getBoundingClientRect();
+        const layerX = (e.clientX - rect.left) * (480 / rect.width);
+        const layerY = (e.clientY - rect.top) * (270 / rect.height);
+        
+        if (dragState.type === 'slide') {
+            const display = variableDisplays[dragState.index];
+            if (display) {
+                const localX = layerX - display.container.x;
+                updateSlideFromPosition(dragState.index, localX);
+            }
+        } else if (dragState.type === 'scroll') {
+            const display = listDisplays[dragState.index];
+            if (display) {
+                const newY = layerY - display.container.y - dragState.offsetY;
+                display.scrollBtn.y = Math.max(23, Math.min(display.height - 30, newY));
+            }
+        }
+    });
+    
+    document.addEventListener('mouseup', () => {
+        dragState = null;
+    });
+}
+
+// ===== SLIDE VARIABLE DRAG =====
+function updateSlideFromPosition(displayIndex, localX) {
+    const display = variableDisplays[displayIndex];
+    if (!display || display.varType !== 'slide') return;
+    const maxWidth = display.maxWidth || 70;
+    const position = Math.max(0, Math.min(maxWidth, localX - 8));
+    const ratio = maxWidth > 0 ? position / maxWidth : 0;
+    const minVal = display.data.minValue;
+    const maxVal = display.data.maxValue;
+    let value = minVal + Math.abs(maxVal - minVal) * ratio;
+    value = parseFloat(value.toFixed(2));
+    value = Math.max(minVal, Math.min(maxVal, value));
+    const view = new DataView(wasm.memory.buffer);
+    view.setFloat64(display.data.memoryOffset, value, true);
+}
+
+// ===== ASK AND WAIT INPUT =====
+function showInputField() {
+    if (inputOverlay) return;
+    const canvas = app.canvas || app.view;
+    const rect = canvas.getBoundingClientRect();
+    
+    const container = document.createElement('div');
+    container.style.cssText = 'position:fixed;' +
+        'left:' + rect.left + 'px;' +
+        'top:' + (rect.bottom - 42) + 'px;' +
+        'width:' + rect.width + 'px;' +
+        'height:42px;display:flex;align-items:center;padding:4px 10px;gap:6px;' +
+        'background:rgba(255,255,255,0.95);border-top:2px solid #e2e2e2;' +
+        'z-index:1000;box-sizing:border-box;';
+    
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.style.cssText = "flex:1;height:30px;font-size:14px;" +
+        "font-family:NanumGothic,'Nanum Gothic',Arial,sans-serif;" +
+        "color:#2c313d;border:2px solid #e2e2e2;border-radius:6px;" +
+        "padding:0 10px;outline:none;box-sizing:border-box;";
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') submitInput();
+        e.stopPropagation();
+    });
+    input.addEventListener('keyup', (e) => { e.stopPropagation(); });
+    
+    const button = document.createElement('button');
+    button.textContent = '\uD655\uC778';
+    button.style.cssText = "height:30px;padding:0 16px;background:#4f80ff;color:white;" +
+        "border:none;border-radius:6px;font-size:13px;cursor:pointer;" +
+        "font-family:NanumGothic,'Nanum Gothic',Arial,sans-serif;";
+    button.addEventListener('click', () => { submitInput(); });
+    
+    container.appendChild(input);
+    container.appendChild(button);
+    document.body.appendChild(container);
+    
+    inputOverlay = { container, input, button };
+    setTimeout(() => input.focus(), 50);
+}
+
+function submitInput() {
+    if (!inputOverlay || !isWaitingForInput) return;
+    const inputValue = inputOverlay.input.value;
+    if (!inputValue) return;
+    answerText = inputValue;
+    const numValue = Number(inputValue);
+    answerValue = (!isNaN(numValue) && String(numValue) === inputValue) ? numValue : NaN;
+    answerVisible = true;
+    if (answerDisplayIndex >= 0 && variableDisplays[answerDisplayIndex]) {
+        variableDisplays[answerDisplayIndex].container.visible = true;
+    }
+    hideInputField();
+    isWaitingForInput = false;
+}
+
+function hideInputField() {
+    if (!inputOverlay) return;
+    inputOverlay.container.remove();
+    inputOverlay = null;
 }
 
 // ===== GAME LOOP =====
@@ -610,11 +819,15 @@ function gameLoop(currentTime) {
     let ticksToRun = Math.floor(accumulator / FIXED_DT);
     ticksToRun = Math.min(ticksToRun, MAX_TICKS_PER_FRAME);
     
-    // Run WASM ticks in tight loop
-    for (let t = 0; t < ticksToRun; t++) {
-        wasm.tick(FIXED_DT);
+    // Run WASM ticks in tight loop (pause when waiting for input)
+    if (!isWaitingForInput) {
+        for (let t = 0; t < ticksToRun; t++) {
+            wasm.tick(FIXED_DT);
+        }
+        accumulator -= ticksToRun * FIXED_DT;
+    } else {
+        accumulator = 0;
     }
-    accumulator -= ticksToRun * FIXED_DT;
     
     // Check for scene changes
     const wasmScene = wasm.getCurrentScene();
@@ -1213,184 +1426,343 @@ function handleMessage(msgIdx) {
 }
 
 // ===== VARIABLE DISPLAY =====
+// EntryJS stage uses 480x270 coordinate space with 4/3 scale (stage.js: scaleX=scaleY=2/1.5)
+// variableLayer container applies this scale so all child coordinates match EntryJS exactly
+
 function createVariableDisplays() {
-    const fontFamily = 'Arial, sans-serif';
-    const fontSize = 12;
+    const fontFamily = "'Nanum Gothic', NanumGothic, Arial, sans-serif";
+    
+    // Create scaled layer matching EntryJS 480x270 coordinate space (if not already created)
+    if (!variableLayer) {
+        variableLayer = new PIXI.Container();
+        variableLayer.scale.set(STAGE_WIDTH / 480, STAGE_HEIGHT / 270);
+        app.stage.addChild(variableLayer);
+    }
+    
+    // Build unified list: regular variables + timer + answer
+    const allConfigs = [];
     
     for (let i = 0; i < VARIABLE_DATA.length; i++) {
-        const varData = VARIABLE_DATA[i];
+        const vd = VARIABLE_DATA[i];
+        allConfigs.push({
+            name: vd.name,
+            x: vd.x,
+            y: vd.y,
+            visible: vd.visible,
+            memoryOffset: vd.memoryOffset,
+            varType: vd.varType || 'variable',
+            color: 0x4f80ff,
+            varIndex: i,
+            minValue: vd.minValue || 0,
+            maxValue: vd.maxValue || 100
+        });
+    }
+    
+    // Timer display (#f4af18 matching EntryJS TimerVariable)
+    allConfigs.push({
+        name: TIMER_DATA.name,
+        x: TIMER_DATA.x,
+        y: TIMER_DATA.y,
+        visible: TIMER_DATA.visible,
+        varType: 'timer',
+        color: 0xf4af18,
+        varIndex: -1
+    });
+    
+    // Answer display (#F57DF1 matching EntryJS AnswerVariable)
+    allConfigs.push({
+        name: ANSWER_DATA.name,
+        x: ANSWER_DATA.x,
+        y: ANSWER_DATA.y,
+        visible: ANSWER_DATA.visible,
+        varType: 'answer',
+        color: 0xF57DF1,
+        varIndex: -1
+    });
+    
+    for (let idx = 0; idx < allConfigs.length; idx++) {
+        const config = allConfigs[idx];
         
-        // Create container for this variable display
         const container = new PIXI.Container();
-        container.x = 10;
-        container.y = 10 + i * 28;  // Stack vertically
+        // Position in EntryJS 480x270 space (origin at top-left)
+        container.x = config.x + 240;
+        container.y = config.y + 135;
         
-        // Background
+        // Outer background rect (white fill, #aac5d5 border)
         const bg = new PIXI.Graphics();
-        bg.beginFill(0xF5A623, 0.9);  // Orange background like EntryJS
-        bg.drawRoundedRect(0, 0, 120, 24, 4);
-        bg.endFill();
         container.addChild(bg);
         
-        // Name label
-        const nameText = new PIXI.Text(varData.name, {
-            fontFamily,
-            fontSize,
-            fill: 0xFFFFFF,
-            fontWeight: 'bold'
-        });
-        nameText.x = 6;
-        nameText.y = 4;
-        container.addChild(nameText);
-        
-        // Value background (white rounded rect)
+        // Value wrapper rect (colored fill matching variable type)
         const valueBg = new PIXI.Graphics();
-        valueBg.beginFill(0xFFFFFF, 1);
-        valueBg.drawRoundedRect(nameText.width + 12, 2, 50, 20, 3);
-        valueBg.endFill();
         container.addChild(valueBg);
         
-        // Value text
+        // Name text (10pt black, matching EntryJS FONT)
+        const nameText = new PIXI.Text(config.name, {
+            fontFamily,
+            fontSize: 10,
+            fill: 0x000000
+        });
+        nameText.resolution = 2;
+        nameText.x = 4;
+        nameText.y = -9.5; // GL_VAR_POS.LABEL_Y
+        container.addChild(nameText);
+        
+        // Value text (9pt white, matching EntryJS VALUE_FONT)
         const valueText = new PIXI.Text('0', {
             fontFamily,
-            fontSize,
-            fill: 0x333333
+            fontSize: 9,
+            fill: 0xFFFFFF
         });
-        valueText.x = nameText.width + 16;
-        valueText.y = 4;
+        valueText.resolution = 2;
         container.addChild(valueText);
         
-        // Initially hidden based on project settings
-        container.visible = varData.visible;
+        // Slide variable extra UI: slide bar + knob
+        let slideBar = null;
+        let slideKnob = null;
+        if (config.varType === 'slide') {
+            slideBar = new PIXI.Graphics();
+            container.addChild(slideBar);
+            slideKnob = new PIXI.Graphics();
+            container.addChild(slideKnob);
+        }
         
-        app.stage.addChild(container);
-        variableDisplays.push({
+        container.visible = config.visible;
+        
+        variableLayer.addChild(container);
+        
+        const display = {
             container,
             bg,
             valueBg,
             nameText,
             valueText,
-            data: varData
-        });
+            data: config,
+            color: config.color,
+            varType: config.varType,
+            varIndex: config.varIndex,
+            slideBar,
+            slideKnob
+        };
+        variableDisplays.push(display);
+        
+        if (config.varType === 'timer') {
+            timerDisplayIndex = variableDisplays.length - 1;
+            timerVisible = config.visible;
+        } else if (config.varType === 'answer') {
+            answerDisplayIndex = variableDisplays.length - 1;
+            answerVisible = config.visible;
+        }
     }
+}
+
+// Read variable display value, handling string pointers (negative f64 = negated string pointer)
+function getVarDisplayValue(value, varType) {
+    if (value < -0.5) {
+        const strPtr = Math.round(-value);
+        const str = readStringFromWasm(strPtr);
+        if (str) return str;
+    }
+    
+    if (varType === 'timer') {
+        return Number(value).toFixed(1);
+    }
+    if (varType === 'answer') {
+        if (parseInt(value, 10) == value) return String(Number(value));
+        return Number(value).toFixed(1).replace('.00', '');
+    }
+    if (varType === 'slide') {
+        const v = Number(value);
+        if (Number.isInteger(v)) return v.toString();
+        return v.toFixed(2);
+    }
+    if (Number.isInteger(value)) return value.toString();
+    return Number(value).toFixed(2).replace('.00', '');
 }
 
 function updateVariableDisplays() {
     for (let i = 0; i < variableDisplays.length; i++) {
         const display = variableDisplays[i];
-        const varData = display.data;
         
-        // Update visibility from WASM
-        if (wasm['getVarVisible_' + i]) {
-            display.container.visible = wasm['getVarVisible_' + i]() !== 0;
+        if (display.varType === 'variable' || display.varType === 'slide') {
+            if (wasm['getVarVisible_' + display.varIndex]) {
+                display.container.visible = wasm['getVarVisible_' + display.varIndex]() !== 0;
+            }
         }
         
         if (!display.container.visible) continue;
         
-        // Update value from WASM memory
-        const value = wasm.getVariable ? wasm.getVariable(varData.memoryOffset) : 0;
-        let displayValue = value;
-        
-        // Format number nicely
-        if (Number.isInteger(value)) {
-            displayValue = value.toString();
+        let displayValue;
+        if (display.varType === 'timer') {
+            displayValue = getVarDisplayValue(getProjectTimerValue(), 'timer');
+        } else if (display.varType === 'answer') {
+            displayValue = answerText || '0';
         } else {
-            displayValue = value.toFixed(2);
+            const value = wasm.getVariable ? wasm.getVariable(display.data.memoryOffset) : 0;
+            displayValue = getVarDisplayValue(value, display.varType === 'slide' ? 'slide' : 'variable');
         }
         
         display.valueText.text = displayValue;
         
-        // Adjust value background width based on text
-        const newWidth = Math.max(50, display.valueText.width + 10);
-        display.valueBg.clear();
-        display.valueBg.beginFill(0xFFFFFF, 1);
-        display.valueBg.drawRoundedRect(display.nameText.width + 12, 2, newWidth, 20, 3);
-        display.valueBg.endFill();
+        const nameWidth = display.nameText.width;
+        const valueWidth = display.valueText.width;
         
-        // Adjust background width
-        const totalWidth = display.nameText.width + 18 + newWidth;
-        display.bg.clear();
-        display.bg.beginFill(0xF5A623, 0.9);
-        display.bg.drawRoundedRect(0, 0, totalWidth, 24, 4);
-        display.bg.endFill();
+        if (display.varType === 'slide') {
+            // Slide variable: taller rect with slide bar below (matching EntryJS slideVariable.js)
+            let outerWidth = Math.max(nameWidth + valueWidth + 35, 90);
+            display.outerWidth = outerWidth;
+            
+            // Outer rect: rr(0, -14, width, 42, 4)
+            display.bg.clear();
+            display.bg.beginFill(0xFFFFFF);
+            display.bg.lineStyle(1, 0xaac5d5);
+            display.bg.drawRoundedRect(0, -14, outerWidth, 42, 4);
+            display.bg.endFill();
+            
+            // Value wrapper: same as regular variable
+            display.valueBg.clear();
+            display.valueBg.beginFill(display.color);
+            display.valueBg.lineStyle(1, display.color);
+            display.valueBg.drawRoundedRect(nameWidth + 14, -10, valueWidth + 15, 16, 7);
+            display.valueBg.endFill();
+            
+            // Slide bar: rr(6, 16, maxWidth+4, 5, 2) with #d8d8d8
+            // maxWidth derived from outerWidth (matching EntryJS: Math.max(boxWidth - 20, 50))
+            const maxWidth = Math.max(outerWidth - 20, 50);
+            display.maxWidth = maxWidth;
+            display.slideBar.clear();
+            display.slideBar.beginFill(0xd8d8d8);
+            display.slideBar.lineStyle(1, 0xd8d8d8);
+            display.slideBar.drawRoundedRect(6, 16, maxWidth + 4, 5, 2);
+            display.slideBar.endFill();
+            
+            // Slider knob position based on current value
+            const minVal = display.data.minValue;
+            const maxVal = display.data.maxValue;
+            const numValue = parseFloat(displayValue) || 0;
+            const ratio = maxVal !== minVal ? Math.max(0, Math.min(1, (numValue - minVal) / (maxVal - minVal))) : 0;
+            const knobX = maxWidth * ratio + 8;
+            display.slideKnob.clear();
+            display.slideKnob.beginFill(0x4f80ff);
+            display.slideKnob.lineStyle(1, 0xA0A1A1);
+            display.slideKnob.drawRoundedRect(knobX - 4, 14.5, 8, 8, 4);
+            display.slideKnob.endFill();
+        } else {
+            // Regular variable / timer / answer
+            // Outer rect: rr(0, -14, nameW+valW+35, 24, 4) - matching EntryJS _adjustSingleViewBox
+            display.bg.clear();
+            display.bg.beginFill(0xFFFFFF);
+            display.bg.lineStyle(1, 0xaac5d5);
+            display.bg.drawRoundedRect(0, -14, nameWidth + valueWidth + 35, 24, 4);
+            display.bg.endFill();
+            
+            // Value wrapper: rr(nameW+14, -10, valW+15, 16, 7) - matching EntryJS wrapper_
+            display.valueBg.clear();
+            display.valueBg.beginFill(display.color);
+            display.valueBg.lineStyle(1, display.color);
+            display.valueBg.drawRoundedRect(nameWidth + 14, -10, valueWidth + 15, 16, 7);
+            display.valueBg.endFill();
+        }
+        
+        // Value text: x=nameW+21, y=-8.5 (GL_VAR_POS.VALUE_Y)
+        display.valueText.x = nameWidth + 21;
+        display.valueText.y = -8.5;
     }
 }
 
 // ===== LIST DISPLAY =====
 function createListDisplays() {
-    const fontFamily = 'Arial, sans-serif';
-    const fontSize = 11;
+    const fontFamily = "'Nanum Gothic', NanumGothic, Arial, sans-serif";
+    const BORDER = 6;
+    const MAX_VISIBLE_ITEMS = 15;
     
     for (let i = 0; i < LIST_DATA.length; i++) {
         const listData = LIST_DATA[i];
+        const w = listData.width || 100;
+        const h = listData.height || 120;
         
-        // Create container for this list display
         const container = new PIXI.Container();
-        container.x = 150;  // Position to the right of variables
-        container.y = 10 + i * 120;  // Stack vertically with more space
+        // Position in EntryJS 480x270 space
+        container.x = listData.x + 240;
+        container.y = listData.y + 135;
         
-        // Title bar
-        const titleBar = new PIXI.Graphics();
-        titleBar.beginFill(0xE85000, 0.9);  // Darker orange for lists
-        titleBar.drawRoundedRect(0, 0, 100, 20, 4);
-        titleBar.endFill();
-        container.addChild(titleBar);
+        // Outer rect: white fill, #aac5d5 border (matching EntryJS listVariable.js)
+        const rect = new PIXI.Graphics();
+        container.addChild(rect);
         
-        // Title text
+        // Title text (centered, 10pt black, matching EntryJS FONT)
         const titleText = new PIXI.Text(listData.name, {
             fontFamily,
-            fontSize,
-            fill: 0xFFFFFF,
-            fontWeight: 'bold'
+            fontSize: 10,
+            fill: 0x000000
         });
-        titleText.x = 6;
-        titleText.y = 3;
+        titleText.resolution = 2;
+        titleText.y = BORDER - 1; // WebGL mode: BORDER - 1 = 5
         container.addChild(titleText);
         
-        // List body background
-        const bodyBg = new PIXI.Graphics();
-        bodyBg.beginFill(0xFFFFFF, 0.95);
-        bodyBg.lineStyle(1, 0xE85000, 1);
-        bodyBg.drawRoundedRect(0, 20, 100, 80, 4);
-        bodyBg.endFill();
-        container.addChild(bodyBg);
+        // Item container for list items (pre-allocated slots)
+        const itemContainer = new PIXI.Container();
+        container.addChild(itemContainer);
         
-        // Create text elements for list items (show up to 5 items)
-        const itemTexts = [];
-        for (let j = 0; j < 5; j++) {
-            const itemText = new PIXI.Text('', {
+        const items = [];
+        for (let j = 0; j < MAX_VISIBLE_ITEMS; j++) {
+            // Index text (10pt black, matching EntryJS FONT)
+            const indexText = new PIXI.Text('', {
                 fontFamily,
                 fontSize: 10,
-                fill: 0x333333
+                fill: 0x000000
             });
-            itemText.x = 6;
-            itemText.y = 24 + j * 14;
-            container.addChild(itemText);
-            itemTexts.push(itemText);
+            indexText.resolution = 2;
+            itemContainer.addChild(indexText);
+            
+            // Value background (#4f80ff matching EntryJS colorSet.canvas.list)
+            const valueBg = new PIXI.Graphics();
+            itemContainer.addChild(valueBg);
+            
+            // Value text (9pt white, matching EntryJS VALUE_FONT)
+            const valueText = new PIXI.Text('', {
+                fontFamily,
+                fontSize: 9,
+                fill: 0xFFFFFF
+            });
+            valueText.resolution = 2;
+            itemContainer.addChild(valueText);
+            
+            items.push({ indexText, valueBg, valueText, visible: false });
         }
         
-        // Length indicator
-        const lengthText = new PIXI.Text('length: 0', {
+        // Length text at bottom (matching EntryJS FONT = 10pt)
+        const lengthText = new PIXI.Text('', {
             fontFamily,
-            fontSize: 9,
-            fill: 0x888888
+            fontSize: 10,
+            fill: 0x333333
         });
-        lengthText.x = 6;
-        lengthText.y = 86;
+        lengthText.resolution = 2;
         container.addChild(lengthText);
         
-        // Initially hidden based on project settings
+        // Scroll button (matching EntryJS scrollButton_: rr(0,0,7,30,3.5) fill #aaaaaa)
+        const scrollBtn = new PIXI.Graphics();
+        scrollBtn.beginFill(0xaaaaaa);
+        scrollBtn.drawRoundedRect(0, 0, 7, 30, 3.5);
+        scrollBtn.endFill();
+        scrollBtn.y = 23;
+        scrollBtn.visible = false;
+        container.addChild(scrollBtn);
+        
         container.visible = listData.visible;
         
-        app.stage.addChild(container);
+        variableLayer.addChild(container);
         listDisplays.push({
             container,
-            titleBar,
+            rect,
             titleText,
-            bodyBg,
-            itemTexts,
+            itemContainer,
+            items,
             lengthText,
-            data: listData
+            scrollBtn,
+            scrollPosition: 0,
+            data: listData,
+            width: w,
+            height: h
         });
     }
 }
@@ -1398,34 +1770,97 @@ function createListDisplays() {
 function updateListDisplays() {
     for (let i = 0; i < listDisplays.length; i++) {
         const display = listDisplays[i];
-        const listData = display.data;
         
-        // Update visibility from WASM
         if (wasm['getListVisible_' + i]) {
             display.container.visible = wasm['getListVisible_' + i]() !== 0;
         }
         
         if (!display.container.visible) continue;
         
-        // Get list length from WASM
-        const length = wasm.list_length ? wasm.list_length(i) : 0;
-        display.lengthText.text = 'length: ' + length;
+        const w = display.width;
+        const h = display.height;
+        const BORDER = 6;
         
-        // Update item texts (show first 5 items)
-        for (let j = 0; j < display.itemTexts.length; j++) {
-            if (j < length) {
-                // Get value from list
-                const value = wasm.list_get ? wasm.list_get(i, j) : 0;
-                let displayValue;
-                if (Number.isInteger(value)) {
-                    displayValue = value.toString();
+        // Outer rect: rr(0, 0, width_+7, height_+22, 7) matching EntryJS listVariable.js
+        display.rect.clear();
+        display.rect.beginFill(0xFFFFFF);
+        display.rect.lineStyle(1, 0xaac5d5);
+        display.rect.drawRoundedRect(0, 0, w + 7, h + 22, 7);
+        display.rect.endFill();
+        
+        // Center title: x = (width_ - titleWidth)/2 + 3 (WebGL mode)
+        display.titleText.text = display.data.name;
+        display.titleText.x = (w - display.titleText.width) / 2 + 3;
+        
+        const length = wasm.list_length ? wasm.list_length(i) : 0;
+        display.lengthText.text = length + ' \uAC1C';
+        display.lengthText.x = BORDER;
+        display.lengthText.y = h + 5;
+        
+        // maxView = floor((height_ - 15) / 20) matching EntryJS
+        const maxView = Math.min(Math.floor((h - 15) / 20), display.items.length);
+        const isOverFlow = maxView < length;
+        
+        // Scroll button and scrollPosition (matching EntryJS listVariable.js)
+        let scrollPosition = 0;
+        let wrapperWidth;
+        if (isOverFlow) {
+            display.scrollBtn.visible = true;
+            if (display.scrollBtn.y < 23) display.scrollBtn.y = 23;
+            if (display.scrollBtn.y > h - 30) display.scrollBtn.y = h - 30;
+            display.scrollBtn.x = w - 6;
+            scrollPosition = Math.floor(
+                ((display.scrollBtn.y - 23) / Math.max(h - 23 - 30, 1)) * (length - maxView)
+            );
+            scrollPosition = Math.max(0, Math.min(scrollPosition, length - maxView));
+            // Narrower wrapperWidth for overflow: w - 2*BORDER - 30 - 6 + 14 = w - 34
+            wrapperWidth = Math.max(w - 34, 30);
+        } else {
+            display.scrollBtn.visible = false;
+            display.scrollBtn.y = 25;
+            scrollPosition = 0;
+            // Normal wrapperWidth: w - 2*BORDER - 20 - 6 + 14 = w - 24
+            wrapperWidth = Math.max(w - 24, 30);
+        }
+        display.scrollPosition = scrollPosition;
+        
+        for (let j = 0; j < display.items.length; j++) {
+            const item = display.items[j];
+            const realIdx = j + scrollPosition;
+            if (j < maxView && realIdx < length) {
+                // Item y: (i - scrollPos) * 20 + 23 matching EntryJS
+                const itemY = j * 20 + 23;
+                
+                // Index text: element.x=BORDER, indexView at (0, GL_LIST_POS.INDEX_Y=5)
+                item.indexText.text = '' + (realIdx + 1);
+                item.indexText.x = BORDER;
+                item.indexText.y = itemY + 5;
+                item.indexText.visible = true;
+                
+                // Value bg: rr(18, 4, wrapperWidth, 17, 2) relative to element at x=BORDER
+                item.valueBg.clear();
+                item.valueBg.beginFill(0x4f80ff);
+                item.valueBg.drawRoundedRect(BORDER + 18, itemY + 4, wrapperWidth, 17, 2);
+                item.valueBg.endFill();
+                item.valueBg.visible = true;
+                
+                // Value text: at (24, GL_LIST_POS.VALUE_Y=6) relative to element at x=BORDER
+                const value = wasm.list_get ? wasm.list_get(i, realIdx) : 0;
+                if (value < -0.5) {
+                    const strPtr = Math.round(-value);
+                    item.valueText.text = readStringFromWasm(strPtr) || '0';
+                } else if (Number.isInteger(value)) {
+                    item.valueText.text = value.toString();
                 } else {
-                    displayValue = value.toFixed(2);
+                    item.valueText.text = Number(value).toFixed(2).replace('.00', '');
                 }
-                display.itemTexts[j].text = (j + 1) + ': ' + displayValue;
-                display.itemTexts[j].visible = true;
+                item.valueText.x = BORDER + 24;
+                item.valueText.y = itemY + 6;
+                item.valueText.visible = true;
             } else {
-                display.itemTexts[j].visible = false;
+                item.indexText.visible = false;
+                item.valueBg.visible = false;
+                item.valueText.visible = false;
             }
         }
     }
@@ -1614,6 +2049,31 @@ function restart() {
     projectTimerPauseStart = 0;
     projectTimerIsInit = false;
     
+    // Reset timer/answer display visibility to initial state
+    timerVisible = TIMER_DATA.visible;
+    answerVisible = ANSWER_DATA.visible;
+    if (timerDisplayIndex >= 0 && variableDisplays[timerDisplayIndex]) {
+        variableDisplays[timerDisplayIndex].container.visible = timerVisible;
+    }
+    if (answerDisplayIndex >= 0 && variableDisplays[answerDisplayIndex]) {
+        variableDisplays[answerDisplayIndex].container.visible = answerVisible;
+    }
+    answerValue = 0;
+    answerText = '';
+    
+    // Hide input field if showing
+    if (inputOverlay) hideInputField();
+    isWaitingForInput = false;
+    dragState = null;
+    
+    // Reset list scroll positions
+    for (let i = 0; i < listDisplays.length; i++) {
+        listDisplays[i].scrollPosition = 0;
+        if (listDisplays[i].scrollBtn) {
+            listDisplays[i].scrollBtn.y = 23;
+        }
+    }
+    
     wasm.init();
     currentScene = 0;
     running = true;
@@ -1707,7 +2167,14 @@ init().catch(console.error);
         for (const v of variables) {
             const name = (v.name || '').replace(/"/g, '\\"');
             const visible = v.visible !== false;
-            code += `    { id: "${v.id}", name: "${name}", memoryOffset: ${v.memoryOffset}, visible: ${visible} },\n`;
+            const x = v.x != null ? v.x : 0;
+            const y = v.y != null ? v.y : 0;
+            const varType = v.variableType || 'variable';
+            let extra = '';
+            if (varType === 'slide') {
+                extra = `, minValue: ${v.minValue != null ? v.minValue : 0}, maxValue: ${v.maxValue != null ? v.maxValue : 100}`;
+            }
+            code += `    { id: "${v.id}", name: "${name}", memoryOffset: ${v.memoryOffset}, visible: ${visible}, x: ${x}, y: ${y}, varType: "${varType}"${extra} },\n`;
         }
         
         code += '];\n';
@@ -1721,11 +2188,44 @@ init().catch(console.error);
         for (const l of lists) {
             const name = (l.name || '').replace(/"/g, '\\"');
             const visible = l.visible !== false;
-            code += `    { id: "${l.id}", name: "${name}", memoryIndex: ${l.memoryIndex}, visible: ${visible} },\n`;
+            const x = l.x != null ? l.x : 0;
+            const y = l.y != null ? l.y : 0;
+            const width = l.width || 100;
+            const height = l.height || 120;
+            code += `    { id: "${l.id}", name: "${name}", memoryIndex: ${l.memoryIndex}, visible: ${visible}, x: ${x}, y: ${y}, width: ${width}, height: ${height} },\n`;
         }
         
         code += '];\n';
         return code;
+    }
+
+    generateTimerData() {
+        const timer = this.project.variables.timer;
+        if (timer) {
+            const name = (timer.name || '\uCD08\uC2DC\uACC4').replace(/"/g, '\\"');
+            const visible = timer.visible !== false;
+            // Match EntryJS generateTimer: x = 240 - (name.length * 12 + 70)
+            const nameLen = (timer.name || '\uCD08\uC2DC\uACC4').length;
+            const defaultX = 240 - (nameLen * 12 + 70);
+            const x = timer.x != null ? timer.x : defaultX;
+            const y = timer.y != null ? timer.y : -70;
+            return `const TIMER_DATA = { name: "${name}", visible: ${visible}, x: ${x}, y: ${y} };\n`;
+        }
+        // Default: "\uCD08\uC2DC\uACC4" (\uCD08\uC2DC\uACC4, 3 chars), x = 240 - (3*12+70) = 134
+        return `const TIMER_DATA = { name: "\uCD08\uC2DC\uACC4", visible: false, x: 134, y: -70 };\n`;
+    }
+
+    generateAnswerData() {
+        const answer = this.project.variables.answer;
+        if (answer) {
+            const name = (answer.name || '\uB300\uB2F5').replace(/"/g, '\\"');
+            const visible = answer.visible !== false;
+            const x = answer.x != null ? answer.x : 150;
+            const y = answer.y != null ? answer.y : -100;
+            return `const ANSWER_DATA = { name: "${name}", visible: ${visible}, x: ${x}, y: ${y} };\n`;
+        }
+        // Default answer data (matches EntryJS generateAnswer defaults)
+        return `const ANSWER_DATA = { name: "\uB300\uB2F5", visible: false, x: 150, y: -100 };\n`;
     }
 }
 

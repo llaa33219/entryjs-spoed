@@ -215,17 +215,57 @@ function parseBlock(block) {
 function parseVariables(variables) {
     const result = {
         variables: [],
-        lists: []
+        lists: [],
+        timer: null,
+        answer: null
     };
 
     for (const v of variables) {
-        if (v.variableType === 'list') {
+        if (v.variableType === 'timer') {
+            // Match EntryJS generateTimer: x = 240 - (name.length * 12 + 70)
+            const timerName = v.name || '\uCD08\uC2DC\uACC4';
+            const defaultTimerX = 240 - (timerName.length * 12 + 70);
+            result.timer = {
+                id: v.id,
+                name: v.name,
+                value: v.value || 0,
+                visible: v.visible !== false,
+                x: v.x != null ? v.x : defaultTimerX,
+                y: v.y != null ? v.y : -70
+            };
+        } else if (v.variableType === 'answer') {
+            result.answer = {
+                id: v.id,
+                name: v.name,
+                value: v.value || 0,
+                visible: v.visible !== false,
+                x: v.x != null ? v.x : 150,
+                y: v.y != null ? v.y : -100
+            };
+        } else if (v.variableType === 'list') {
             result.lists.push({
                 id: v.id,
                 name: v.name,
                 array: v.array || [],
                 visible: v.visible !== false,
-                object: v.object // null for global, objectId for local
+                x: v.x != null ? v.x : 0,
+                y: v.y != null ? v.y : 0,
+                width: v.width || 100,
+                height: v.height || 120,
+                object: v.object
+            });
+        } else if (v.variableType === 'slide') {
+            result.variables.push({
+                id: v.id,
+                name: v.name,
+                value: v.value || 0,
+                visible: v.visible !== false,
+                x: v.x != null ? v.x : 0,
+                y: v.y != null ? v.y : 0,
+                object: v.object,
+                variableType: 'slide',
+                minValue: parseFloat(v.minValue) || 0,
+                maxValue: parseFloat(v.maxValue) || 100
             });
         } else {
             result.variables.push({
@@ -233,6 +273,8 @@ function parseVariables(variables) {
                 name: v.name,
                 value: v.value || 0,
                 visible: v.visible !== false,
+                x: v.x != null ? v.x : 0,
+                y: v.y != null ? v.y : 0,
                 object: v.object
             });
         }

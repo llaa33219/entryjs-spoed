@@ -2351,6 +2351,7 @@ class WATGenerator {
         
         // Export string helper for reading strings from memory
         code += `\n  (export "str_length" (func $str_length))`;
+        code += `\n  (export "str_alloc" (func $str_alloc))`;
         
         // Export variable/list accessor for renderer to read values
         code += `\n  (export "getVariable" (func $getVariable))`;
