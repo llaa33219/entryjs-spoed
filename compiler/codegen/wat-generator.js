@@ -281,6 +281,7 @@ class WATGenerator {
   ;; Effect functions
   (import "effect" "setTransparency" (func $setTransparency (param i32 f64)))
   (import "effect" "changeTransparency" (func $changeTransparency (param i32 f64)))
+  (import "effect" "getTransparency" (func $getTransparency (param i32) (result f64)))
   
   ;; Util functions (JS-implemented for complex operations)
   (import "util" "f64ToString" (func $f64_to_str_import (param f64) (result i32)))`;

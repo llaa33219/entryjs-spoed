@@ -137,6 +137,8 @@ const statementBlocks = {
     },
 
     'set_effect_volume': (ctx, block, entityIndex) => {
+        // Deprecated block - uses 'opacity' param (not 'transparency')
+        // EntryJS: sprite.effect.alpha = effectValue / 100
         const effectType = block.params?.[0];
         const value = ctx.transpileValue(block.params?.[1], entityIndex);
         if (effectType === 'transparency') {
@@ -144,27 +146,40 @@ const statementBlocks = {
           ;; set_effect_volume: set transparency to value
           (call $setTransparency (i32.const ${entityIndex}) ${value})`;
         }
+        if (effectType === 'opacity') {
+            return `
+          ;; set_effect_volume: set opacity to value (alpha = value/100, transparency = 100 - value)
+          (call $setTransparency (i32.const ${entityIndex}) (f64.sub (f64.const 100) ${value}))`;
+        }
         return `
-          ;; set_effect_volume: ${effectType}
+          ;; set_effect_volume: ${effectType} (not implemented)
           (drop ${value})`;
     },
 
     'change_effect_volume': (ctx, block, entityIndex) => {
+        // Legacy block - not found in current EntryJS source
+        // Expected behavior: alpha += value/100 (for opacity), alpha -= value/100 (for transparency)
         const effectType = block.params?.[0];
         const value = ctx.transpileValue(block.params?.[1], entityIndex);
         if (effectType === 'transparency') {
             return `
-          ;; change_effect_volume: add transparency by amount
+          ;; change_effect_volume: change transparency by amount
           (call $changeTransparency (i32.const ${entityIndex}) ${value})`;
         }
+        if (effectType === 'opacity') {
+            return `
+          ;; change_effect_volume: change opacity by amount (alpha += value/100, transparency -= value)
+          (call $changeTransparency (i32.const ${entityIndex}) (f64.neg ${value}))`;
+        }
         return `
-          ;; change_effect_volume: ${effectType}
+          ;; change_effect_volume: ${effectType} (not implemented)
           (drop ${value})`;
     },
 
     'clear_effect': (ctx, block, entityIndex) => {
+        // Legacy block - maps to Python Entry.clear_effect(), equivalent to erase_all_effects
         return `
-          ;; clear_effect
+          ;; clear_effect (legacy)
           (call $setTransparency (i32.const ${entityIndex}) (f64.const 0))`;
     },
 
@@ -265,11 +280,11 @@ const statementBlocks = {
         const value = ctx.transpileValue(block.params?.[1], entityIndex);
         if (effectType === 'transparency') {
             return `
-          ;; add_effect_amount: transparency
+          ;; add_effect_amount: change transparency by amount
           (call $changeTransparency (i32.const ${entityIndex}) ${value})`;
         }
         return `
-          ;; add_effect_amount: ${effectType}
+          ;; add_effect_amount: ${effectType} (not implemented)
           (drop ${value})`;
     },
 
@@ -278,28 +293,31 @@ const statementBlocks = {
         const value = ctx.transpileValue(block.params?.[1], entityIndex);
         if (effectType === 'transparency') {
             return `
-          ;; change_effect_amount: set transparency to value
+          ;; change_effect_amount: set transparency to absolute value
           (call $setTransparency (i32.const ${entityIndex}) ${value})`;
         }
         return `
-          ;; change_effect_amount: ${effectType}
+          ;; change_effect_amount: ${effectType} (not implemented)
           (drop ${value})`;
     },
 
     'set_effect_amount': (ctx, block, entityIndex) => {
+        // EntryJS: sprite.effect.alpha -= effectValue / 100 (relative change)
         const effectType = block.params?.[0];
         const value = ctx.transpileValue(block.params?.[1], entityIndex);
         if (effectType === 'transparency') {
             return `
-          ;; set_effect_amount: add transparency by amount
+          ;; set_effect_amount: change transparency by amount
           (call $changeTransparency (i32.const ${entityIndex}) ${value})`;
         }
         return `
-          ;; set_effect_amount: ${effectType}
+          ;; set_effect_amount: ${effectType} (not implemented)
           (drop ${value})`;
     },
 
     'erase_all_effects': (ctx, block, entityIndex) => {
+        // EntryJS resetFilter() resets all effects (alpha, hue, hsv, brightness, etc.)
+        // Currently only transparency is implemented; other effects will need to be reset here when added
         return `
           ;; erase_all_effects
           (call $setTransparency (i32.const ${entityIndex}) (f64.const 0))`;
@@ -363,6 +381,7 @@ const statementBlocks = {
     },
 
     'set_effect': (ctx, block, entityIndex) => {
+        // EntryJS: sprite.effect.alpha = effectValue / 100 (absolute set, uses 'opacity' param)
         const effectType = block.params?.[0];
         const value = ctx.transpileValue(block.params?.[1], entityIndex);
         if (effectType === 'transparency') {
@@ -370,21 +389,33 @@ const statementBlocks = {
           ;; set_effect: set transparency to value
           (call $setTransparency (i32.const ${entityIndex}) ${value})`;
         }
+        if (effectType === 'opacity') {
+            return `
+          ;; set_effect: set opacity to value (alpha = value/100, transparency = 100 - value)
+          (call $setTransparency (i32.const ${entityIndex}) (f64.sub (f64.const 100) ${value}))`;
+        }
         return `
-          ;; set_effect: ${effectType}
+          ;; set_effect: ${effectType} (not implemented)
           (drop ${value})`;
     },
 
     'change_effect': (ctx, block, entityIndex) => {
+        // Legacy block - not found in current EntryJS source
+        // Expected behavior: alpha += value/100 (for opacity), alpha -= value/100 (for transparency)
         const effectType = block.params?.[0];
         const value = ctx.transpileValue(block.params?.[1], entityIndex);
         if (effectType === 'transparency') {
             return `
-          ;; change_effect: add transparency by amount
+          ;; change_effect: change transparency by amount
           (call $changeTransparency (i32.const ${entityIndex}) ${value})`;
         }
+        if (effectType === 'opacity') {
+            return `
+          ;; change_effect: change opacity by amount (alpha += value/100, transparency -= value)
+          (call $changeTransparency (i32.const ${entityIndex}) (f64.neg ${value}))`;
+        }
         return `
-          ;; change_effect: ${effectType}
+          ;; change_effect: ${effectType} (not implemented)
           (drop ${value})`;
     }
 };
@@ -401,8 +432,12 @@ const valueBlocks = {
 
     'get_effect_value': (ctx, block, entityIndex) => {
         const effectType = block.params?.[0];
-        // Effect values would need to be stored in entity memory
-        // For now return 0 as placeholder
+        if (effectType === 'transparency') {
+            return `(call $getTransparency (i32.const ${entityIndex}))`;
+        }
+        if (effectType === 'opacity') {
+            return `(f64.sub (f64.const 100) (call $getTransparency (i32.const ${entityIndex})))`;
+        }
         return `(f64.const 0)`;
     },
 

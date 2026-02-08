@@ -67,15 +67,15 @@ node compiler/output/server.js
 - `remove_dialog` - 말풍선 지우기
 - `change_to_some_shape` - 모양 바꾸기
 - `change_to_next_shape` - 다음/이전 모양으로 변경
-- `add_effect_amount` - 효과 변경하기 (투명도)
-- `change_effect_amount` - 효과 정하기 (투명도)
-- `set_effect_amount` - 효과 값 변경하기 (투명도)
+- `add_effect_amount` - 효과 변경하기 (투명도 상대 변경)
+- `change_effect_amount` - 효과 정하기 (투명도 절대값 설정)
+- `set_effect_amount` - 효과 값 변경하기 (투명도 상대 변경)
 - `erase_all_effects` - 효과 모두 지우기
-- `change_effect_volume` - 효과 변경 (투명도)
-- `set_effect_volume` - 효과 정하기 (투명도)
-- `clear_effect` - 효과 지우기
-- `set_effect` - 효과 정하기
-- `change_effect` - 효과 변경하기
+- `change_effect_volume` - 효과 변경 (투명도/불투명도, 레거시)
+- `set_effect_volume` - 효과 정하기 (투명도/불투명도, deprecated)
+- `clear_effect` - 효과 지우기 (레거시)
+- `set_effect` - 효과 정하기 (불투명도/투명도)
+- `change_effect` - 효과 변경하기 (불투명도/투명도, 레거시)
 - `change_scale_size` - 크기 변경하기
 - `set_scale_size` - 크기 정하기
 - `stretch_scale_size` - 가로/세로 크기 변경하기

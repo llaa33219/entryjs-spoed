@@ -203,6 +203,12 @@ const wasmImports = {
                 const newVal = Math.max(0, Math.min(100, current + amount));
                 sprites[entityIdx].sprite.alpha = 1 - newVal / 100;
             }
+        },
+        getTransparency: (entityIdx) => {
+            if (sprites[entityIdx]) {
+                return Math.max(0, Math.min(100, (1 - sprites[entityIdx].sprite.alpha) * 100));
+            }
+            return 0;
         }
     },
     util: {
