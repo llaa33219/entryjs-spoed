@@ -117,6 +117,9 @@ class WATGenerator {
         this.staticStrings = new Map();
         this.staticStringOffset = 0;
         
+        // Pre-discover static strings so getEffectivePoolStart() is correct during Phase 1
+        this.preDiscoverStaticStrings();
+        
         // Phase 1: Generate code sections first (discovers static strings)
         const entityFunctions = this.generateEntityFunctions();
         const visibilityAndDialogFunctions = this.generateVisibilityAndDialogFunctions();
@@ -150,10 +153,8 @@ class WATGenerator {
         if (this.staticStrings.has(str)) {
             return this.staticStrings.get(str).addr;
         }
-        const bytes = [];
-        for (let i = 0; i < str.length && i < 256; i++) {
-            bytes.push(str.charCodeAt(i) & 0xFF);
-        }
+        const encoder = new TextEncoder();
+        const bytes = Array.from(encoder.encode(str));
         const len = bytes.length;
         const addr = this.stringPoolStart + this.staticStringOffset;
         const totalSize = ((4 + len + 1) + 3) & ~3;
@@ -164,6 +165,26 @@ class WATGenerator {
 
     getEffectivePoolStart() {
         return this.stringPoolStart + (this.staticStringOffset || 0);
+    }
+
+    /**
+     * Pre-discover all static strings before code generation.
+     * This ensures getEffectivePoolStart() returns the correct value
+     * during Phase 1 (especially for str_alloc overflow wrapping).
+     */
+    preDiscoverStaticStrings() {
+        const lists = this.project.variables.lists || [];
+        for (const list of lists) {
+            const initialArray = list.array || [];
+            for (let i = 0; i < initialArray.length && i < list.capacity; i++) {
+                const rawVal = initialArray[i].data !== undefined ? initialArray[i].data : initialArray[i];
+                const strVal = String(rawVal);
+                const numVal = Number(strVal);
+                if (!(strVal !== '' && isFinite(numVal))) {
+                    this.addStaticString(strVal);
+                }
+            }
+        }
     }
 
     generateDataSection() {
@@ -352,6 +373,9 @@ class WATGenerator {
         // Persistent string pool pointer (for strings stored in lists - never reset per tick)
         code += `\n  (global $persistent_pool_ptr (mut i32) (i32.const ${this.project.persistentPool?.start || 0}))`;
         
+        // Heap pointer for dynamic allocations (list growth via memory.grow)
+        code += `\n  (global $heap_ptr (mut i32) (i32.const ${this.project.heapStart || (this.project.memorySize * 65536)}))`;
+        
         // Add thread execution state globals for each thread
         let threadIndex = 0;
         for (const obj of this.project.objects) {
@@ -406,7 +430,11 @@ class WATGenerator {
   (func $getDialogType_${i} (result i32) (global.get $dialog_type_${i}))
   (func $setDialogType_${i} (param $v i32) (global.set $dialog_type_${i} (local.get $v)))
   (func $getDialogTextPtr_${i} (result i32) (global.get $dialog_text_ptr_${i}))
-  (func $setDialogTextPtr_${i} (param $v i32) (global.set $dialog_text_ptr_${i} (local.get $v)))`;
+  (func $setDialogTextPtr_${i} (param $v i32)
+    (global.set $dialog_text_ptr_${i}
+      (if (result i32) (local.get $v)
+        (then (call $str_persist (local.get $v)))
+        (else (i32.const 0)))))`;
         }
         
         // Dynamic dialog dispatcher functions (for use in user functions where entity index is dynamic)
@@ -746,9 +774,9 @@ class WATGenerator {
     (f64.load (local.get $varOffset)))
   
   ;; Set variable value (persists string pointers to avoid dangling temp pool references)
-  ;; Threshold -1000: string pointers are memory addresses (millions+), safe from normal negative numbers
+  ;; Threshold: string pointers are memory addresses >= stringPoolStart, safe from normal negative numbers
   (func $setVariable (param $varOffset i32) (param $val f64)
-    (if (f64.lt (local.get $val) (f64.const -1000))
+    (if (f64.le (local.get $val) (f64.const -${this.stringPoolStart || 1024}))
       (then
         (f64.store (local.get $varOffset)
           (f64.neg (f64.convert_i32_s
@@ -1022,7 +1050,7 @@ class WATGenerator {
       (then (i32.const 0))
       (else (i32.load (i32.add (call $list_element_offset (local.get $listIdx) (local.get $index)) (i32.const 12))))))
   
-  ;; Get value at index (0-based) - returns f64, converts string to number if needed
+  ;; Get value at index (0-based) - returns f64; string elements return negated string pointer
   (func $list_get (param $listIdx i32) (param $index i32) (result f64)
     (local $len i32)
     (local $offset i32)
@@ -1034,10 +1062,10 @@ class WATGenerator {
       (then (f64.const 0))
       (else
         (local.set $offset (call $list_element_offset (local.get $listIdx) (local.get $index)))
-        ;; Check type: 0=number, 1=string
+        ;; Check type: 0=number, 1=string (string returns negated pointer)
         (if (result f64) (i32.eqz (i32.load (i32.add (local.get $offset) (i32.const 8))))
           (then (f64.load (local.get $offset)))
-          (else (call $str_to_f64 (i32.load (i32.add (local.get $offset) (i32.const 12)))))))))
+          (else (f64.neg (f64.convert_i32_s (i32.load (i32.add (local.get $offset) (i32.const 12))))))))))
   
   ;; Set numeric value at index (0-based)
   (func $list_set (param $listIdx i32) (param $index i32) (param $value f64)
@@ -1069,6 +1097,64 @@ class WATGenerator {
         (i32.store (i32.add (local.get $offset) (i32.const 8)) (i32.const 1))  ;; type = string
         (i32.store (i32.add (local.get $offset) (i32.const 12)) (call $str_persist (local.get $strPtr))))))
   
+  ;; Grow list capacity dynamically using memory.grow
+  ;; Doubles capacity, relocates data to heap, returns 1 on success, 0 on failure
+  (func $list_grow (param $listIdx i32) (result i32)
+    (local $metaPtr i32)
+    (local $oldLen i32)
+    (local $oldCap i32)
+    (local $oldDataPtr i32)
+    (local $newCap i32)
+    (local $newBytes i32)
+    (local $newDataPtr i32)
+    (local $memoryEnd i32)
+    (local $pagesNeeded i32)
+    (local $i i32)
+    (local $src i32)
+    (local $dst i32)
+    (local.set $metaPtr (call $list_get_meta_ptr (local.get $listIdx)))
+    (local.set $oldLen (i32.load (local.get $metaPtr)))
+    (local.set $oldCap (i32.load (i32.add (local.get $metaPtr) (i32.const 4))))
+    (local.set $oldDataPtr (i32.load (i32.add (local.get $metaPtr) (i32.const 8))))
+    ;; Double capacity, cap at 1M elements, guard against i32 overflow
+    (local.set $newCap (i32.mul (local.get $oldCap) (i32.const 2)))
+    (if (i32.gt_s (local.get $newCap) (i32.const 1000000))
+      (then (local.set $newCap (i32.const 1000000))))
+    (if (i32.le_s (local.get $newCap) (local.get $oldCap))
+      (then (return (i32.const 0))))
+    (local.set $newBytes (i32.mul (local.get $newCap) (i32.const 16)))
+    (local.set $newDataPtr (global.get $heap_ptr))
+    (local.set $memoryEnd (i32.mul (memory.size) (i32.const 65536)))
+    ;; Grow memory if needed
+    (if (i32.gt_u (i32.add (local.get $newDataPtr) (local.get $newBytes)) (local.get $memoryEnd))
+      (then
+        (local.set $pagesNeeded
+          (i32.add
+            (i32.div_u
+              (i32.sub (i32.add (local.get $newDataPtr) (local.get $newBytes)) (local.get $memoryEnd))
+              (i32.const 65536))
+            (i32.const 1)))
+        (if (i32.eq (memory.grow (local.get $pagesNeeded)) (i32.const -1))
+          (then (return (i32.const 0))))))
+    ;; Copy existing elements to new location
+    (local.set $i (i32.const 0))
+    (block $break
+      (loop $copy
+        (br_if $break (i32.ge_s (local.get $i) (local.get $oldLen)))
+        (local.set $src (i32.add (local.get $oldDataPtr) (i32.mul (local.get $i) (i32.const 16))))
+        (local.set $dst (i32.add (local.get $newDataPtr) (i32.mul (local.get $i) (i32.const 16))))
+        (f64.store (local.get $dst) (f64.load (local.get $src)))
+        (i32.store (i32.add (local.get $dst) (i32.const 8)) (i32.load (i32.add (local.get $src) (i32.const 8))))
+        (i32.store (i32.add (local.get $dst) (i32.const 12)) (i32.load (i32.add (local.get $src) (i32.const 12))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $copy)))
+    ;; Update list metadata
+    (i32.store (i32.add (local.get $metaPtr) (i32.const 4)) (local.get $newCap))
+    (i32.store (i32.add (local.get $metaPtr) (i32.const 8)) (local.get $newDataPtr))
+    ;; Advance heap pointer
+    (global.set $heap_ptr (i32.add (local.get $newDataPtr) (local.get $newBytes)))
+    (i32.const 1))
+  
   ;; Push numeric value to end of list
   (func $list_push (param $listIdx i32) (param $value f64)
     (local $len i32)
@@ -1076,16 +1162,16 @@ class WATGenerator {
     (local $offset i32)
     (local.set $len (call $list_length (local.get $listIdx)))
     (local.set $cap (call $list_capacity (local.get $listIdx)))
-    ;; Check capacity
-    (if (i32.lt_s (local.get $len) (local.get $cap))
+    ;; Grow if at capacity
+    (if (i32.ge_s (local.get $len) (local.get $cap))
       (then
-        (local.set $offset (call $list_element_offset (local.get $listIdx) (local.get $len)))
-        ;; Store value at end (16-byte element: f64 value + i32 type + i32 str_ptr)
-        (f64.store (local.get $offset) (local.get $value))
-        (i32.store (i32.add (local.get $offset) (i32.const 8)) (i32.const 0))  ;; type = 0 (number)
-        (i32.store (i32.add (local.get $offset) (i32.const 12)) (i32.const 0)) ;; str_ptr = 0
-        ;; Increment length
-        (call $list_set_length (local.get $listIdx) (i32.add (local.get $len) (i32.const 1))))))
+        (if (i32.eqz (call $list_grow (local.get $listIdx)))
+          (then (return)))))
+    (local.set $offset (call $list_element_offset (local.get $listIdx) (local.get $len)))
+    (f64.store (local.get $offset) (local.get $value))
+    (i32.store (i32.add (local.get $offset) (i32.const 8)) (i32.const 0))  ;; type = 0 (number)
+    (i32.store (i32.add (local.get $offset) (i32.const 12)) (i32.const 0)) ;; str_ptr = 0
+    (call $list_set_length (local.get $listIdx) (i32.add (local.get $len) (i32.const 1))))
   
   ;; Push string value to end of list
   (func $list_push_str (param $listIdx i32) (param $strPtr i32)
@@ -1094,16 +1180,16 @@ class WATGenerator {
     (local $offset i32)
     (local.set $len (call $list_length (local.get $listIdx)))
     (local.set $cap (call $list_capacity (local.get $listIdx)))
-    ;; Check capacity
-    (if (i32.lt_s (local.get $len) (local.get $cap))
+    ;; Grow if at capacity
+    (if (i32.ge_s (local.get $len) (local.get $cap))
       (then
-        (local.set $offset (call $list_element_offset (local.get $listIdx) (local.get $len)))
-        ;; Store string at end (16-byte element)
-        (f64.store (local.get $offset) (f64.const 0))  ;; value = 0 (unused for strings)
-        (i32.store (i32.add (local.get $offset) (i32.const 8)) (i32.const 1))  ;; type = 1 (string)
-        (i32.store (i32.add (local.get $offset) (i32.const 12)) (call $str_persist (local.get $strPtr))) ;; str_ptr (persisted)
-        ;; Increment length
-        (call $list_set_length (local.get $listIdx) (i32.add (local.get $len) (i32.const 1))))))
+        (if (i32.eqz (call $list_grow (local.get $listIdx)))
+          (then (return)))))
+    (local.set $offset (call $list_element_offset (local.get $listIdx) (local.get $len)))
+    (f64.store (local.get $offset) (f64.const 0))  ;; value = 0 (unused for strings)
+    (i32.store (i32.add (local.get $offset) (i32.const 8)) (i32.const 1))  ;; type = 1 (string)
+    (i32.store (i32.add (local.get $offset) (i32.const 12)) (call $str_persist (local.get $strPtr))) ;; str_ptr (persisted)
+    (call $list_set_length (local.get $listIdx) (i32.add (local.get $len) (i32.const 1))))
   
   ;; Insert numeric value at index (0-based), shift elements right
   (func $list_insert (param $listIdx i32) (param $index i32) (param $value f64)
@@ -1119,29 +1205,31 @@ class WATGenerator {
       (then (local.set $index (i32.const 0))))
     (if (i32.gt_s (local.get $index) (local.get $len))
       (then (local.set $index (local.get $len))))
-    ;; Check capacity
-    (if (i32.lt_s (local.get $len) (local.get $cap))
+    ;; Grow if at capacity
+    (if (i32.ge_s (local.get $len) (local.get $cap))
       (then
-        ;; Shift elements right from end to index (copy all 16 bytes per element)
-        (local.set $i (local.get $len))
-        (block $break
-          (loop $shift
-            (br_if $break (i32.le_s (local.get $i) (local.get $index)))
-            (local.set $dstOffset (call $list_element_offset (local.get $listIdx) (local.get $i)))
-            (local.set $srcOffset (call $list_element_offset (local.get $listIdx) (i32.sub (local.get $i) (i32.const 1))))
-            ;; Copy all 16 bytes: value (8) + type (4) + str_ptr (4)
-            (f64.store (local.get $dstOffset) (f64.load (local.get $srcOffset)))
-            (i32.store (i32.add (local.get $dstOffset) (i32.const 8)) (i32.load (i32.add (local.get $srcOffset) (i32.const 8))))
-            (i32.store (i32.add (local.get $dstOffset) (i32.const 12)) (i32.load (i32.add (local.get $srcOffset) (i32.const 12))))
-            (local.set $i (i32.sub (local.get $i) (i32.const 1)))
-            (br $shift)))
-        ;; Store new numeric value with type tag
-        (local.set $dstOffset (call $list_element_offset (local.get $listIdx) (local.get $index)))
-        (f64.store (local.get $dstOffset) (local.get $value))
-        (i32.store (i32.add (local.get $dstOffset) (i32.const 8)) (i32.const 0))  ;; type = 0 (number)
-        (i32.store (i32.add (local.get $dstOffset) (i32.const 12)) (i32.const 0)) ;; str_ptr = 0
-        ;; Increment length
-        (call $list_set_length (local.get $listIdx) (i32.add (local.get $len) (i32.const 1))))))
+        (if (i32.eqz (call $list_grow (local.get $listIdx)))
+          (then (return)))))
+    ;; Shift elements right from end to index (copy all 16 bytes per element)
+    (local.set $i (local.get $len))
+    (block $break
+      (loop $shift
+        (br_if $break (i32.le_s (local.get $i) (local.get $index)))
+        (local.set $dstOffset (call $list_element_offset (local.get $listIdx) (local.get $i)))
+        (local.set $srcOffset (call $list_element_offset (local.get $listIdx) (i32.sub (local.get $i) (i32.const 1))))
+        ;; Copy all 16 bytes: value (8) + type (4) + str_ptr (4)
+        (f64.store (local.get $dstOffset) (f64.load (local.get $srcOffset)))
+        (i32.store (i32.add (local.get $dstOffset) (i32.const 8)) (i32.load (i32.add (local.get $srcOffset) (i32.const 8))))
+        (i32.store (i32.add (local.get $dstOffset) (i32.const 12)) (i32.load (i32.add (local.get $srcOffset) (i32.const 12))))
+        (local.set $i (i32.sub (local.get $i) (i32.const 1)))
+        (br $shift)))
+    ;; Store new numeric value with type tag
+    (local.set $dstOffset (call $list_element_offset (local.get $listIdx) (local.get $index)))
+    (f64.store (local.get $dstOffset) (local.get $value))
+    (i32.store (i32.add (local.get $dstOffset) (i32.const 8)) (i32.const 0))  ;; type = 0 (number)
+    (i32.store (i32.add (local.get $dstOffset) (i32.const 12)) (i32.const 0)) ;; str_ptr = 0
+    ;; Increment length
+    (call $list_set_length (local.get $listIdx) (i32.add (local.get $len) (i32.const 1))))
   
   ;; Insert string value at index (0-based), shift elements right
   (func $list_insert_str (param $listIdx i32) (param $index i32) (param $strPtr i32)
@@ -1157,29 +1245,31 @@ class WATGenerator {
       (then (local.set $index (i32.const 0))))
     (if (i32.gt_s (local.get $index) (local.get $len))
       (then (local.set $index (local.get $len))))
-    ;; Check capacity
-    (if (i32.lt_s (local.get $len) (local.get $cap))
+    ;; Grow if at capacity
+    (if (i32.ge_s (local.get $len) (local.get $cap))
       (then
-        ;; Shift elements right from end to index (copy all 16 bytes per element)
-        (local.set $i (local.get $len))
-        (block $break
-          (loop $shift
-            (br_if $break (i32.le_s (local.get $i) (local.get $index)))
-            (local.set $dstOffset (call $list_element_offset (local.get $listIdx) (local.get $i)))
-            (local.set $srcOffset (call $list_element_offset (local.get $listIdx) (i32.sub (local.get $i) (i32.const 1))))
-            ;; Copy all 16 bytes: value (8) + type (4) + str_ptr (4)
-            (f64.store (local.get $dstOffset) (f64.load (local.get $srcOffset)))
-            (i32.store (i32.add (local.get $dstOffset) (i32.const 8)) (i32.load (i32.add (local.get $srcOffset) (i32.const 8))))
-            (i32.store (i32.add (local.get $dstOffset) (i32.const 12)) (i32.load (i32.add (local.get $srcOffset) (i32.const 12))))
-            (local.set $i (i32.sub (local.get $i) (i32.const 1)))
-            (br $shift)))
-        ;; Store new string value with type tag
-        (local.set $dstOffset (call $list_element_offset (local.get $listIdx) (local.get $index)))
-        (f64.store (local.get $dstOffset) (f64.const 0))  ;; value = 0 (unused for strings)
-        (i32.store (i32.add (local.get $dstOffset) (i32.const 8)) (i32.const 1))  ;; type = 1 (string)
-        (i32.store (i32.add (local.get $dstOffset) (i32.const 12)) (call $str_persist (local.get $strPtr))) ;; str_ptr (persisted)
-        ;; Increment length
-        (call $list_set_length (local.get $listIdx) (i32.add (local.get $len) (i32.const 1))))))
+        (if (i32.eqz (call $list_grow (local.get $listIdx)))
+          (then (return)))))
+    ;; Shift elements right from end to index (copy all 16 bytes per element)
+    (local.set $i (local.get $len))
+    (block $break
+      (loop $shift
+        (br_if $break (i32.le_s (local.get $i) (local.get $index)))
+        (local.set $dstOffset (call $list_element_offset (local.get $listIdx) (local.get $i)))
+        (local.set $srcOffset (call $list_element_offset (local.get $listIdx) (i32.sub (local.get $i) (i32.const 1))))
+        ;; Copy all 16 bytes: value (8) + type (4) + str_ptr (4)
+        (f64.store (local.get $dstOffset) (f64.load (local.get $srcOffset)))
+        (i32.store (i32.add (local.get $dstOffset) (i32.const 8)) (i32.load (i32.add (local.get $srcOffset) (i32.const 8))))
+        (i32.store (i32.add (local.get $dstOffset) (i32.const 12)) (i32.load (i32.add (local.get $srcOffset) (i32.const 12))))
+        (local.set $i (i32.sub (local.get $i) (i32.const 1)))
+        (br $shift)))
+    ;; Store new string value with type tag
+    (local.set $dstOffset (call $list_element_offset (local.get $listIdx) (local.get $index)))
+    (f64.store (local.get $dstOffset) (f64.const 0))  ;; value = 0 (unused for strings)
+    (i32.store (i32.add (local.get $dstOffset) (i32.const 8)) (i32.const 1))  ;; type = 1 (string)
+    (i32.store (i32.add (local.get $dstOffset) (i32.const 12)) (call $str_persist (local.get $strPtr))) ;; str_ptr (persisted)
+    ;; Increment length
+    (call $list_set_length (local.get $listIdx) (i32.add (local.get $len) (i32.const 1))))
   
   ;; Remove value at index (0-based), shift elements left
   (func $list_remove (param $listIdx i32) (param $index i32)
@@ -1288,21 +1378,29 @@ class WATGenerator {
   ;; Returns pointer to string (layout: [len:i32][data:bytes][null])
   (func $str_alloc (param $len i32) (result i32)
     (local $ptr i32)
+    (local $newPtr i32)
     (local.set $ptr (global.get $str_pool_ptr))
-    ;; Store length at ptr
-    (i32.store (local.get $ptr) (local.get $len))
-    ;; Advance pool pointer: ptr + 4 (len) + len + 1 (null) + padding to 4-byte align
-    (global.set $str_pool_ptr
+    (local.set $newPtr
       (i32.and
         (i32.add (i32.add (local.get $ptr) (i32.add (local.get $len) (i32.const 5))) (i32.const 3))
         (i32.const -4)))
+    ;; Bounds check: pool is 64MB so overflow is practically impossible
+    (if (i32.gt_u (local.get $newPtr) (i32.const ${this.project.persistentPool?.start || 0}))
+      (then (return (i32.const 0))))
+    (i32.store (local.get $ptr) (local.get $len))
+    (global.set $str_pool_ptr (local.get $newPtr))
     (local.get $ptr))
   
-  ;; Get string length
+  ;; Get string length (with defensive max check to prevent OOB from corrupted lengths)
   (func $str_length (param $ptr i32) (result i32)
+    (local $len i32)
     (if (result i32) (i32.eqz (local.get $ptr))
       (then (i32.const 0))
-      (else (i32.load (local.get $ptr)))))
+      (else
+        (local.set $len (i32.load (local.get $ptr)))
+        (if (result i32) (i32.or (i32.lt_s (local.get $len) (i32.const 0)) (i32.gt_s (local.get $len) (i32.const 65536)))
+          (then (i32.const 0))
+          (else (local.get $len))))))
   
   ;; Get character at index (1-based) as char code
   (func $str_char_at (param $ptr i32) (param $idx i32) (result i32)
@@ -1311,7 +1409,7 @@ class WATGenerator {
     (if (result i32) (i32.eqz (local.get $ptr))
       (then (i32.const 0))
       (else
-        (local.set $len (i32.load (local.get $ptr)))
+        (local.set $len (call $str_length (local.get $ptr)))
         (local.set $zeroIdx (i32.sub (local.get $idx) (i32.const 1)))
         (if (result i32) (i32.or (i32.lt_s (local.get $zeroIdx) (i32.const 0)) (i32.ge_s (local.get $zeroIdx) (local.get $len)))
           (then (i32.const 0))
@@ -1336,8 +1434,8 @@ class WATGenerator {
     (local $len2 i32)
     (local $newPtr i32)
     (local $i i32)
-    (local.set $len1 (if (result i32) (i32.eqz (local.get $ptr1)) (then (i32.const 0)) (else (i32.load (local.get $ptr1)))))
-    (local.set $len2 (if (result i32) (i32.eqz (local.get $ptr2)) (then (i32.const 0)) (else (i32.load (local.get $ptr2)))))
+    (local.set $len1 (call $str_length (local.get $ptr1)))
+    (local.set $len2 (call $str_length (local.get $ptr2)))
     (local.set $newPtr (call $str_alloc (i32.add (local.get $len1) (local.get $len2))))
     ;; Copy first string
     (local.set $i (i32.const 0))
@@ -1374,7 +1472,7 @@ class WATGenerator {
     (if (result i32) (i32.eqz (local.get $ptr))
       (then (call $str_alloc (i32.const 0)))
       (else
-        (local.set $len (i32.load (local.get $ptr)))
+        (local.set $len (call $str_length (local.get $ptr)))
         (local.set $startIdx (i32.sub (local.get $start) (i32.const 1)))
         (local.set $endIdx (local.get $end))
         ;; Clamp indices
@@ -1406,8 +1504,8 @@ class WATGenerator {
     (if (result i32) (i32.or (i32.eqz (local.get $str)) (i32.eqz (local.get $search)))
       (then (i32.const 0))
       (else
-        (local.set $strLen (i32.load (local.get $str)))
-        (local.set $searchLen (i32.load (local.get $search)))
+        (local.set $strLen (call $str_length (local.get $str)))
+        (local.set $searchLen (call $str_length (local.get $search)))
         (if (result i32) (i32.gt_s (local.get $searchLen) (local.get $strLen))
           (then (i32.const 0))
           (else
@@ -1449,7 +1547,7 @@ class WATGenerator {
     (if (result i32) (i32.eqz (local.get $idx))
       (then
         ;; Not found, return copy of original
-        (local.set $strLen (if (result i32) (i32.eqz (local.get $str)) (then (i32.const 0)) (else (i32.load (local.get $str)))))
+        (local.set $strLen (call $str_length (local.get $str)))
         (local.set $newPtr (call $str_alloc (local.get $strLen)))
         (local.set $i (i32.const 0))
         (block $break
@@ -1464,9 +1562,9 @@ class WATGenerator {
         (local.get $newPtr))
       (else
         ;; Found, build replaced string
-        (local.set $strLen (i32.load (local.get $str)))
-        (local.set $oldLen (i32.load (local.get $old)))
-        (local.set $newLen (if (result i32) (i32.eqz (local.get $new)) (then (i32.const 0)) (else (i32.load (local.get $new)))))
+        (local.set $strLen (call $str_length (local.get $str)))
+        (local.set $oldLen (call $str_length (local.get $old)))
+        (local.set $newLen (call $str_length (local.get $new)))
         (local.set $resultLen (i32.add (i32.sub (local.get $strLen) (local.get $oldLen)) (local.get $newLen)))
         (local.set $newPtr (call $str_alloc (local.get $resultLen)))
         (local.set $srcIdx (i32.sub (local.get $idx) (i32.const 1)))
@@ -1512,7 +1610,7 @@ class WATGenerator {
     (if (result i32) (i32.eqz (local.get $ptr))
       (then (call $str_alloc (i32.const 0)))
       (else
-        (local.set $len (i32.load (local.get $ptr)))
+        (local.set $len (call $str_length (local.get $ptr)))
         (local.set $newPtr (call $str_alloc (local.get $len)))
         (local.set $i (i32.const 0))
         (block $break
@@ -1537,7 +1635,7 @@ class WATGenerator {
     (if (result i32) (i32.eqz (local.get $ptr))
       (then (call $str_alloc (i32.const 0)))
       (else
-        (local.set $len (i32.load (local.get $ptr)))
+        (local.set $len (call $str_length (local.get $ptr)))
         (local.set $newPtr (call $str_alloc (local.get $len)))
         (local.set $i (i32.const 0))
         (block $break
@@ -1568,8 +1666,8 @@ class WATGenerator {
     (if (i32.or (i32.eqz (local.get $ptr1)) (i32.eqz (local.get $ptr2)))
       (then (return (i32.const 0))))
     ;; Compare lengths first
-    (local.set $len1 (i32.load (local.get $ptr1)))
-    (local.set $len2 (i32.load (local.get $ptr2)))
+    (local.set $len1 (call $str_length (local.get $ptr1)))
+    (local.set $len2 (call $str_length (local.get $ptr2)))
     (if (i32.ne (local.get $len1) (local.get $len2))
       (then (return (i32.const 0))))
     ;; Compare byte by byte
@@ -1596,7 +1694,7 @@ class WATGenerator {
     (if (result f64) (i32.eqz (local.get $ptr))
       (then (f64.const 0))
       (else
-        (local.set $len (i32.load (local.get $ptr)))
+        (local.set $len (call $str_length (local.get $ptr)))
         (local.set $result (f64.const 0))
         (local.set $i (i32.const 0))
         ;; Check for negative
@@ -1650,8 +1748,8 @@ class WATGenerator {
     (if (result i32) (i32.or (i32.eqz (local.get $str)) (i32.eqz (local.get $search)))
       (then (i32.const 0))
       (else
-        (local.set $strLen (i32.load (local.get $str)))
-        (local.set $searchLen (i32.load (local.get $search)))
+        (local.set $strLen (call $str_length (local.get $str)))
+        (local.set $searchLen (call $str_length (local.get $search)))
         (if (result i32) (i32.or (i32.eqz (local.get $searchLen)) (i32.gt_s (local.get $searchLen) (local.get $strLen)))
           (then (i32.const 0))
           (else
@@ -1690,7 +1788,7 @@ class WATGenerator {
     (if (result i32) (i32.eqz (local.get $ptr))
       (then (call $str_alloc (i32.const 0)))
       (else
-        (local.set $len (i32.load (local.get $ptr)))
+        (local.set $len (call $str_length (local.get $ptr)))
         (local.set $newPtr (call $str_alloc (local.get $len)))
         (local.set $i (i32.const 0))
         (block $break
@@ -1728,16 +1826,14 @@ class WATGenerator {
       (i32.mul (call $hexCharToDigit (i32.load8_u (i32.add (local.get $dataStart) (local.get $offset)))) (i32.const 16))
       (call $hexCharToDigit (i32.load8_u (i32.add (local.get $dataStart) (i32.add (local.get $offset) (i32.const 1)))))))
   
-    ;; Get list value as string pointer (converts number to string if needed)
+    ;; Get list value as string pointer (handles both numbers and string pointers)
   (func $list_get_as_str (param $listIdx i32) (param $index i32) (result i32)
-    ;; For now, just convert the numeric value to string
-    ;; TODO: Support mixed-type lists with type tagging
-    (call $f64_to_str (call $list_get (local.get $listIdx) (local.get $index))))
+    (call $f64_to_str_or_deref (call $list_get (local.get $listIdx) (local.get $index))))
   
   ;; Convert f64 to string pointer, or dereference if it's a negative-encoded string pointer
-  ;; Convention: negative f64 = negated string pointer (i32), positive f64 = numeric value
+  ;; Convention: negated string pointer (<= -stringPoolStart) = string, otherwise = numeric value
   (func $f64_to_str_or_deref (param $val f64) (result i32)
-    (if (result i32) (f64.lt (local.get $val) (f64.const 0))
+    (if (result i32) (f64.le (local.get $val) (f64.const -${this.stringPoolStart || 1024}))
       (then (i32.trunc_f64_s (f64.neg (local.get $val))))
       (else (call $f64_to_str (local.get $val)))))
   
@@ -1753,15 +1849,26 @@ class WATGenerator {
     ;; If pointer is a static string (below dynamic pool start), it's permanent - return as-is
     (if (i32.lt_u (local.get $ptr) (i32.const ${this.getEffectivePoolStart()}))
       (then (return (local.get $ptr))))
-    ;; If already in persistent pool, return as-is
-    (if (i32.ge_u (local.get $ptr) (i32.const ${this.project.persistentPool?.start || 0}))
+    ;; If already in persistent pool (between persistentPoolStart and heapStart), return as-is
+    (if (i32.and
+          (i32.ge_u (local.get $ptr) (i32.const ${this.project.persistentPool?.start || 0}))
+          (i32.lt_u (local.get $ptr) (i32.const ${this.project.heapStart || this.project.memorySize * 65536})))
       (then (return (local.get $ptr))))
     ;; Copy string to persistent pool
-    (local.set $len (i32.load (local.get $ptr)))
+    (local.set $len (call $str_length (local.get $ptr)))
     (local.set $newPtr (global.get $persistent_pool_ptr))
+    ;; Pre-calculate next aligned pointer
+    (local.set $i
+      (i32.and
+        (i32.add (i32.add (local.get $newPtr) (i32.add (local.get $len) (i32.const 5))) (i32.const 3))
+        (i32.const -4)))
+    ;; Bounds check: persistent pool is 64MB so overflow is practically impossible
+    (if (i32.gt_u (local.get $i) (i32.const ${this.project.heapStart || this.project.memorySize * 65536}))
+      (then (return (i32.const 0))))
     ;; Store length
     (i32.store (local.get $newPtr) (local.get $len))
-    ;; Copy bytes
+    ;; Copy bytes (reuse $i as loop counter after saving next ptr)
+    (global.set $persistent_pool_ptr (local.get $i))
     (local.set $i (i32.const 0))
     (block $break
       (loop $copy
@@ -1773,11 +1880,6 @@ class WATGenerator {
         (br $copy)))
     ;; Null terminate
     (i32.store8 (i32.add (i32.add (local.get $newPtr) (i32.const 4)) (local.get $len)) (i32.const 0))
-    ;; Advance persistent pool pointer (aligned to 4 bytes)
-    (global.set $persistent_pool_ptr
-      (i32.and
-        (i32.add (i32.add (local.get $newPtr) (i32.add (local.get $len) (i32.const 5))) (i32.const 3))
-        (i32.const -4)))
     (local.get $newPtr))
   
   ;; Convert a hex character ASCII code to its digit value (0-15)
@@ -2376,6 +2478,8 @@ class WATGenerator {
     (global.set $isFirstFrame (i32.const 1))
     ;; Reset persistent string pool
     (global.set $persistent_pool_ptr (i32.const ${this.project.persistentPool?.start || 0}))
+    ;; Reset heap pointer for dynamic list growth
+    (global.set $heap_ptr (i32.const ${this.project.heapStart || (this.project.memorySize * 65536)}))
     ${this.generateEntityInitialization()}
     ${this.generateVariableInitialization()}
     ${this.generateListInitialization()}
@@ -2500,9 +2604,15 @@ class WATGenerator {
             
             // Add initial values
             for (let i = 0; i < initialArray.length && i < list.capacity; i++) {
-                const val = parseFloat(initialArray[i].data || initialArray[i]) || 0;
-                code += `
-    (call $list_push (i32.const ${listIdx}) (f64.const ${val}))`;
+                const rawVal = initialArray[i].data !== undefined ? initialArray[i].data : initialArray[i];
+                const strVal = String(rawVal);
+                const numVal = Number(strVal);
+                if (strVal !== '' && isFinite(numVal)) {
+                    code += `\n    (call $list_push (i32.const ${listIdx}) (f64.const ${numVal}))`;
+                } else {
+                    const staticPtr = this.addStaticString(strVal);
+                    code += `\n    (call $list_push_str (i32.const ${listIdx}) (i32.const ${staticPtr}))`;
+                }
             }
         }
         

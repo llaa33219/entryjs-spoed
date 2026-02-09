@@ -371,8 +371,7 @@ function assignMemoryIndices(parsed) {
     const VARIABLE_SIZE = 8;
     const LIST_META_SIZE = 24;
     const LIST_ELEMENT_SIZE = 16; // 8 bytes f64 value + 4 bytes type + 4 bytes str_ptr
-    const DEFAULT_LIST_CAPACITY = 1000000;
-    const STRING_POOL_SIZE = 16 * 1024 * 1024; // 16MB for temporary string pool
+    const STRING_POOL_SIZE = 64 * 1024 * 1024; // 64MB for temporary string pool
     const PERSISTENT_STRING_POOL_SIZE = 64 * 1024 * 1024; // 64MB for persistent string pool (strings stored in lists)
 
     // Assign entity memory offsets
@@ -394,7 +393,7 @@ function assignMemoryIndices(parsed) {
     parsed.variables.lists.forEach((list, index) => {
         list.memoryIndex = index;
         list.metaOffset = memOffset;
-        list.capacity = DEFAULT_LIST_CAPACITY;
+        list.capacity = Math.max((list.array || []).length * 2, 100);
         memOffset += LIST_META_SIZE;
     });
 
@@ -416,8 +415,7 @@ function assignMemoryIndices(parsed) {
     parsed.listMemory = {
         metaStart: listMetaStart,
         metaSize: LIST_META_SIZE,
-        elementSize: LIST_ELEMENT_SIZE,
-        defaultCapacity: DEFAULT_LIST_CAPACITY
+        elementSize: LIST_ELEMENT_SIZE
     };
 
     // Store string pool info
@@ -432,6 +430,7 @@ function assignMemoryIndices(parsed) {
         size: PERSISTENT_STRING_POOL_SIZE
     };
 
+    parsed.heapStart = memOffset;
     parsed.memorySize = Math.ceil(memOffset / 65536) + 1; // In pages (64KB each)
 }
 

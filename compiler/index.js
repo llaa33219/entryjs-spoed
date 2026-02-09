@@ -122,7 +122,7 @@ class EntryCompiler {
     </style>
 </head>
 <body>
-    <canvas id="stage" width="480" height="360"></canvas>
+    <canvas id="stage" width="640" height="360"></canvas>
     <script type="module" src="renderer.js"></script>
 </body>
 </html>`;

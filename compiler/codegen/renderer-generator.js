@@ -46,6 +46,7 @@ const SCENE_COUNT = ${this.project.scenes.length};
 const VARIABLE_COUNT = ${(this.project.variables.variables || []).length};
 const LIST_COUNT = ${(this.project.variables.lists || []).length};
 const ENTITY_COUNT = ${this.project.objects.length};
+const STRING_POOL_START = ${this.project.stringPool?.start || 1024};
 
 // ===== WASM IMPORTS =====
 const wasmImports = {
@@ -566,6 +567,7 @@ function createSprites() {
         const container = new PIXI.Container();
         container.x = STAGE_WIDTH / 2;
         container.y = STAGE_HEIGHT / 2;
+        container.scale.set(STAGE_WIDTH / 480, STAGE_HEIGHT / 270);
         entityContainers.push(container);
         
         // Initialize fill graphics (will be created on first use)
@@ -646,6 +648,7 @@ function createSprites() {
     stampContainer = new PIXI.Container();
     stampContainer.x = STAGE_WIDTH / 2;
     stampContainer.y = STAGE_HEIGHT / 2;
+    stampContainer.scale.set(STAGE_WIDTH / 480, STAGE_HEIGHT / 270);
     app.stage.addChild(stampContainer);
 }
 
@@ -656,8 +659,8 @@ function setupInputHandlers() {
     // Mouse position
     canvas.addEventListener('mousemove', (e) => {
         const rect = canvas.getBoundingClientRect();
-        const x = (e.clientX - rect.left) * (STAGE_WIDTH / rect.width) - STAGE_WIDTH / 2;
-        const y = STAGE_HEIGHT / 2 - (e.clientY - rect.top) * (STAGE_HEIGHT / rect.height);
+        const x = ((e.clientX - rect.left) / rect.width - 0.5) * 480;
+        const y = (0.5 - (e.clientY - rect.top) / rect.height) * 270;
         
         // Write to WASM memory (offset 16 for mouseX, 24 for mouseY)
         const view = new DataView(wasm.memory.buffer);
@@ -1636,7 +1639,7 @@ function createVariableDisplays() {
 
 // Read variable display value, handling string pointers (negative f64 = negated string pointer)
 function getVarDisplayValue(value, varType) {
-    if (value < -0.5) {
+    if (value < -STRING_POOL_START) {
         const strPtr = Math.round(-value);
         const str = readStringFromWasm(strPtr);
         if (str) return str;
@@ -1925,7 +1928,7 @@ function updateListDisplays() {
                 
                 // Value text: at (24, GL_LIST_POS.VALUE_Y=6) relative to element at x=BORDER
                 const value = wasm.list_get ? wasm.list_get(i, realIdx) : 0;
-                if (value < -0.5) {
+                if (value < -STRING_POOL_START) {
                     const strPtr = Math.round(-value);
                     item.valueText.text = readStringFromWasm(strPtr) || '0';
                 } else if (Number.isInteger(value)) {
@@ -2074,8 +2077,10 @@ function updateDialogBubbles() {
             const container = sprites[i].container;
             
             // Calculate position (bubble above sprite)
-            const bubbleX = container.x + sprite.x - bubble.bg.width / 2;
-            const bubbleY = container.y + sprite.y - sprite.height / 2 - bubble.bg.height - 20;
+            const scaleX = STAGE_WIDTH / 480;
+            const scaleY = STAGE_HEIGHT / 270;
+            const bubbleX = container.x + sprite.x * scaleX - bubble.bg.width / 2;
+            const bubbleY = container.y + sprite.y * scaleY - sprite.height * scaleY / 2 - bubble.bg.height - 20;
             
             bubble.container.x = Math.max(5, Math.min(STAGE_WIDTH - bubble.bg.width - 5, bubbleX));
             bubble.container.y = Math.max(5, bubbleY);
