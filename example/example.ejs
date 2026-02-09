@@ -142,6 +142,11 @@
         ></script>
 
 
+        <!-- WASM Compiler Dependencies (PixiJS, wabt, EntryCompiler) -->
+        <script type="text/javascript" src="https://pixijs.download/v7.3.2/pixi.min.js"></script>
+        <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/wabt@1.0.36/index.js"></script>
+        <script type="text/javascript" src="../compiler/dist/entry-compiler.js"></script>
+
         <% for (var chunk in htmlWebpackPlugin.files.js) { %>
         <script src="<%= htmlWebpackPlugin.files.js[chunk] %>"></script>
         <% } %>

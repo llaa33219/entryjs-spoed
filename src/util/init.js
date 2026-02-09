@@ -188,6 +188,8 @@ Entry.initialize_ = function () {
     this.engine = new Entry.Engine();
     this._destroyer.add(this.engine);
 
+    this.wasmEngine = new Entry.WasmEngine();
+
     if (this.type !== 'minimize') {
         this.propertyPanel = new Entry.PropertyPanel();
     }

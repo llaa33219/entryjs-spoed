@@ -28,6 +28,7 @@ require('./class/container');
 require('./class/dialog');
 require('./class/doneProject');
 require('./class/engine');
+require('./class/wasm_engine');
 require('./class/entity');
 require('./class/function');
 require('./class/helper');

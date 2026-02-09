@@ -577,6 +577,9 @@ Entry.Engine = class Engine {
      */
     update = () => {
         if (Entry.engine.isState('run')) {
+            if (Entry.wasmEngine && Entry.wasmEngine.isActive()) {
+                return;
+            }
             Entry.container.mapObjectOnScene(this.computeFunction);
             if (Entry.hw.communicationType !== 'manual') {
                 Entry.hw.update();
@@ -659,7 +662,14 @@ Entry.Engine = class Engine {
             Entry.scene.takeStartSceneSnapshot();
             this.state = EntryEngineState.run;
             this._resetEngineTimer();
-            this.fireEvent('start');
+            if (Entry.wasmEngine && Entry.wasmEngine.isAvailable()) {
+                Entry.wasmEngine.start().catch((e) => {
+                    console.error('[WasmEngine] Start failed:', e);
+                    Entry.engine.toggleStop();
+                });
+            } else {
+                this.fireEvent('start');
+            }
             this.achieveEnabled = !(disableAchieve === false);
         }
         this.state = EntryEngineState.run;
@@ -713,6 +723,9 @@ Entry.Engine = class Engine {
      * toggle this engine state stop
      */
     async toggleStop() {
+        if (Entry.wasmEngine && Entry.wasmEngine.isActive()) {
+            Entry.wasmEngine.stop();
+        }
         this.state = EntryEngineState.stopping;
         Entry.dispatchEvent('beforeStop');
         try {
@@ -827,6 +840,40 @@ Entry.Engine = class Engine {
      * toggle this engine state pause
      */
     togglePause({ visible = true } = {}) {
+        if (Entry.wasmEngine && Entry.wasmEngine.isActive()) {
+            if (this.state === EntryEngineState.pause) {
+                Entry.wasmEngine.resume();
+                this.state = EntryEngineState.run;
+                if (visible && this.runButton) {
+                    this.setPauseButton(this.option);
+                    if (this.runButton2) {
+                        this.runButton2.addClass('entryRemove');
+                    } else {
+                        this.runButton.addClass('entryRemove');
+                        if (this.runButtonCurtain) {
+                            this.runButtonCurtain.addClass('entryRemove');
+                        }
+                    }
+                }
+            } else {
+                Entry.wasmEngine.pause();
+                this.state = EntryEngineState.pause;
+                if (visible && this.runButton) {
+                    this.setPauseButton(this.option);
+                    this.stopButton.removeClass('entryRemove');
+                    if (this.runButton2) {
+                        this.runButton2.removeClass('entryRemove');
+                    } else {
+                        this.runButton.removeClass('entryRemove');
+                        if (this.runButtonCurtain) {
+                            this.runButtonCurtain.removeClass('entryRemove');
+                        }
+                    }
+                }
+            }
+            Entry.dispatchEvent('dispatchEventDidTogglePause');
+            return;
+        }
         const timer = Entry.engine.projectTimer;
         if (this.state === EntryEngineState.pause) {
             this.setEnableInputField(true);
