@@ -44,18 +44,16 @@ function parseColor(colorParam) {
     
     // Handle color block object with params
     if (typeof colorParam === 'object') {
-        // Check if this is a dynamic block (function param, function call, etc.)
-        // These need runtime evaluation
         if (colorParam.type) {
-            // Text block with hex color pattern - convert at compile time
-            if (colorParam.type === 'text' && colorParam.params?.[0]) {
-                const hexColor = parseHexColorString(colorParam.params[0]);
+            // Text or Number block with hex color pattern - convert at compile time
+            if ((colorParam.type === 'text' || colorParam.type === 'number') && colorParam.params?.[0]) {
+                const hexColor = parseHexColorString(String(colorParam.params[0]));
                 if (hexColor) {
-                    return hexColor; // Return static {r, g, b}
+                    return hexColor;
                 }
             }
             
-            // change_rgb_to_hex: we can extract R, G, B components
+            // change_rgb_to_hex: extract R, G, B components directly
             if (colorParam.type === 'change_rgb_to_hex') {
                 return {
                     dynamic: true,
@@ -78,18 +76,37 @@ function parseColor(colorParam) {
                     block: colorParam
                 };
             }
+            
+            // Try to extract static hex from params[0] for any other block type
+            if (colorParam.params && colorParam.params[0]) {
+                const firstParam = colorParam.params[0];
+                if (typeof firstParam === 'string') {
+                    const hexColor = parseHexColorString(firstParam);
+                    if (hexColor) return hexColor;
+                } else if (typeof firstParam === 'object' && firstParam.type === 'color' && firstParam.params?.[0]) {
+                    const hexColor = parseHexColorString(String(firstParam.params[0]));
+                    if (hexColor) return hexColor;
+                }
+            }
+            
+            // Fallback: any other block type (combine_something, calc_basic, etc.)
+            // Treat as dynamic packed value - transpiled at runtime and passed to
+            // $unpackAndSetBrushColor which handles both packed RGB and string pointers
+            return {
+                dynamic: true,
+                type: 'packed',
+                block: colorParam
+            };
         }
         
+        // Object without type - try to extract hex from params
         if (colorParam.params && colorParam.params[0]) {
             const firstParam = colorParam.params[0];
-            // Make sure it's a string before assigning
             if (typeof firstParam === 'string') {
                 colorStr = firstParam;
             } else if (typeof firstParam === 'object' && firstParam.type === 'color' && firstParam.params?.[0]) {
                 colorStr = firstParam.params[0];
             }
-        } else if (colorParam.type === 'color') {
-            colorStr = colorParam.params?.[0] || '#000000';
         }
     } else if (typeof colorParam === 'string') {
         colorStr = colorParam;
