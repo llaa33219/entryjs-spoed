@@ -31,8 +31,8 @@ class RendererGenerator {
  */
 
 // ===== CONFIGURATION =====
-const STAGE_WIDTH = 640;
-const STAGE_HEIGHT = 360;
+const STAGE_WIDTH = 1920;
+const STAGE_HEIGHT = 1080;
 const TICK_RATE = 1000000;
 const FIXED_DT = 1.0 / TICK_RATE;
 const MAX_TICKS_PER_FRAME = 50000;
@@ -449,12 +449,13 @@ function loadImageAsTexture(url, expectedWidth, expectedHeight) {
                     // Rasterize SVG to an offscreen canvas at exact dimensions
                     // This ensures SVG is rendered at the correct pixel size regardless of viewBox
                     const canvas = document.createElement('canvas');
-                    canvas.width = expectedWidth;
-                    canvas.height = expectedHeight;
+                    const svgScale = STAGE_WIDTH / 480;
+                    canvas.width = Math.round(expectedWidth * svgScale);
+                    canvas.height = Math.round(expectedHeight * svgScale);
                     const ctx = canvas.getContext('2d');
                     
-                    // Draw the SVG scaled to fit the expected dimensions
-                    ctx.drawImage(img, 0, 0, expectedWidth, expectedHeight);
+                    // Draw the SVG scaled to fit the higher resolution
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
                     
                     // Create texture from the canvas
                     const texture = PIXI.Texture.from(canvas);
@@ -1584,7 +1585,7 @@ function createVariableDisplays() {
             fontSize: 10,
             fill: 0x000000
         });
-        nameText.resolution = 2;
+        nameText.resolution = 4;
         nameText.x = 4;
         nameText.y = -9.5; // GL_VAR_POS.LABEL_Y
         container.addChild(nameText);
@@ -1595,7 +1596,7 @@ function createVariableDisplays() {
             fontSize: 9,
             fill: 0xFFFFFF
         });
-        valueText.resolution = 2;
+        valueText.resolution = 4;
         container.addChild(valueText);
         
         // Slide variable extra UI: slide bar + knob
@@ -1777,7 +1778,7 @@ function createListDisplays() {
             fontSize: 10,
             fill: 0x000000
         });
-        titleText.resolution = 2;
+        titleText.resolution = 4;
         titleText.y = BORDER - 1; // WebGL mode: BORDER - 1 = 5
         container.addChild(titleText);
         
@@ -1793,7 +1794,7 @@ function createListDisplays() {
                 fontSize: 10,
                 fill: 0x000000
             });
-            indexText.resolution = 2;
+            indexText.resolution = 4;
             itemContainer.addChild(indexText);
             
             // Value background (#4f80ff matching EntryJS colorSet.canvas.list)
@@ -1806,7 +1807,7 @@ function createListDisplays() {
                 fontSize: 9,
                 fill: 0xFFFFFF
             });
-            valueText.resolution = 2;
+            valueText.resolution = 4;
             itemContainer.addChild(valueText);
             
             items.push({ indexText, valueBg, valueText, visible: false });
@@ -1818,7 +1819,7 @@ function createListDisplays() {
             fontSize: 10,
             fill: 0x333333
         });
-        lengthText.resolution = 2;
+        lengthText.resolution = 4;
         container.addChild(lengthText);
         
         // Scroll button (matching EntryJS scrollButton_: rr(0,0,7,30,3.5) fill #aaaaaa)
@@ -1969,6 +1970,7 @@ function createDialogBubbles() {
             wordWrap: true,
             wordWrapWidth: 150
         });
+        text.resolution = 4;
         text.x = 10;
         text.y = 8;
         container.addChild(text);
