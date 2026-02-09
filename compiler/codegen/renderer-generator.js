@@ -22,6 +22,10 @@ class RendererGenerator {
         this.options = options;
     }
 
+    escapeJSString(str) {
+        return String(str).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r');
+    }
+
     generate() {
         return `/**
  * EntryJS Compiled Project - Renderer
@@ -154,9 +158,98 @@ const wasmImports = {
         }
     },
     clone: {
-        createClone: (entityIdx) => { /* TODO: implement clone creation */ },
-        deleteClone: (entityIdx) => { /* TODO: implement clone deletion */ },
-        removeAllClones: () => { /* TODO: implement remove all clones */ }
+        createCloneVisual: (entityIdx) => {
+            if (entityIdx < 0 || entityIdx >= sprites.length || clones.length >= 300) return;
+            const src = sprites[entityIdx];
+            const container = new PIXI.Container();
+            container.x = STAGE_WIDTH / 2;
+            container.y = STAGE_HEIGHT / 2;
+            container.scale.set(STAGE_WIDTH / 480, STAGE_HEIGHT / 270);
+            let cloneSprite;
+            if (src.isTextBox) {
+                const cloneGroup = new PIXI.Container();
+                const bgClone = new PIXI.Graphics();
+                const bgStr = src.data.bgColor || '#ffffff';
+                const bgInt = bgStr === 'transparent' ? -1 : parseInt(bgStr.replace('#',''), 16);
+                const tw = src.textBoxWidth || 100;
+                const th = src.textBoxHeight || 22;
+                if (bgInt >= 0 && !isNaN(bgInt)) {
+                    bgClone.beginFill(bgInt);
+                    bgClone.drawRect(-tw / 2, -th / 2, tw, th);
+                    bgClone.endFill();
+                }
+                if (src.bgGraphics) bgClone.x = src.bgGraphics.x;
+                cloneGroup.addChild(bgClone);
+                if (src.textObject) {
+                    const textClone = new PIXI.Text(src.textObject.text, src.textObject.style.clone());
+                    textClone.resolution = 4;
+                    textClone.anchor.x = src.textObject.anchor.x;
+                    textClone.anchor.y = src.textObject.anchor.y;
+                    textClone.x = src.textObject.x;
+                    textClone.y = src.textObject.y;
+                    cloneGroup.addChild(textClone);
+                }
+                if (src.data.lineBreak) {
+                    const mask = new PIXI.Graphics();
+                    mask.beginFill(0xffffff);
+                    mask.drawRect(-tw / 2, -th / 2, tw, th);
+                    mask.endFill();
+                    cloneGroup.addChild(mask);
+                    cloneGroup.mask = mask;
+                }
+                cloneSprite = cloneGroup;
+            } else {
+                cloneSprite = new PIXI.Sprite(src.sprite.texture);
+                cloneSprite.anchor.set(0.5, 0.5);
+            }
+            // Read current WASM state (sprite may have stale previous-frame values)
+            const cx = wasm.getX(entityIdx);
+            const cy = wasm.getY(entityIdx);
+            const crot = wasm.getRotation(entityIdx);
+            const csx = wasm.getScaleX(entityIdx);
+            const csy = wasm.getScaleY(entityIdx);
+            cloneSprite.x = cx;
+            cloneSprite.y = -cy;
+            cloneSprite.rotation = crot * Math.PI / 180;
+            if (!src.isTextBox && src.sprite.texture && src.data.pictures.length > 0) {
+                const texW = src.sprite.texture.width || 1;
+                const texH = src.sprite.texture.height || 1;
+                const cpicIdx = wasm.getPictureIndex(entityIdx);
+                const pics = src.data.pictures;
+                const cpIdx = ((cpicIdx % pics.length) + pics.length) % pics.length;
+                const ew = pics[cpIdx] ? pics[cpIdx].width : texW;
+                const eh = pics[cpIdx] ? pics[cpIdx].height : texH;
+                cloneSprite.scale.x = csx * (ew / texW);
+                cloneSprite.scale.y = csy * (eh / texH);
+            } else {
+                cloneSprite.scale.x = csx;
+                cloneSprite.scale.y = csy;
+            }
+            cloneSprite.alpha = src.sprite.alpha;
+            cloneSprite.visible = true;
+            container.addChild(cloneSprite);
+            const stampIdx = app.stage.children.indexOf(stampContainer);
+            if (stampIdx >= 0) app.stage.addChildAt(container, stampIdx);
+            else app.stage.addChild(container);
+            clones.push({ sprite: cloneSprite, parentIdx: entityIdx, container });
+        },
+        deleteClone: (entityIdx) => {
+            for (let i = clones.length - 1; i >= 0; i--) {
+                if (clones[i].parentIdx === entityIdx) {
+                    app.stage.removeChild(clones[i].container);
+                    clones[i].container.destroy({ children: true });
+                    clones.splice(i, 1);
+                    break;
+                }
+            }
+        },
+        removeAllClones: () => {
+            for (const c of clones) {
+                app.stage.removeChild(c.container);
+                c.container.destroy({ children: true });
+            }
+            clones = [];
+        }
     },
     sound: {
         playSoundAndWait: (entityIdx, soundIdx) => playSound(entityIdx, soundIdx),
@@ -294,6 +387,9 @@ let dialogBubbles = [];     // Array of dialog bubble objects per entity
 
 // Brush state per entity: { isDrawing, isFilling, color, thickness, opacity, fillColor, fillOpacity, brushLastX, brushLastY, fillLastX, fillLastY }
 let brushStates = [];
+
+// Clone state
+let clones = [];
 
 // Drag state for slide variables and list scroll buttons
 let dragState = null;
@@ -578,36 +674,118 @@ function createSprites() {
         // Initialize brush graphics (will be created on first use)
         brushGraphics.push(null);
         
-        // Get first valid texture or use placeholder
-        let initialTexture = getPlaceholderTexture();
-        for (const tex of entityTextures) {
-            if (tex && tex.valid !== false && tex.baseTexture) {
-                initialTexture = tex;
-                break;
+        // Create sprite or textBox depending on object type
+        let spriteObj;
+        if (entityData.objectType === 'textBox') {
+            // TextBox: create PIXI.Text + background graphics
+            const textBoxGroup = new PIXI.Container();
+            
+            const tbw = entityData.textBoxWidth || 100;
+            const tbh = entityData.textBoxHeight || 22;
+            const bgStr = entityData.bgColor || '#ffffff';
+            const bgColorInt = bgStr === 'transparent' ? -1 : parseInt(bgStr.replace('#', ''), 16);
+            const tAlign = entityData.textAlign || 0;
+            const hasLineBreak = entityData.lineBreak || false;
+            
+            // Background rectangle (matching EntryJS updateBG)
+            const bg = new PIXI.Graphics();
+            if (bgColorInt >= 0 && !isNaN(bgColorInt)) {
+                bg.beginFill(bgColorInt);
+                bg.drawRect(-tbw / 2, -tbh / 2, tbw, tbh);
+                bg.endFill();
             }
+            // When no lineBreak, shift bg based on text alignment (matching EntryJS updateBG)
+            if (!hasLineBreak) {
+                if (tAlign === 1) bg.x = tbw / 2;       // LEFT
+                else if (tAlign === 2) bg.x = -tbw / 2;  // RIGHT
+            }
+            textBoxGroup.addChild(bg);
+            
+            // Text object with proper alignment (matching EntryJS setTextAlign + alignTextBox)
+            const alignMap = ['center', 'left', 'right'];
+            const anchorXMap = [0.5, 0, 1];
+            const textStyle = {
+                fontFamily: "'Nanum Gothic', NanumGothic, Arial, sans-serif",
+                fontSize: entityData.fontSize || 20,
+                fontWeight: entityData.fontWeight || 'normal',
+                fill: entityData.textColor || '#000000',
+                wordWrap: hasLineBreak,
+                wordWrapWidth: tbw,
+                breakWords: true,
+                align: alignMap[tAlign] || 'center',
+                lineHeight: (entityData.fontSize || 20) + 2
+            };
+            const textObj = new PIXI.Text(entityData.text || '', textStyle);
+            textObj.resolution = 4;
+            textObj.anchor.x = anchorXMap[tAlign] || 0.5;
+            
+            if (hasLineBreak) {
+                // lineBreak mode: text top-aligned within box
+                textObj.anchor.y = 0;
+                textObj.y = -tbh / 2 + 4.1; // EntryJS: -height/2 + REPOSITION_OFFSET(10) - WEBGL_OFFSET(5.9)
+                // Position X based on alignment (matching EntryJS alignTextBox)
+                if (tAlign === 0) textObj.x = 0;               // CENTER
+                else if (tAlign === 1) textObj.x = -tbw / 2;   // LEFT
+                else if (tAlign === 2) textObj.x = tbw / 2;     // RIGHT
+            } else {
+                // No lineBreak: text vertically centered
+                textObj.anchor.y = 0.5;
+                textObj.y = 0;
+                textObj.x = 0;
+            }
+            textBoxGroup.addChild(textObj);
+            
+            // Clip text overflow in lineBreak mode (matching EntryJS mask behavior)
+            if (hasLineBreak) {
+                const mask = new PIXI.Graphics();
+                mask.beginFill(0xffffff);
+                mask.drawRect(-tbw / 2, -tbh / 2, tbw, tbh);
+                mask.endFill();
+                textBoxGroup.addChild(mask);
+                textBoxGroup.mask = mask;
+            }
+            
+            textBoxGroup.x = 0;
+            textBoxGroup.y = 0;
+            textBoxGroup.visible = entityData.sceneIndex === 0;
+            
+            container.addChild(textBoxGroup);
+            spriteObj = {
+                sprite: textBoxGroup,
+                textures: entityTextures,
+                data: entityData,
+                container: container,
+                isTextBox: true,
+                textBoxWidth: tbw,
+                textBoxHeight: tbh,
+                bgGraphics: bg,
+                textObject: textObj
+            };
+        } else {
+            // Regular sprite
+            let initialTexture = getPlaceholderTexture();
+            for (const tex of entityTextures) {
+                if (tex && tex.valid !== false && tex.baseTexture) {
+                    initialTexture = tex;
+                    break;
+                }
+            }
+            
+            const sprite = new PIXI.Sprite(initialTexture);
+            sprite.anchor.set(0.5, 0.5);
+            sprite.x = 0;
+            sprite.y = 0;
+            sprite.visible = entityData.sceneIndex === 0;
+            
+            container.addChild(sprite);
+            spriteObj = {
+                sprite,
+                textures: entityTextures,
+                data: entityData,
+                container: container
+            };
         }
-        
-        // Create sprite with first texture (added last, renders on top within container)
-        const sprite = new PIXI.Sprite(initialTexture);
-        
-        // Set anchor to center
-        sprite.anchor.set(0.5, 0.5);
-        
-        // Initial position relative to container (0,0 = center)
-        sprite.x = 0;
-        sprite.y = 0;
-        
-        // Only show sprites from the first scene initially
-        // Note: visibility is on sprite, not container, so brush traces remain visible
-        sprite.visible = entityData.sceneIndex === 0;
-        
-        container.addChild(sprite);
-        sprites.push({
-            sprite,
-            textures: entityTextures,
-            data: entityData,
-            container: container
-        });
+        sprites.push(spriteObj);
         
         // Initialize brush state
         // Note: brush and fill have independent position tracking to avoid interference
@@ -917,10 +1095,20 @@ function gameLoop(currentTime) {
     if (wasmScene !== currentScene) {
         console.log('[Renderer] Scene changed from', currentScene, 'to', wasmScene);
         currentScene = wasmScene;
+        // Clear all clones on scene change (matches EntryJS resetSceneDuringRun)
+        for (const c of clones) {
+            app.stage.removeChild(c.container);
+            c.container.destroy({ children: true });
+        }
+        clones = [];
     }
     
     // Render once per animation frame
     updateSprites();
+    
+    // Note: Clones are static snapshots - they keep their creation position.
+    // True independent clone movement requires per-clone WASM entity slots (future enhancement).
+    
     updateVariableDisplays();
     updateListDisplays();
     updateDialogBubbles();
@@ -932,7 +1120,7 @@ function gameLoop(currentTime) {
 // ===== SPRITE UPDATE =====
 function updateSprites() {
     for (let i = 0; i < sprites.length; i++) {
-        const { sprite, textures: entityTextures, container } = sprites[i];
+        const { sprite, textures: entityTextures, data: entityData, container } = sprites[i];
         
         // Read entity state from WASM
         const x = wasm.getX(i);
@@ -944,6 +1132,17 @@ function updateSprites() {
         const visible = wasm.getVisible(i);
         const pictureIndex = wasm.getPictureIndex(i);
         
+        // TextBox objects: apply transform directly without texture normalization
+        if (sprites[i].isTextBox) {
+            sprite.x = x;
+            sprite.y = -y;
+            sprite.rotation = rotation * Math.PI / 180;
+            sprite.scale.x = scaleX;
+            sprite.scale.y = scaleY;
+            sprite.visible = visible !== 0;
+            continue;
+        }
+        
         // Update sprite properties
         // Position relative to entity container (which is centered on stage)
         // Entry Y is inverted relative to PixiJS
@@ -953,23 +1152,30 @@ function updateSprites() {
         // Rotation in degrees, convert to radians
         sprite.rotation = rotation * Math.PI / 180;
         
-        // Scale - EntryJS uses scaleX/scaleY directly (1.0 = 100%)
-        sprite.scale.x = scaleX;
-        sprite.scale.y = scaleY;
-        
-        // Visibility (only affects sprite, brush traces remain visible per EntryJS behavior)
-        // Note: we set sprite.visible, not container.visible, so brush/fill graphics stay visible
-        sprite.visible = visible !== 0;
-        
-        // Texture (picture)
+        // Update texture BEFORE scale (scale depends on texture dimensions)
         if (entityTextures && entityTextures.length > 0) {
-            // Proper modulo that handles negative indices (e.g., -1 wraps to last texture)
             const texIdx = ((pictureIndex % entityTextures.length) + entityTextures.length) % entityTextures.length;
             const newTexture = entityTextures[texIdx];
             if (newTexture && newTexture.valid !== false) {
                 sprite.texture = newTexture;
             }
         }
+        
+        // Scale - normalize by expected picture dimensions vs actual texture size
+        // SVGs are rasterized at higher resolution, so texture may be larger than expected
+        const texW = sprite.texture.width || 1;
+        const texH = sprite.texture.height || 1;
+        const picIdx = entityData.pictures.length > 0
+            ? ((pictureIndex % entityData.pictures.length) + entityData.pictures.length) % entityData.pictures.length
+            : 0;
+        const expectedW = entityData.pictures[picIdx] ? entityData.pictures[picIdx].width : texW;
+        const expectedH = entityData.pictures[picIdx] ? entityData.pictures[picIdx].height : texH;
+        sprite.scale.x = scaleX * (expectedW / texW);
+        sprite.scale.y = scaleY * (expectedH / texH);
+        
+        // Visibility (only affects sprite, brush traces remain visible per EntryJS behavior)
+        // Note: we set sprite.visible, not container.visible, so brush/fill graphics stay visible
+        sprite.visible = visible !== 0;
         
         // Note: Brush drawing is now handled via brushNotifyPosition called from WASM
         // This ensures every position change (even multiple per frame) draws a line
@@ -2099,6 +2305,13 @@ function stop() {
 }
 
 function restart() {
+    // Clear all clones
+    for (const c of clones) {
+        app.stage.removeChild(c.container);
+        c.container.destroy({ children: true });
+    }
+    clones = [];
+    
     // Clear all brush drawings and stamps
     clearAllBrush();
     
@@ -2195,7 +2408,8 @@ init().catch(console.error);
         for (const obj of this.project.objects) {
             code += `    {\n`;
             code += `        id: "${obj.id}",\n`;
-            code += `        name: "${obj.name}",\n`;
+            code += `        name: "${this.escapeJSString(obj.name)}",\n`;
+            code += `        objectType: "${obj.objectType || 'sprite'}",\n`;
             code += `        pictures: [\n`;
             
             for (const pic of obj.pictures) {
@@ -2228,7 +2442,22 @@ init().catch(console.error);
             }
             
             code += `        ],\n`;
-            code += `        sceneIndex: ${obj.sceneIndex || 0}\n`;
+            code += `        sceneIndex: ${obj.sceneIndex || 0}`;
+            if (obj.objectType === 'textBox') {
+                const fontWeight = (obj.entity.font || '').includes('bold') ? 'bold' : 'normal';
+                code += `,\n`;
+                code += `        text: "${this.escapeJSString(obj.entity.text || '')}",\n`;
+                code += `        bgColor: "${this.escapeJSString(obj.entity.bgColor || '#ffffff')}",\n`;
+                code += `        fontSize: ${obj.entity.fontSize || 20},\n`;
+                code += `        textColor: "${obj.entity.colour || '#000000'}",\n`;
+                code += `        textAlign: ${obj.entity.textAlign || 0},\n`;
+                code += `        lineBreak: ${obj.entity.lineBreak || false},\n`;
+                code += `        textBoxWidth: ${obj.entity.width || 100},\n`;
+                code += `        textBoxHeight: ${obj.entity.height || 22},\n`;
+                code += `        fontWeight: "${fontWeight}"\n`;
+            } else {
+                code += `\n`;
+            }
             code += `    },\n`;
         }
         
@@ -2240,7 +2469,7 @@ init().catch(console.error);
         let code = 'const SCENE_DATA = [\n';
         
         for (const scene of this.project.scenes) {
-            code += `    { id: "${scene.id}", name: "${scene.name}", index: ${scene.index} },\n`;
+            code += `    { id: "${scene.id}", name: "${this.escapeJSString(scene.name)}", index: ${scene.index} },\n`;
         }
         
         code += '];\n';
@@ -2252,7 +2481,7 @@ init().catch(console.error);
         let code = 'const VARIABLE_DATA = [\n';
         
         for (const v of variables) {
-            const name = (v.name || '').replace(/"/g, '\\"');
+            const name = this.escapeJSString(v.name || '');
             const visible = v.visible !== false;
             const x = v.x != null ? v.x : 0;
             const y = v.y != null ? v.y : 0;
@@ -2273,7 +2502,7 @@ init().catch(console.error);
         let code = 'const LIST_DATA = [\n';
         
         for (const l of lists) {
-            const name = (l.name || '').replace(/"/g, '\\"');
+            const name = this.escapeJSString(l.name || '');
             const visible = l.visible !== false;
             const x = l.x != null ? l.x : 0;
             const y = l.y != null ? l.y : 0;
@@ -2289,7 +2518,7 @@ init().catch(console.error);
     generateTimerData() {
         const timer = this.project.variables.timer;
         if (timer) {
-            const name = (timer.name || '\uCD08\uC2DC\uACC4').replace(/"/g, '\\"');
+            const name = this.escapeJSString(timer.name || '\uCD08\uC2DC\uACC4');
             const visible = timer.visible !== false;
             // Match EntryJS generateTimer: x = 240 - (name.length * 12 + 70)
             const nameLen = (timer.name || '\uCD08\uC2DC\uACC4').length;
@@ -2305,7 +2534,7 @@ init().catch(console.error);
     generateAnswerData() {
         const answer = this.project.variables.answer;
         if (answer) {
-            const name = (answer.name || '\uB300\uB2F5').replace(/"/g, '\\"');
+            const name = this.escapeJSString(answer.name || '\uB300\uB2F5');
             const visible = answer.visible !== false;
             const x = answer.x != null ? answer.x : 150;
             const y = answer.y != null ? answer.y : -100;

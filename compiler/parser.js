@@ -106,7 +106,16 @@ function parseEntity(entity) {
         direction: entity.direction || 90,
         width: entity.width || 100,
         height: entity.height || 100,
-        visible: entity.visible !== false
+        visible: entity.visible !== false,
+        text: entity.text || '',
+        bgColor: entity.bgColor || '#ffffff',
+        fontSize: entity.fontSize || 20,
+        colour: entity.colour || '#000000',
+        font: entity.font || '',
+        textAlign: entity.textAlign || 0,
+        lineBreak: entity.lineBreak || false,
+        underLine: entity.underLine || false,
+        strike: entity.strike || false
     };
 }
 
@@ -340,14 +349,14 @@ function parseFunctions(functions) {
  * 
  * Memory Layout:
  * - 0-1023: Reserved for system
- * - 1024+: Entity data (each entity uses 136 bytes)
+ * - 1024+: Entity data (each entity uses 152 bytes)
  *   - 0-7: x (f64)
  *   - 8-15: y (f64)
  *   - 16-23: rotation (f64)
  *   - 24-31: direction (f64)
  *   - 32-39: scaleX (f64)
  *   - 40-47: scaleY (f64)
- *   - 48-55: size (f64)
+ *   - 48-55: (reserved, formerly size)
  *   - 56-59: visible (i32)
  *   - 60-63: pictureIndex (i32)
  *   - 64-67: sceneIndex (i32)
@@ -355,6 +364,8 @@ function parseFunctions(functions) {
  *   - 116-119: initialVisible (i32)
  *   - 120-127: width (f64)
  *   - 128-135: height (f64)
+ *   - 136-143: scaleOriginX (f64)
+ *   - 144-151: scaleOriginY (f64)
  * - After entities: Variables (8 bytes each, f64)
  * - After variables: List metadata (24 bytes per list)
  *   - 0-3: length (i32)
@@ -367,7 +378,7 @@ function parseFunctions(functions) {
  */
 function assignMemoryIndices(parsed) {
     let memOffset = 1024;
-    const ENTITY_SIZE = 136;
+    const ENTITY_SIZE = 152;
     const VARIABLE_SIZE = 8;
     const LIST_META_SIZE = 24;
     const LIST_ELEMENT_SIZE = 16; // 8 bytes f64 value + 4 bytes type + 4 bytes str_ptr

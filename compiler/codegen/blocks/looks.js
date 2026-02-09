@@ -47,40 +47,53 @@ const statementBlocks = {
     },
 
     'change_scale_size': (ctx, block, entityIndex) => {
-        // Size is percentage-based: 100 = 100% = scaleX/Y of 1.0
-        // change_scale_size adds to current size percentage
+        // Matching EntryJS: targetSize = getSize() + delta, factor = max(1, targetSize) / getSize()
+        // Then scaleX *= factor, scaleY *= factor (proportional scaling)
         const value = ctx.transpileValue(block.params?.[0], entityIndex);
         return `
-          ;; change_scale_size - add to size percentage and update scale
-          ;; Calculate new size = current size + value
-          (local.set $temp (f64.add (call $getSize (i32.const ${entityIndex})) ${value}))
-          ;; Clamp minimum to 1 (1%)
+          ;; change_scale_size - proportional scaling matching EntryJS
+          ;; Cache current size to avoid redundant $getSize computation
+          (local.set $temp2 (call $getSize (i32.const ${entityIndex})))
+          ;; targetSize = currentSize + delta, clamped to min 1
+          (local.set $temp (f64.add (local.get $temp2) ${value}))
           (if (f64.lt (local.get $temp) (f64.const 1))
             (then (local.set $temp (f64.const 1))))
-          ;; Set size
-          (call $setSize (i32.const ${entityIndex}) (local.get $temp))
-          ;; Set scaleX = scaleY = size / 100
-          (local.set $temp (f64.div (local.get $temp) (f64.const 100)))
-          (call $setScaleX (i32.const ${entityIndex}) (local.get $temp))
-          (call $setScaleY (i32.const ${entityIndex}) (local.get $temp))`;
+          ;; factor = targetSize / currentSize (guard against zero)
+          (local.set $temp (f64.div (local.get $temp)
+            (select
+              (local.get $temp2)
+              (f64.const 1)
+              (f64.gt (local.get $temp2) (f64.const 0)))))
+          ;; scaleX *= factor, scaleY *= factor
+          (call $setScaleX (i32.const ${entityIndex})
+            (f64.mul (call $getScaleX (i32.const ${entityIndex})) (local.get $temp)))
+          (call $setScaleY (i32.const ${entityIndex})
+            (f64.mul (call $getScaleY (i32.const ${entityIndex})) (local.get $temp)))`;
     },
 
     'set_scale_size': (ctx, block, entityIndex) => {
-        // Size is percentage-based: 100 = 100% = scaleX/Y of 1.0
-        // set_scale_size sets size to specific percentage
+        // Matching EntryJS setSize(): factor = max(1, value) / getSize()
+        // Then scaleX *= factor, scaleY *= factor (proportional scaling)
         const value = ctx.transpileValue(block.params?.[0], entityIndex);
         return `
-          ;; set_scale_size - set size percentage and update scale
-          ;; Clamp minimum to 1 (1%)
+          ;; set_scale_size - proportional scaling matching EntryJS setSize()
+          ;; Cache current size to avoid redundant $getSize computation
+          (local.set $temp2 (call $getSize (i32.const ${entityIndex})))
+          ;; Clamp target size to minimum 1
           (local.set $temp ${value})
           (if (f64.lt (local.get $temp) (f64.const 1))
             (then (local.set $temp (f64.const 1))))
-          ;; Set size
-          (call $setSize (i32.const ${entityIndex}) (local.get $temp))
-          ;; Set scaleX = scaleY = size / 100
-          (local.set $temp (f64.div (local.get $temp) (f64.const 100)))
-          (call $setScaleX (i32.const ${entityIndex}) (local.get $temp))
-          (call $setScaleY (i32.const ${entityIndex}) (local.get $temp))`;
+          ;; factor = targetSize / currentSize (guard against zero)
+          (local.set $temp (f64.div (local.get $temp)
+            (select
+              (local.get $temp2)
+              (f64.const 1)
+              (f64.gt (local.get $temp2) (f64.const 0)))))
+          ;; scaleX *= factor, scaleY *= factor
+          (call $setScaleX (i32.const ${entityIndex})
+            (f64.mul (call $getScaleX (i32.const ${entityIndex})) (local.get $temp)))
+          (call $setScaleY (i32.const ${entityIndex})
+            (f64.mul (call $getScaleY (i32.const ${entityIndex})) (local.get $temp)))`;
     },
 
     'change_to_next_shape': (ctx, block, entityIndex) => {
@@ -324,28 +337,37 @@ const statementBlocks = {
     },
 
     'stretch_scale_size': (ctx, block, entityIndex) => {
+        // Matching EntryJS setXSize/setYSize: factor = max(1, getSize() + value) / getSize()
+        // Then only adjust the relevant axis
         const direction = block.params?.[0];
         const value = ctx.transpileValue(block.params?.[1], entityIndex);
-        if (direction === 'WIDTH') {
-            return `
-          ;; stretch_scale_size: width
-          (call $setScaleX (i32.const ${entityIndex})
-            (f64.add (call $getScaleX (i32.const ${entityIndex}))
-              (f64.div ${value} (f64.const 100))))`;
-        }
+        const scaleFunc = direction === 'WIDTH' ? 'setScaleX' : 'setScaleY';
+        const getFunc = direction === 'WIDTH' ? 'getScaleX' : 'getScaleY';
         return `
-          ;; stretch_scale_size: height
-          (call $setScaleY (i32.const ${entityIndex})
-            (f64.add (call $getScaleY (i32.const ${entityIndex}))
-              (f64.div ${value} (f64.const 100))))`;
+          ;; stretch_scale_size: ${direction === 'WIDTH' ? 'width' : 'height'} - proportional single-axis scaling
+          ;; Cache current size to avoid redundant $getSize computation
+          (local.set $temp2 (call $getSize (i32.const ${entityIndex})))
+          ;; targetSize = currentSize + value, clamped to min 1
+          (local.set $temp (f64.add (local.get $temp2) ${value}))
+          (if (f64.lt (local.get $temp) (f64.const 1))
+            (then (local.set $temp (f64.const 1))))
+          ;; factor = targetSize / currentSize (guard against zero)
+          (local.set $temp (f64.div (local.get $temp)
+            (select
+              (local.get $temp2)
+              (f64.const 1)
+              (f64.gt (local.get $temp2) (f64.const 0)))))
+          ;; scale *= factor (single axis only)
+          (call $${scaleFunc} (i32.const ${entityIndex})
+            (f64.mul (call $${getFunc} (i32.const ${entityIndex})) (local.get $temp)))`;
     },
 
     'reset_scale_size': (ctx, block, entityIndex) => {
+        // Matching EntryJS resetSize(): restore to scaleOriginX/Y from project init
         return `
-          ;; reset_scale_size
-          (call $setScaleX (i32.const ${entityIndex}) (f64.const 1))
-          (call $setScaleY (i32.const ${entityIndex}) (f64.const 1))
-          (call $setSize (i32.const ${entityIndex}) (f64.const 100))`;
+          ;; reset_scale_size - restore original scale from project init
+          (call $setScaleX (i32.const ${entityIndex}) (call $getScaleOriginX (i32.const ${entityIndex})))
+          (call $setScaleY (i32.const ${entityIndex}) (call $getScaleOriginY (i32.const ${entityIndex})))`;
     },
 
     'flip_x': (ctx, block, entityIndex) => {

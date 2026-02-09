@@ -228,6 +228,12 @@ node compiler/output/server.js
 - `text_change_font_color` - 글상자 글자색 변경 (스텁)
 - `text_change_bg_color` - 글상자 배경색 변경 (스텁)
 
+**글상자 렌더링**: `objectType: 'textBox'` 오브젝트는 PixiJS `PIXI.Text` + `PIXI.Graphics` 배경으로 렌더링됩니다.
+- 텍스트 정렬 (textAlign: 0=가운데, 1=왼쪽, 2=오른쪽) 지원
+- `lineBreak` 모드: 텍스트 줄바꿈 + 오버플로 마스크 클리핑
+- `bgColor: 'transparent'` 지원 (투명 배경)
+- 글꼴 굵기 (font 문자열에서 'bold' 감지)
+
 ### 함수
 - `func_<id>` - 사용자 정의 함수 호출
 - `function_create` - 일반 함수 정의 (반환값 없음)
@@ -290,9 +296,29 @@ WASM 로직은 고정 시간 간격(Fixed Timestep) 방식으로 실행되며, C
 - **음수 반복 횟수**: EntryJS는 에러를 발생시키지만, WASM 컴파일러는 0회 반복으로 처리합니다.
 - **리스트 최대 용량**: 각 리스트당 최대 1,000,000개 요소 지원 (약 8MB/리스트)
 - **리스트 값 타입**: 숫자와 문자열 값 모두 지원 (타입 태깅으로 구분)
-- **문자열 풀**: 256KB 문자열 풀 (bump allocator, 가비지 컬렉션 없음)
+- **문자열 풀**: 64MB 문자열 풀 (bump allocator, 가비지 컬렉션 없음)
 - **숫자→문자열 변환**: JS 위임 (정수/소수 모두 지원)
 - **문자열→숫자 변환**: WASM 내부 구현 (정수 및 소수점 지원)
+
+## 복제본 (Clone) 기능
+
+### 지원 블록
+- `create_clone` - 자신 또는 특정 오브젝트의 복제본 생성
+- `delete_clone` - 현재 복제본 삭제 (스레드 종료)
+- `remove_all_clones` - 모든 복제본 삭제
+- `when_clone_start` - 복제되었을 때 이벤트
+
+### 작동 방식
+1. `create_clone` 호출 시 WASM에서 `clone_requested` 플래그 설정 + JS `createCloneVisual` 호출
+2. 렌더러에서 부모 엔티티의 현재 상태(위치/회전/크기/텍스처)를 복사한 **스냅샷 클론** 생성
+3. 클론은 생성 시점의 위치에 고정됨 (정적 스냅샷)
+4. `when_clone_start` 스레드는 부모 엔티티에서 실행됨
+5. 장면 전환/재시작 시 모든 클론 자동 정리
+
+### 제한사항
+- **클론 독립 상태 미지원**: 현재 클론은 WASM에서 독립적인 엔티티 슬롯을 갖지 않으므로, 클론별 독립 이동/상태 변경은 불가능합니다. 클론은 생성 시점의 스냅샷으로 표시됩니다.
+- **최대 클론 수**: 300개
+- 향후 WASM 엔티티 풀을 확장하여 독립 클론 지원 예정
 
 ## 오브젝트 렌더링 순서 (Z-Order)
 
@@ -410,14 +436,14 @@ EntryJS와 동일한 브러시/채우기 동작을 구현합니다:
 - 32-35: mouse clicked (i32)
 - 36-99: key states (64 bytes)
 
-### 엔티티 데이터 (1024+, 각 136 bytes)
+### 엔티티 데이터 (1024+, 각 152 bytes)
 - 0-7: x (f64)
 - 8-15: y (f64)
 - 16-23: rotation (f64)
 - 24-31: direction (f64)
 - 32-39: scaleX (f64)
 - 40-47: scaleY (f64)
-- 48-55: size (f64)
+- 48-55: (reserved, formerly size)
 - 56-59: visible (i32)
 - 60-63: pictureIndex (i32)
 - 64-67: sceneIndex (i32)
@@ -430,6 +456,8 @@ EntryJS와 동일한 브러시/채우기 동작을 구현합니다:
 - 116-119: initialVisible (i32) - 프로젝트 JSON의 원래 visible 상태 저장
 - 120-127: width (f64) - 원본 이미지 너비 (바운딩 박스 계산용)
 - 128-135: height (f64) - 원본 이미지 높이 (바운딩 박스 계산용)
+- 136-143: scaleOriginX (f64) - 초기 scaleX 값 (크기 원래대로 복원용)
+- 144-151: scaleOriginY (f64) - 초기 scaleY 값 (크기 원래대로 복원용)
 
 ### 변수 데이터 (엔티티 다음, 각 8 bytes)
 - 각 변수당 f64 값

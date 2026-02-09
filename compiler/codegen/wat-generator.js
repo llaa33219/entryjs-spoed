@@ -44,6 +44,13 @@ class WATGenerator {
     }
 
     /**
+     * Sanitize a string for use in WAT ;; comments (replace newlines with spaces)
+     */
+    sanitizeComment(str) {
+        return String(str).replace(/[\n\r]/g, ' ');
+    }
+
+    /**
      * Analyze the maximum loop nesting depth in a block tree
      * @param {Object|Array} blockOrBlocks - Block or array of blocks to analyze
      * @param {number} currentDepth - Current nesting depth
@@ -125,6 +132,7 @@ class WATGenerator {
         const visibilityAndDialogFunctions = this.generateVisibilityAndDialogFunctions();
         const blockFunctions = this.generateBlockFunctions();
         const messageFunctions = this.generateMessageFunctions();
+        const cloneFunctions = this.generateCloneFunctions();
         const userFunctions = this.generateUserFunctions();
         const threadFunctions = this.generateThreadFunctions();
         const mainLoop = this.generateMainLoop();
@@ -139,6 +147,7 @@ class WATGenerator {
             visibilityAndDialogFunctions,
             blockFunctions,
             messageFunctions,
+            cloneFunctions,
             userFunctions,
             threadFunctions,
             mainLoop,
@@ -217,7 +226,7 @@ class WATGenerator {
   ;; Memory Layout:
   ;; - 0-63: System state (frame count, time, mouse, keys, etc.)
   ;; - 64-1023: Reserved
-  ;; - 1024+: Entity data (136 bytes each)
+  ;; - 1024+: Entity data (152 bytes each)
   ;; - After entities: Variables (8 bytes each)`;
     }
 
@@ -260,7 +269,7 @@ class WATGenerator {
   (import "input" "setAnswerVisible" (func $setAnswerVisible (param i32)))
   
   ;; Clone functions
-  (import "clone" "createClone" (func $createClone (param i32)))
+  (import "clone" "createCloneVisual" (func $createCloneVisual (param i32)))
   (import "clone" "deleteClone" (func $deleteClone (param i32)))
   (import "clone" "removeAllClones" (func $removeAllClones))
   
@@ -342,7 +351,7 @@ class WATGenerator {
         const messages = this.project.messages || [];
         for (let i = 0; i < messages.length; i++) {
             const msg = messages[i];
-            code += `\n  (global $msg_flag_${i} (mut i32) (i32.const 0)) ;; message: ${msg.name}`;
+            code += `\n  (global $msg_flag_${i} (mut i32) (i32.const 0)) ;; message: ${this.sanitizeComment(msg.name)}`;
         }
         
         // Add variable visibility globals
@@ -350,7 +359,7 @@ class WATGenerator {
         for (let i = 0; i < variables.length; i++) {
             const v = variables[i];
             const initialVisible = v.visible !== false ? 1 : 0;
-            code += `\n  (global $var_visible_${i} (mut i32) (i32.const ${initialVisible})) ;; ${v.name}`;
+            code += `\n  (global $var_visible_${i} (mut i32) (i32.const ${initialVisible})) ;; ${this.sanitizeComment(v.name)}`;
         }
         
         // Add list visibility globals
@@ -358,13 +367,18 @@ class WATGenerator {
         for (let i = 0; i < lists.length; i++) {
             const l = lists[i];
             const initialVisible = l.visible !== false ? 1 : 0;
-            code += `\n  (global $list_visible_${i} (mut i32) (i32.const ${initialVisible})) ;; ${l.name}`;
+            code += `\n  (global $list_visible_${i} (mut i32) (i32.const ${initialVisible})) ;; ${this.sanitizeComment(l.name)}`;
         }
         
         // Add dialog globals per entity (type: 0=none, 1=speak, 2=think; textPtr: string pointer)
         for (let i = 0; i < this.project.objects.length; i++) {
             code += `\n  (global $dialog_type_${i} (mut i32) (i32.const 0))`;
             code += `\n  (global $dialog_text_ptr_${i} (mut i32) (i32.const 0))`;
+        }
+        
+        // Add clone request flags per entity (set by create_clone, consumed by when_clone_start)
+        for (let i = 0; i < this.project.objects.length; i++) {
+            code += `\n  (global $clone_requested_${i} (mut i32) (i32.const 0))`;
         }
         
         // String pool pointer (bump allocator - starts after static strings)
@@ -468,11 +482,11 @@ class WATGenerator {
     }
 
     generateEntityFunctions() {
-        const ENTITY_SIZE = 136; // Expanded for brush state + width/height
+        const ENTITY_SIZE = 152; // Expanded for brush state + width/height + scaleOrigin
         return `
   ;; ===== ENTITY ACCESSOR FUNCTIONS =====
   
-  ;; Get entity base offset: 1024 + entityIndex * 136
+  ;; Get entity base offset: 1024 + entityIndex * 152
   (func $getEntityOffset (param $idx i32) (result i32)
     (i32.add
       (i32.const 1024)
@@ -521,12 +535,13 @@ class WATGenerator {
   (func $setScaleY (param $idx i32) (param $val f64)
     (f64.store (i32.add (call $getEntityOffset (local.get $idx)) (i32.const 40)) (local.get $val)))
   
-  ;; Size (offset 48) - unified scale
+  ;; Size - computed dynamically matching EntryJS: (width * |scaleX| + height * |scaleY|) / 2
   (func $getSize (param $idx i32) (result f64)
-    (f64.load (i32.add (call $getEntityOffset (local.get $idx)) (i32.const 48))))
-  
-  (func $setSize (param $idx i32) (param $val f64)
-    (f64.store (i32.add (call $getEntityOffset (local.get $idx)) (i32.const 48)) (local.get $val)))
+    (f64.div
+      (f64.add
+        (f64.mul (call $getWidth (local.get $idx)) (f64.abs (call $getScaleX (local.get $idx))))
+        (f64.mul (call $getHeight (local.get $idx)) (f64.abs (call $getScaleY (local.get $idx)))))
+      (f64.const 2)))
   
   ;; Visible (offset 56, i32)
   (func $getVisible (param $idx i32) (result i32)
@@ -607,6 +622,20 @@ class WATGenerator {
   
   (func $setHeight (param $idx i32) (param $val f64)
     (f64.store (i32.add (call $getEntityOffset (local.get $idx)) (i32.const 128)) (local.get $val)))
+  
+  ;; ScaleOriginX (offset 136) - original scaleX from project init, for reset_scale_size
+  (func $getScaleOriginX (param $idx i32) (result f64)
+    (f64.load (i32.add (call $getEntityOffset (local.get $idx)) (i32.const 136))))
+  
+  (func $setScaleOriginX (param $idx i32) (param $val f64)
+    (f64.store (i32.add (call $getEntityOffset (local.get $idx)) (i32.const 136)) (local.get $val)))
+  
+  ;; ScaleOriginY (offset 144) - original scaleY from project init, for reset_scale_size
+  (func $getScaleOriginY (param $idx i32) (result f64)
+    (f64.load (i32.add (call $getEntityOffset (local.get $idx)) (i32.const 144))))
+  
+  (func $setScaleOriginY (param $idx i32) (param $val f64)
+    (f64.store (i32.add (call $getEntityOffset (local.get $idx)) (i32.const 144)) (local.get $val)))
   
   ;; Half-width for bounding box: width * |scaleX| / 2
   (func $getHalfW (param $idx i32) (result f64)
@@ -2012,6 +2041,25 @@ class WATGenerator {
     }
 
     /**
+     * Generate internal clone management functions
+     * $createClone sets the clone_requested flag and calls JS createCloneVisual
+     */
+    generateCloneFunctions() {
+        const entityCount = this.project.objects.length;
+        let code = '\n  ;; ===== CLONE FUNCTIONS =====';
+        
+        // Internal createClone: sets flag + calls JS visual clone
+        code += `\n  (func $createClone (param $entityIdx i32)`;
+        for (let i = 0; i < entityCount; i++) {
+            code += `\n    (if (i32.eq (local.get $entityIdx) (i32.const ${i}))`;
+            code += `\n      (then (global.set $clone_requested_${i} (i32.const 1))))`;
+        }
+        code += `\n    (call $createCloneVisual (local.get $entityIdx)))`;
+        
+        return code;
+    }
+
+    /**
      * Generate WASM functions for user-defined functions (함수)
      */
     generateUserFunctions() {
@@ -2093,6 +2141,7 @@ class WATGenerator {
         // Now generate local variable declarations (after body so we know how many loop vars needed)
         let localsDecl = `
     (local $temp f64)
+    (local $temp2 f64)
     (local $condResult i32)
     (local $temp_str_ptr i32)`;
 
@@ -2103,7 +2152,7 @@ class WATGenerator {
 
         // Add local variable declarations for function local variables
         localVars.forEach((v, idx) => {
-            localsDecl += `\n    (local $local_${idx} f64) ;; ${v.name}`;
+            localsDecl += `\n    (local $local_${idx} f64) ;; ${this.sanitizeComment(v.name)}`;
         });
 
         // Clear param map, local var map, and value function flag
@@ -2113,7 +2162,7 @@ class WATGenerator {
 
         return `
   
-  ;; User function: ${funcName}
+  ;; User function: ${this.sanitizeComment(funcName)}
   (func $user_func_${funcId} (param $entityIdx i32) ${paramDecls} ${resultDecl}${localsDecl}
     ${bodyCode}${returnCode}
   )`;
@@ -2237,6 +2286,7 @@ class WATGenerator {
   (func $thread_${threadIndex}_run (param $entityIdx i32) (result i32)
     (local $pc i32)
     (local $temp f64)
+    (local $temp2 f64)
     (local $iterCount i32)
     (local $condResult i32)
     (local $temp_str_ptr i32)
@@ -2295,7 +2345,10 @@ class WATGenerator {
         let sceneStartHandlers = '';
         let objectClickHandlers = '';
         let objectClickCanceledHandlers = '';
+        let mouseClickedHandlers = '';
+        let mouseClickCanceledHandlers = '';
         let messageHandlers = '';
+        let cloneStartHandlers = '';
         let threadCalls = '';
         
         let threadIndex = 0;
@@ -2415,7 +2468,7 @@ class WATGenerator {
                         }
                         resetLoopCounters += `\n        (global.set $thread_${threadIndex}_resumeDepth (i32.const 0))`;
                         messageHandlers += `
-    ;; Activate thread ${threadIndex} when message "${message?.name || messageId}" is received (entity scene: ${objSceneIndex})
+    ;; Activate thread ${threadIndex} when message "${this.sanitizeComment(message?.name || messageId)}" is received (entity scene: ${objSceneIndex})
     (if (i32.and
           (global.get $msg_flag_${msgIndex})
           (i32.eq (i32.const ${objSceneIndex}) (global.get $currentScene)))
@@ -2424,6 +2477,58 @@ class WATGenerator {
         (global.set $thread_${threadIndex}_waiting (f64.const 0))${resetLoopCounters}
         (global.set $thread_${threadIndex}_active (i32.const 1))))`;
                     }
+                } else if (eventType === 'mouse_clicked') {
+                    const maxLoopDepth = this.threadLoopDepths[threadIndex] || 1;
+                    let resetLoopCounters = '';
+                    for (let d = 0; d < maxLoopDepth; d++) {
+                        resetLoopCounters += `\n        (global.set $thread_${threadIndex}_loopCounter_${d} (i32.const -1))`;
+                    }
+                    resetLoopCounters += `\n        (global.set $thread_${threadIndex}_resumeDepth (i32.const 0))`;
+                    mouseClickedHandlers += `
+    ;; Activate thread ${threadIndex} on mouse click (entity scene: ${objSceneIndex})
+    (if (i32.and
+          (i32.and
+            (call $isMouseClicked)
+            (i32.eqz (global.get $prevMouseClicked)))
+          (i32.eq (i32.const ${objSceneIndex}) (global.get $currentScene)))
+      (then
+        (global.set $thread_${threadIndex}_pc (i32.const 0))
+        (global.set $thread_${threadIndex}_waiting (f64.const 0))${resetLoopCounters}
+        (global.set $thread_${threadIndex}_active (i32.const 1))))`;
+                } else if (eventType === 'mouse_click_cancled') {
+                    const maxLoopDepth = this.threadLoopDepths[threadIndex] || 1;
+                    let resetLoopCounters = '';
+                    for (let d = 0; d < maxLoopDepth; d++) {
+                        resetLoopCounters += `\n        (global.set $thread_${threadIndex}_loopCounter_${d} (i32.const -1))`;
+                    }
+                    resetLoopCounters += `\n        (global.set $thread_${threadIndex}_resumeDepth (i32.const 0))`;
+                    mouseClickCanceledHandlers += `
+    ;; Activate thread ${threadIndex} on mouse click release (entity scene: ${objSceneIndex})
+    (if (i32.and
+          (i32.and
+            (global.get $prevMouseClicked)
+            (i32.eqz (call $isMouseClicked)))
+          (i32.eq (i32.const ${objSceneIndex}) (global.get $currentScene)))
+      (then
+        (global.set $thread_${threadIndex}_pc (i32.const 0))
+        (global.set $thread_${threadIndex}_waiting (f64.const 0))${resetLoopCounters}
+        (global.set $thread_${threadIndex}_active (i32.const 1))))`;
+                } else if (eventType === 'when_clone_start') {
+                    const maxLoopDepth = this.threadLoopDepths[threadIndex] || 1;
+                    let resetLoopCounters = '';
+                    for (let d = 0; d < maxLoopDepth; d++) {
+                        resetLoopCounters += `\n        (global.set $thread_${threadIndex}_loopCounter_${d} (i32.const -1))`;
+                    }
+                    resetLoopCounters += `\n        (global.set $thread_${threadIndex}_resumeDepth (i32.const 0))`;
+                    cloneStartHandlers += `
+    ;; Activate thread ${threadIndex} when entity ${objIdx} is cloned (entity scene: ${objSceneIndex})
+    (if (i32.and
+          (global.get $clone_requested_${objIdx})
+          (i32.eq (i32.const ${objSceneIndex}) (global.get $currentScene)))
+      (then
+        (global.set $thread_${threadIndex}_pc (i32.const 0))
+        (global.set $thread_${threadIndex}_waiting (f64.const 0))${resetLoopCounters}
+        (global.set $thread_${threadIndex}_active (i32.const 1))))`;
                 }
 
                 // Generate thread execution call
@@ -2461,6 +2566,16 @@ class WATGenerator {
                 sceneChangeCleanup += `\n        (global.set $dialog_type_${i} (i32.const 0))`;
                 sceneChangeCleanup += `\n        (global.set $dialog_text_ptr_${i} (i32.const 0))`;
             }
+            // Clear clone request flags
+            for (let i = 0; i < this.project.objects.length; i++) {
+                sceneChangeCleanup += `\n        (global.set $clone_requested_${i} (i32.const 0))`;
+            }
+        }
+
+        // Generate clone flag clearing code
+        let clearCloneFlags = '';
+        for (let i = 0; i < this.project.objects.length; i++) {
+            clearCloneFlags += `\n    (global.set $clone_requested_${i} (i32.const 0))`;
         }
 
         return `
@@ -2511,6 +2626,12 @@ class WATGenerator {
     ;; Handle object click canceled events (when_object_click_canceled)
     ${objectClickCanceledHandlers}
     
+    ;; Handle mouse clicked events (mouse_clicked)
+    ${mouseClickedHandlers}
+    
+    ;; Handle mouse click canceled events (mouse_click_cancled)
+    ${mouseClickCanceledHandlers}
+    
     ;; Handle message events (when_message_cast)
     ${messageHandlers}
     
@@ -2520,6 +2641,12 @@ class WATGenerator {
     
     ;; Check events and activate threads
     ${eventHandlers}
+    
+    ;; Handle clone start events (when_clone_start)
+    ${cloneStartHandlers}
+    
+    ;; Clear clone request flags after processing
+    ${clearCloneFlags}
     
     ;; Execute active threads
     ${threadCalls}
@@ -2551,18 +2678,16 @@ class WATGenerator {
             // scaleX/scaleY default to 1.0 if not specified
             const scaleX = e.scaleX ?? 1;
             const scaleY = e.scaleY ?? 1;
-            // size is percentage-based: 100 = 100% = scale of 1.0
-            // Initialize size from scaleX (assuming scaleX == scaleY for uniform scale)
-            const size = scaleX * 100;
             code += `
-    ;; Initialize entity ${idx}: ${obj.name} (scene: ${sceneIdx})
+    ;; Initialize entity ${idx}: ${this.sanitizeComment(obj.name)} (scene: ${sceneIdx})
     (call $setX (i32.const ${idx}) (f64.const ${e.x}))
     (call $setY (i32.const ${idx}) (f64.const ${e.y}))
     (call $setRotation (i32.const ${idx}) (f64.const ${e.rotation}))
     (call $setDirection (i32.const ${idx}) (f64.const ${e.direction}))
     (call $setScaleX (i32.const ${idx}) (f64.const ${scaleX}))
     (call $setScaleY (i32.const ${idx}) (f64.const ${scaleY}))
-    (call $setSize (i32.const ${idx}) (f64.const ${size}))
+    (call $setScaleOriginX (i32.const ${idx}) (f64.const ${scaleX}))
+    (call $setScaleOriginY (i32.const ${idx}) (f64.const ${scaleY}))
     (call $setVisible (i32.const ${idx}) (i32.const ${initialVisible}))
     (call $setInitialVisible (i32.const ${idx}) (i32.const ${e.visible ? 1 : 0}))
     (call $setWidth (i32.const ${idx}) (f64.const ${e.width}))
@@ -2581,7 +2706,7 @@ class WATGenerator {
         for (const v of this.project.variables.variables) {
             const numVal = parseFloat(v.value) || 0;
             code += `
-    ;; Initialize variable: ${v.name}
+    ;; Initialize variable: ${this.sanitizeComment(v.name)}
     (call $setVariable (i32.const ${v.memoryOffset}) (f64.const ${numVal}))`;
         }
         return code;
@@ -2596,7 +2721,7 @@ class WATGenerator {
             const initialArray = list.array || [];
             
             code += `
-    ;; Initialize list: ${list.name} (index ${listIdx})
+    ;; Initialize list: ${this.sanitizeComment(list.name)} (index ${listIdx})
     ;; Set metadata: length=0, capacity=${list.capacity}, data_ptr=${list.dataOffset}
     (i32.store (i32.const ${list.metaOffset}) (i32.const 0))
     (i32.store (i32.const ${list.metaOffset + 4}) (i32.const ${list.capacity}))
