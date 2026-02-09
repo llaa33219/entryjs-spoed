@@ -11,22 +11,136 @@ EntryJS 작품을 WebAssembly로 컴파일하는 컴파일러입니다.
 
 ## 사용법
 
+### 개발 모드 (파일 분리)
+
 ```bash
 # 컴파일
-node compiler/index.js project.json ./compiler/output
+node compiler/index.js project.json ./compiled-output
 
 # WAT → WASM 변환 (wat2wasm 필요)
-wat2wasm compiler/output/project.wat -o compiler/output/project.wasm
+wat2wasm compiled-output/project.wat -o compiled-output/project.wasm
 
-# 실행
-node compiler/output/server.js
+# 실행 (프록시 서버 포함)
+node compiled-output/server.js
 ```
+
+### 배포 모드 (단일 JS 번들 - 사전 컴파일)
+
+```bash
+# --bundle 플래그로 컴파일 + 번들링 한 번에
+node compiler/index.js project.json ./compiled-output --bundle
+
+# 또는 수동으로 번들링
+wat2wasm compiled-output/project.wat -o compiled-output/project.wasm
+node compiler/bundler.js ./compiled-output
+```
+
+번들 결과물(`entry-project.js`)을 프론트엔드에서 사용:
+
+```html
+<script src="https://pixijs.download/v7.3.2/pixi.min.js"></script>
+<script src="entry-project.js"></script>
+<canvas id="stage" width="1920" height="1080"></canvas>
+<script>
+  // 캔버스 지정 + 초기화 (자동 시작됨)
+  EntryProject.init(document.getElementById('stage'), {
+    proxyUrl: '/proxy',                        // 에셋 프록시 URL (선택, CORS 우회용)
+    assetBaseUrl: 'https://playentry.org'      // 에셋 기본 URL (선택, proxyUrl보다 우선순위 낮음)
+  });
+
+  // 제어 API
+  EntryProject.stop();    // 정지
+  EntryProject.start();   // 처음부터 시작
+  EntryProject.pause();   // 일시정지
+  EntryProject.resume();  // 재개
+</script>
+```
+
+번들 API:
+- `EntryProject.init(canvasOrId, options)` → Promise: PixiJS 초기화 + WASM 로드 + 자동 시작
+  - `canvasOrId`: `<canvas>` 엘리먼트 또는 ID 문자열
+  - `options.proxyUrl`: 에셋 프록시 URL (CORS 우회용, 최우선)
+  - `options.assetBaseUrl`: 에셋 기본 URL (예: `'https://playentry.org'`)
+- `EntryProject.start()`: 프로젝트를 처음부터 다시 시작
+- `EntryProject.stop()`: 실행 중지
+- `EntryProject.pause()`: 일시정지 (rAF 유지, 즉시 재개 가능)
+- `EntryProject.resume()`: 일시정지에서 재개
+
+### 브라우저 컴파일 모드 (프론트엔드에서 직접 컴파일)
+
+서버 없이 브라우저에서 프로젝트 JSON을 직접 컴파일하고 실행할 수 있습니다.
+
+#### 빌드
+
+```bash
+# 컴파일러를 단일 JS 파일로 번들링
+node compiler/browser/build.js
+
+# 출력: compiler/dist/entry-compiler.js
+```
+
+#### 사용법
+
+```html
+<!-- 외부 의존성 -->
+<script src="https://pixijs.download/v7.3.2/pixi.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/wabt@1.0.36/index.js"></script>
+
+<!-- 컴파일러 번들 -->
+<script src="entry-compiler.js"></script>
+
+<canvas id="stage" width="1920" height="1080"></canvas>
+<script>
+  // 프로젝트 JSON을 가져와서 직접 컴파일 + 실행
+  fetch('project.json')
+    .then(res => res.json())
+    .then(projectJson => {
+      return EntryCompiler.run(
+        document.getElementById('stage'),
+        projectJson,
+        { assetBaseUrl: 'https://playentry.org' }  // 에셋 서버 URL (선택)
+      );
+    })
+    .then(api => {
+      // 프로젝트가 자동 시작됨
+      // api.pause();   // 일시정지
+      // api.resume();  // 재개
+      // api.stop();    // 정지
+      // api.start();   // 처음부터 시작
+    });
+</script>
+```
+
+#### 컴파일만 (실행 없이)
+
+```js
+// WAT 코드와 렌더러 코드만 생성
+var result = EntryCompiler.compile(projectJson);
+console.log(result.wat);          // WAT 소스 코드
+console.log(result.rendererCode); // 번들 렌더러 JS
+console.log(result.project);      // 파싱된 프로젝트 구조
+```
+
+#### EntryCompiler API
+- `EntryCompiler.compile(projectJson)` → `{ wat, rendererCode, project }`: JSON 파싱 + WAT/렌더러 생성
+- `EntryCompiler.run(canvas, projectJson, options)` → `Promise<API>`: 컴파일 + WASM 변환 + 실행
+  - `canvas`: `<canvas>` 엘리먼트 또는 ID 문자열
+  - `projectJson`: EntryJS 프로젝트 JSON 객체
+  - `options.proxyUrl`: 에셋 프록시 URL (CORS 우회용)
+  - `options.assetBaseUrl`: 에셋 기본 URL (예: `'https://playentry.org'`)
+
+#### 외부 의존성
+- **PixiJS v7+**: 렌더링 엔진 (`PIXI` 전역 객체)
+- **wabt.js**: WAT → WASM 바이너리 컴파일러 (`WabtModule` 전역 함수)
 
 ## 출력 파일
 
 - `project.wat` - WebAssembly Text Format 파일
-- `renderer.js` - PixiJS 렌더러
-- `index.html` - HTML 래퍼
+- `renderer.js` - PixiJS 렌더러 (개발용, 독립 실행)
+- `renderer.bundle.js` - 번들용 렌더러 (WASM placeholder 포함)
+- `entry-project.js` - 최종 번들 (WASM 내장, `--bundle` 사용 시)
+- `index.html` - HTML 래퍼 (개발용)
+- `server.js` - 프록시 서버 (개발용)
 
 ## 지원하는 블록
 
@@ -528,12 +642,19 @@ EntryJS와 동일한 브러시/채우기 동작을 구현합니다:
 
 ```
 compiler/
-├── index.js              # 메인 진입점
+├── index.js              # 메인 진입점 (CLI)
 ├── parser.js             # JSON 파서
+├── bundler.js            # WASM+렌더러 단일 JS 번들러 (사전 컴파일용)
+├── browser/
+│   ├── entry.js          # 브라우저 런타임 진입점
+│   └── build.js          # 브라우저 번들 빌드 스크립트
+├── dist/
+│   └── entry-compiler.js # 브라우저 번들 출력 (빌드 후 생성)
 ├── codegen/
 │   ├── wat-generator.js  # WAT 코드 생성
-│   ├── renderer-generator.js  # PixiJS 렌더러 생성
+│   ├── renderer-generator.js  # PixiJS 렌더러 생성 (standalone + bundle)
 │   ├── block-transpiler.js    # 블록 트랜스파일러
+│   ├── server-generator.js    # Express 서버 생성
 │   └── blocks/           # 블록별 핸들러
 │       ├── movement.js
 │       ├── looks.js
@@ -547,7 +668,6 @@ compiler/
 │       ├── func.js       # 함수 블록 핸들러
 │       ├── text.js       # 글상자 블록 핸들러
 │       └── index.js
-│   └── server-generator.js    # Express 서버 생성
 └── examples/
     ├── sample-project.json
     └── test-functions.json  # 함수 테스트 프로젝트

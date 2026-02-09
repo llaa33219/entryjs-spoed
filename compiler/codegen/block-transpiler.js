@@ -14,6 +14,8 @@ const {
     getBooleanHandler
 } = require('./blocks');
 
+const _textEncoder = new TextEncoder();
+
 class BlockTranspiler {
     constructor(generator) {
         this.generator = generator;
@@ -151,7 +153,7 @@ class BlockTranspiler {
 
         // String literal - allocate in string pool
         if (typeof param === 'string') {
-            const bytes = Buffer.from(param, 'utf8');
+            const bytes = _textEncoder.encode(param);
             const len = bytes.length;
             
             if (len === 0) {

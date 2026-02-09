@@ -4,6 +4,8 @@
  * Handles blocks related to variables and lists.
  */
 
+const _textEncoder = new TextEncoder();
+
 /**
  * Check if a value parameter represents a string value
  * @param {*} param - The parameter to check
@@ -51,7 +53,7 @@ function isStringValueHelper(param) {
 function transpileStringValueHelper(ctx, param, entityIndex) {
     // If it's a literal string, allocate it in the string pool
     if (typeof param === 'string') {
-        const bytes = Buffer.from(param, 'utf8');
+        const bytes = _textEncoder.encode(param);
         const len = bytes.length;
         
         if (len === 0) {

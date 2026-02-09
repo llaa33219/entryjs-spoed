@@ -22,8 +22,9 @@ const fs = require('fs');
 const path = require('path');
 const { parseProject } = require('./parser');
 const { generateWAT } = require('./codegen/wat-generator');
-const { generateRenderer } = require('./codegen/renderer-generator');
+const { generateRenderer, generateBundleRenderer } = require('./codegen/renderer-generator');
 const { generateServer } = require('./codegen/server-generator');
+const { bundle } = require('./bundler');
 
 class EntryCompiler {
     constructor(options = {}) {
@@ -84,7 +85,7 @@ class EntryCompiler {
         fs.writeFileSync(watPath, result.wat);
         console.log(`[Compiler] WAT saved to ${watPath}`);
 
-        // Save JS renderer
+        // Save JS renderer (standalone)
         const jsPath = path.join(outputDir, 'renderer.js');
         fs.writeFileSync(jsPath, result.js);
         console.log(`[Compiler] Renderer JS saved to ${jsPath}`);
@@ -101,8 +102,55 @@ class EntryCompiler {
         fs.writeFileSync(serverPath, serverCode);
         console.log(`[Compiler] Server JS saved to ${serverPath}`);
 
+        // Generate bundle renderer (always, so bundler can be run later)
+        console.log('[Compiler] Generating bundle renderer...');
+        const bundleCode = generateBundleRenderer(result.project, this.options);
+        const bundlePath = path.join(outputDir, 'renderer.bundle.js');
+        fs.writeFileSync(bundlePath, bundleCode);
+        console.log(`[Compiler] Bundle renderer saved to ${bundlePath}`);
+
         console.log('\n[Compiler] To compile WAT to WASM, run:');
         console.log(`  wat2wasm ${watPath} -o ${path.join(outputDir, 'project.wasm')}`);
+
+        // If bundle flag is set, try to compile WASM and create bundle
+        if (this.options.bundle) {
+            await this.createBundle(outputDir, watPath);
+        }
+    }
+
+    /**
+     * Compile WAT to WASM and create the final bundle
+     */
+    async createBundle(outputDir, watPath) {
+        const wasmPath = path.join(outputDir, 'project.wasm');
+
+        // Try to run wat2wasm
+        console.log('\n[Compiler] Running wat2wasm...');
+        try {
+            const { execSync } = require('child_process');
+            execSync(`wat2wasm ${watPath} -o ${wasmPath}`, { stdio: 'pipe' });
+            console.log(`[Compiler] WASM compiled to ${wasmPath}`);
+        } catch (err) {
+            console.error('[Compiler] wat2wasm failed. Install wabt (https://github.com/WebAssembly/wabt) and run:');
+            console.error(`  wat2wasm ${watPath} -o ${wasmPath}`);
+            console.error('[Compiler] Then run the bundler:');
+            console.error(`  node compiler/bundler.js ${outputDir}`);
+            return;
+        }
+
+        // Run bundler
+        console.log('[Compiler] Bundling...');
+        try {
+            const outPath = bundle(outputDir);
+            console.log('\n[Compiler] Bundle ready! Usage:');
+            console.log(`  <script src="https://pixijs.download/v7.3.2/pixi.min.js"></script>`);
+            console.log(`  <script src="${path.basename(outPath)}"></script>`);
+            console.log(`  <script>`);
+            console.log(`    EntryProject.init(document.getElementById('canvas'));`);
+            console.log(`  </script>`);
+        } catch (err) {
+            console.error('[Compiler] Bundling failed:', err.message);
+        }
     }
 
     /**
@@ -132,15 +180,22 @@ class EntryCompiler {
 // CLI support
 if (require.main === module) {
     const args = process.argv.slice(2);
-    if (args.length === 0) {
-        console.log('Usage: node compiler/index.js <project.json> [output-dir]');
+    const flags = args.filter(a => a.startsWith('--'));
+    const positional = args.filter(a => !a.startsWith('--'));
+
+    if (positional.length === 0) {
+        console.log('Usage: node compiler/index.js <project.json> [output-dir] [--bundle]');
+        console.log('');
+        console.log('Options:');
+        console.log('  --bundle    Compile WAT→WASM and bundle into a single JS file');
         process.exit(1);
     }
 
-    const projectPath = args[0];
-    const outputDir = args[1] || './compiled-output';
+    const projectPath = positional[0];
+    const outputDir = positional[1] || './compiled-output';
+    const doBundle = flags.includes('--bundle');
 
-    const compiler = new EntryCompiler({ outputDir });
+    const compiler = new EntryCompiler({ outputDir, bundle: doBundle });
     compiler.compile(projectPath)
         .then(() => console.log('\n[Compiler] Done!'))
         .catch(err => {

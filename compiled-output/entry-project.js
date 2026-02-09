@@ -1,33 +1,9 @@
-/**
- * Renderer Generator
- * 
- * Generates minimal JavaScript code that uses PixiJS for rendering only.
- * All logic is handled by the WASM module.
- */
+(function() {
+"use strict";
+var _WASM_BASE64 = 'AGFzbQEAAAABcRVgAXwBfGAAAXxgAnx8AXxgAXwAYAJ/fwBgAAF/YAAAYAF/AGABfwF8YAN/f3wAYAR/f3x8AGACf3wAYAN/fHwAYAF8AX9gAX8Bf2AEf3x8fABgAn9/AX9gAn9/AXxgA39/fwBgAn98AX9gA39/fwF/Ar0JPARtYXRoA3NpbgAABG1hdGgDY29zAAAEbWF0aARzcXJ0AAAEbWF0aAZyYW5kb20AAQRtYXRoBWZsb29yAAAEbWF0aARjZWlsAAAEbWF0aANhYnMAAARtYXRoBWF0YW4yAAIEbWF0aARhc2luAAAEbWF0aARhY29zAAAEbWF0aARhdGFuAAAEbWF0aANsb2cAAARtYXRoA2V4cAAABG1hdGgDcG93AAIGc3lzdGVtA2xvZwADBnN5c3RlbQlwbGF5U291bmQABAZzeXN0ZW0NZ2V0RGV2aWNlVHlwZQAFBnN5c3RlbRBpc1RvdWNoU3VwcG9ydGVkAAUFdGltZXIPZ2V0UHJvamVjdFRpbWVyAAEFdGltZXIRc3RhcnRQcm9qZWN0VGltZXIABgV0aW1lchBzdG9wUHJvamVjdFRpbWVyAAYFdGltZXIRcmVzZXRQcm9qZWN0VGltZXIABgV0aW1lchZzZXRQcm9qZWN0VGltZXJWaXNpYmxlAAcFdGltZXIHZ2V0RGF0ZQAIBWlucHV0CmFza0FuZFdhaXQABwVpbnB1dAlnZXRBbnN3ZXIAAQVpbnB1dBBzZXRBbnN3ZXJWaXNpYmxlAAcFY2xvbmURY3JlYXRlQ2xvbmVWaXN1YWwABwVjbG9uZQtkZWxldGVDbG9uZQAHBWNsb25lD3JlbW92ZUFsbENsb25lcwAGBXNvdW5kEHBsYXlTb3VuZEFuZFdhaXQABAVzb3VuZBNwbGF5U291bmRGb3JTZWNvbmRzAAkFc291bmQPcGxheVNvdW5kRnJvbVRvAAoFc291bmQRY2hhbmdlU291bmRWb2x1bWUACwVzb3VuZA5zZXRTb3VuZFZvbHVtZQALBXNvdW5kDmdldFNvdW5kVm9sdW1lAAgFc291bmQQY2hhbmdlU291bmRTcGVlZAALBXNvdW5kDXNldFNvdW5kU3BlZWQACwVzb3VuZA1nZXRTb3VuZFNwZWVkAAgFc291bmQHcGxheUJHTQAEBXNvdW5kB3N0b3BCR00ABgVzb3VuZA1zdG9wQWxsU291bmRzAAYGZGlhbG9nCnNob3dEaWFsb2cABAZkaWFsb2cKaGlkZURpYWxvZwAHBmRpYWxvZxJzZW5kTWVzc2FnZUFuZFdhaXQABwVicnVzaAxzdGFydERyYXdpbmcABwVicnVzaAtzdG9wRHJhd2luZwAHBWJydXNoBXN0YW1wAAcFYnJ1c2gKY2xlYXJCcnVzaAAGBWJydXNoFGNoYW5nZUJydXNoVGhpY2tuZXNzAAsFYnJ1c2gRc2V0QnJ1c2hUaGlja25lc3MACwVicnVzaBdjaGFuZ2VCcnVzaFRyYW5zcGFyZW5jeQALBWJydXNoFHNldEJydXNoVHJhbnNwYXJlbmN5AAsFYnJ1c2gJc3RhcnRGaWxsAAcFYnJ1c2gIc3RvcEZpbGwABwVicnVzaA5ub3RpZnlQb3NpdGlvbgAMBmVmZmVjdA9zZXRUcmFuc3BhcmVuY3kACwZlZmZlY3QSY2hhbmdlVHJhbnNwYXJlbmN5AAsGZWZmZWN0D2dldFRyYW5zcGFyZW5jeQAIBHV0aWwLZjY0VG9TdHJpbmcADQOKAYgBDggLCAsICwgLCAsICwgOBA4EDgQICwgLCAsICwgLCAsOBAgLCAsICwgLCAgPDwsLBwsEBQcFBwQEAQEFDggLAgIFBQYHBw4ODg4ODhAHDgUGBg4OBA4OEBAQEQkSDgsECRIEExAHDg4QEBAUEBQODg0QCBAOEBANDg4EBAcGBw4ODg4OBgMGBQUEAQCCEAaAAil/AUEAC38BQQALfAFELA/SU+QQkT8LfwFBAAt/AUEAC38BQQELfwFBAAt/AUEAC38BQX8LfwFBAQt/AUEAC38BQQALfwFBAAt/AUGYCQt/AUGYiYAgC38BQZiJgMAAC38BQQALfAFEAAAAAAAAAAALfwFBAAt/AUF/C38BQQALfwFBAAt8AUQAAAAAAAAAAAt/AUEAC38BQX8LfwFBAAt/AUEAC3wBRAAAAAAAAAAAC38BQQALfwFBfwt/AUEAC38BQQALfAFEAAAAAAAAAAALfwFBAAt/AUF/C38BQQALfwFBAAt8AUQAAAAAAAAAAAt/AUEAC38BQX8LfwFBAAsH2wMiBm1lbW9yeQIABGluaXQAwAEEdGljawDBAQRzdG9wAMIBDmdldEVudGl0eUNvdW50AMMBBGdldFgAPQRnZXRZAD8LZ2V0Um90YXRpb24AQQxnZXREaXJlY3Rpb24AQwlnZXRTY2FsZVgARQlnZXRTY2FsZVkARwdnZXRTaXplAEkKZ2V0VmlzaWJsZQBKCGdldFdpZHRoAF4JZ2V0SGVpZ2h0AGAPZ2V0UGljdHVyZUluZGV4AEwNZ2V0U2NlbmVJbmRleABOD2dldEN1cnJlbnRTY2VuZQB9DWdldFNjZW5lQ291bnQAfgpzdGFydFNjZW5lAIABEnN0YXJ0TmVpZ2hib3JTY2VuZQCBAQ5nZXRCcnVzaENvbG9yUgBQDmdldEJydXNoQ29sb3JHAFIOZ2V0QnJ1c2hDb2xvckIAVA1nZXRGaWxsQ29sb3JSAFYNZ2V0RmlsbENvbG9yRwBYDWdldEZpbGxDb2xvckIAWg9nZXREaWFsb2dUeXBlXzAAbxJnZXREaWFsb2dUZXh0UHRyXzAAcQpzdHJfbGVuZ3RoAKMBCXN0cl9hbGxvYwCiAQtnZXRWYXJpYWJsZQB5C2xpc3RfbGVuZ3RoAI8BCGxpc3RfZ2V0AJYBCrRHiAEMAEGACCAAQZgBbGoLCQAgABA8KwMACwsAIAAQPCABOQMACwwAIAAQPEEIaisDAAsOACAAEDxBCGogATkDAAsMACAAEDxBEGorAwALDgAgABA8QRBqIAE5AwALDAAgABA8QRhqKwMACw4AIAAQPEEYaiABOQMACwwAIAAQPEEgaisDAAsOACAAEDxBIGogATkDAAsMACAAEDxBKGorAwALDgAgABA8QShqIAE5AwALIQAgABBeIAAQRZmiIAAQYCAAEEeZoqBEAAAAAAAAAECjCwwAIAAQPEE4aigCAAsOACAAEDxBOGogATYCAAsMACAAEDxBPGooAgALDgAgABA8QTxqIAE2AgALDQAgABA8QcAAaigCAAsPACAAEDxBwABqIAE2AgALDQAgABA8QcQAaisDAAsPACAAEDxBxABqIAE5AwALDQAgABA8QcwAaisDAAsPACAAEDxBzABqIAE5AwALDQAgABA8QdQAaisDAAsPACAAEDxB1ABqIAE5AwALDQAgABA8QdwAaisDAAsPACAAEDxB3ABqIAE5AwALDQAgABA8QeQAaisDAAsPACAAEDxB5ABqIAE5AwALDQAgABA8QewAaisDAAsPACAAEDxB7ABqIAE5AwALDQAgABA8QfQAaigCAAsPACAAEDxB9ABqIAE2AgALDQAgABA8QfgAaisDAAsPACAAEDxB+ABqIAE5AwALDQAgABA8QYABaisDAAsPACAAEDxBgAFqIAE5AwALDQAgABA8QYgBaisDAAsPACAAEDxBiAFqIAE5AwALDQAgABA8QZABaisDAAsPACAAEDxBkAFqIAE5AwALFwAgABBeIAAQRRAGokQAAAAAAAAAQKMLFwAgABBgIAAQRxAGokQAAAAAAAAAQKMLFAAgACABEFEgACACEFMgACADEFULFAAgACABEFcgACACEFkgACADEFsLSQEBfyABRAAAAAAAAAAAYwRAIAAgAZqqELYBBSABqiECIAAgAkEQdkH/AXG3EFEgACACQQh2Qf8BcbcQUyAAIAJB/wFxtxBVCwtJAQF/IAFEAAAAAAAAAABjBEAgACABmqoQtwEFIAGqIQIgACACQRB2Qf8BcbcQVyAAIAJBCHZB/wFxtxBZIAAgAkH/AXG3EFsLC24AIAAQA0QAAAAAAABwQKIQBBBRIAAQA0QAAAAAAABwQKIQBBBTIAAQA0QAAAAAAABwQKIQBBBVIAAQA0QAAAAAAABwQKIQBBBXIAAQA0QAAAAAAABwQKIQBBBZIAAQA0QAAAAAAABwQKIQBBBbC0cBAnwgABBBIAAQQ6BEAAAAAACAVkChIQIgAkQ5nVKiRt+RP6IhAyAAIAAQPSABIAMQAaKgED4gACAAED8gASADEACioRBAC10BAX8gAEEARgRAIAFBAm9BAmpBAnAhAiACQQBGBEAgAEQAAAAAAABiQBBfIABEAAAAAADAbkAQYQsgAkEBRgRAIABEAAAAAAAAYkAQXyAARAAAAAAAwG5AEGELCwsEACMKCwYAIAAkCgsEACMLCxEAIAAEfyAAELQBBUEACyQLCw4AIABBAEYEQCABEHALCw4AIABBAEYEQCABEHILCwcAQRArAwALBwBBGCsDAAsHAEEgKAIACyABAn9BJCAAQQN2aiEBIABBB3EhAiABLQAAIAJ2QQFxCwcAIAArAwALJwAgAUQAAAAAAGCSwGUEQCAAIAGaqhC0AbeaOQMADwsgACABOQMACw0AIAAQAyABIAChoqALGQAgABADIAEgAKFEAAAAAAAA8D+goqAQBAsEACMECwQAIwULMgECf0EBIQFBACEAAkADQCAAIAFPDQEgACAAEE4jBEYgABBccRBLIABBAWohAAwACwsLGgAgAEEATiAAIwVIcQRAIAAkBEEBJAYQfwsLIwEBfyMEIABqIQEgAUEATiABIwVIcQRAIAEkBEEBJAYQfwsLWwEEfCAAED0hASAAED8hAiAAEGYhAyAAEGchBCABIAOhRAAAAAAAAG7AZSABIAOgRAAAAAAAAG5AZnIgAiAEoUQAAAAAAOBgwGUgAiAEoEQAAAAAAOBgQGZycgsVACAAED8gABBnoEQAAAAAAOBgQGYLFQAgABA/IAAQZ6FEAAAAAADgYMBlCxUAIAAQPSAAEGahRAAAAAAAAG7AZQsVACAAED0gABBmoEQAAAAAAABuQGYLKQECfCAAEGYhASAAEGchAiAAED0QdaEQBiABZSAAED8QdqEQBiACZXELLQAgABA9IAEQPaEQBiAAEGYgARBmoGUgABA/IAEQP6EQBiAAEGcgARBnoGVxC/YBAQV8IAAQZiEBIAAQZyECIAAQPSEDIAAQPyEEIAAQQyEFIAMgAaBEAAAAAAAAbkBmBEBEAAAAAACAZkAgBaEhBUQAAAAAAABuQCABoSEDBSADIAGhRAAAAAAAAG7AZQRARAAAAAAAgGZAIAWhIQVEAAAAAAAAbsAgAaAhAwsLIAQgAqBEAAAAAADgYEBmBEAgBUQAAAAAAADwv6IhBUQAAAAAAOBgQCACoSEEBSAEIAKhRAAAAAAA4GDAZQRAIAVEAAAAAAAA8L+iIQVEAAAAAADgYMAgAqAhBAsLIAAgBRBEIAAgAxA+IAAgBBBAIAAgAyAEEDcLCgAQdyAAEIcBcQtAAQJ/QQEhAUEAIQACfwJAA0AgACABTw0BIAAQSiAAEE4jBEZxIAAQhwFxBEAgAAwDCyAAQQFqIQAMAAsLQX8LCxYBAX8QdyEAIAAjB0VxBEAQiwEkCAsLGQEBfxB3IQAgAEUjB3EEQEF/JAgLIAAkBwsLAEGYCSAAQRhsagsKACAAEI4BKAIACwwAIAAQjgEgATYCAAsNACAAEI4BQQRqKAIACw0AIAAQjgFBCGooAgALDQAgABCSASABQRBsagspAQF/IAAQjwEhAiABQQBIIAEgAk5yBH9BAAUgACABEJMBQQhqKAIACwspAQF/IAAQjwEhAiABQQBIIAEgAk5yBH9BAAUgACABEJMBQQxqKAIACwtIAQJ/IAAQjwEhAiABQQBIIAEgAk5yBHxEAAAAAAAAAAAFIAAgARCTASEDIANBCGooAgBFBHwgAysDAAUgA0EMaigCALeaCwsLPQECfyAAEI8BIQMgAUEATiABIANIcQRAIAAgARCTASEEIAQgAjkDACAEQQhqQQA2AgAgBEEMakEANgIACwtHAQJ/IAAQjwEhAyABQQBOIAEgA0hxBEAgACABEJMBIQQgBEQAAAAAAAAAADkDACAEQQhqQQE2AgAgBEEMaiACELQBNgIACwv7AQEMfyAAEI4BIQEgASgCACECIAFBBGooAgAhAyABQQhqKAIAIQQgA0ECbCEFIAVBwIQ9SgRAQcCEPSEFCyAFIANMBEBBAA8LIAVBEGwhBiMPIQc/AEGAgARsIQggByAGaiAISwRAIAcgBmogCGtBgIAEbkEBaiEJIAlAAEF/RgRAQQAPCwtBACEKAkADQCAKIAJODQEgBCAKQRBsaiELIAcgCkEQbGohDCAMIAsrAwA5AwAgDEEIaiALQQhqKAIANgIAIAxBDGogC0EMaigCADYCACAKQQFqIQoMAAsLIAFBBGogBTYCACABQQhqIAc2AgAgByAGaiQPQQELUgEDfyAAEI8BIQIgABCRASEDIAIgA04EQCAAEJkBRQRADwsLIAAgAhCTASEEIAQgATkDACAEQQhqQQA2AgAgBEEMakEANgIAIAAgAkEBahCQAQtcAQN/IAAQjwEhAiAAEJEBIQMgAiADTgRAIAAQmQFFBEAPCwsgACACEJMBIQQgBEQAAAAAAAAAADkDACAEQQhqQQE2AgAgBEEMaiABELQBNgIAIAAgAkEBahCQAQvDAQEFfyAAEI8BIQMgABCRASEEIAFBAEgEQEEAIQELIAEgA0oEQCADIQELIAMgBE4EQCAAEJkBRQRADwsLIAMhBQJAA0AgBSABTA0BIAAgBRCTASEHIAAgBUEBaxCTASEGIAcgBisDADkDACAHQQhqIAZBCGooAgA2AgAgB0EMaiAGQQxqKAIANgIAIAVBAWshBQwACwsgACABEJMBIQcgByACOQMAIAdBCGpBADYCACAHQQxqQQA2AgAgACADQQFqEJABC80BAQV/IAAQjwEhAyAAEJEBIQQgAUEASARAQQAhAQsgASADSgRAIAMhAQsgAyAETgRAIAAQmQFFBEAPCwsgAyEFAkADQCAFIAFMDQEgACAFEJMBIQcgACAFQQFrEJMBIQYgByAGKwMAOQMAIAdBCGogBkEIaigCADYCACAHQQxqIAZBDGooAgA2AgAgBUEBayEFDAALCyAAIAEQkwEhByAHRAAAAAAAAAAAOQMAIAdBCGpBATYCACAHQQxqIAIQtAE2AgAgACADQQFqEJABC38BBH8gABCPASECIAFBAE4gASACSHEEQCABIQMCQANAIAMgAkEBa04NASAAIAMQkwEhBSAAIANBAWoQkwEhBCAFIAQrAwA5AwAgBUEIaiAEQQhqKAIANgIAIAVBDGogBEEMaigCADYCACADQQFqIQMMAAsLIAAgAkEBaxCQAQsLTAEDfyAAEI8BIQJBACEDAkACQANAIAMgAk4NASAAIAMQkwEhBCAEQQhqKAIARQRAIAQrAwAgAWENAwsgA0EBaiEDDAALC0EADwtBAQumAQEIfyAAEI8BIQIgARCjASEGQQAhAwJAAkADQCADIAJODQEgACADEJMBIQQgBEEIaigCAEEBRgRAIARBDGooAgAhBSAFEKMBIQcgBiAHRgRAQQEhCUEAIQgCQANAIAggBk4NASABQQRqIAhqLQAAIAVBBGogCGotAABHBEBBACEJDAILIAhBAWohCAwACwsgCQ0ECwsgA0EBaiEDDAALC0EADwtBAQsJACAAQQAQkAELMwECfyMNIQEgASAAQQVqakEDakF8cSECIAJBmImAIEsEQEEADwsgASAANgIAIAIkDSABCykBAX8gAEUEf0EABSAAKAIAIQEgAUEASCABQYCABEpyBH9BAAUgAQsLCzcBAn8gAEUEf0EABSAAEKMBIQIgAUEBayEDIANBAEggAyACTnIEf0EABSAAQQRqIANqLQAACwsLNgECfyAAIAEQpAEhAiACRQR/QQAQogEFQQEQogEhAyADQQRqIAI6AAAgA0EFakEAOgAAIAMLC5EBAQR/IAAQowEhAiABEKMBIQMgAiADahCiASEEQQAhBQJAA0AgBSACTg0BIARBBGogBWogAEEEaiAFai0AADoAACAFQQFqIQUMAAsLQQAhBQJAA0AgBSADTg0BIARBBGogAiAFamogAUEEaiAFai0AADoAACAFQQFqIQUMAAsLIARBBGogAiADampBADoAACAEC5YBAQZ/IABFBH9BABCiAQUgABCjASEDIAFBAWshBCACIQUgBEEASARAQQAhBAsgBSADSgRAIAMhBQsgBSAEayEGIAZBAEgEQEEAIQYLIAYQogEhB0EAIQgCQANAIAggBk4NASAHQQRqIAhqIABBBGogBCAIamotAAA6AAAgCEEBaiEIDAALCyAHQQRqIAZqQQA6AAAgBwsLmQEBBX8gAEUgAUVyBH9BAAUgABCjASECIAEQowEhAyADIAJKBH9BAAVBACEEAn8CQANAIAQgAiADa0oNAUEBIQZBACEFAkADQCAFIANODQEgAEEEaiAEIAVqai0AACABQQRqIAVqLQAARwRAQQAhBgwCCyAFQQFqIQUMAAsLIAYEQCAEQQFqDAMLIARBAWohBAwACwtBAAsLCwvCAgEIfyAAIAEQqAEhAyADRQR/IAAQowEhBCAEEKIBIQhBACEJAkADQCAJIARODQEgCEEEaiAJaiAAQQRqIAlqLQAAOgAAIAlBAWohCQwACwsgCEEEaiAEakEAOgAAIAgFIAAQowEhBCABEKMBIQUgAhCjASEGIAQgBWsgBmohByAHEKIBIQggA0EBayEKQQAhCQJAA0AgCSAKTg0BIAhBBGogCWogAEEEaiAJai0AADoAACAJQQFqIQkMAAsLQQAhCQJAA0AgCSAGTg0BIAhBBGogCiAJamogAkEEaiAJai0AADoAACAJQQFqIQkMAAsLQQAhCQJAA0AgCSAEIAogBWprTg0BIAhBBGogCiAGaiAJamogAEEEaiAKIAVqIAlqai0AADoAACAJQQFqIQkMAAsLIAhBBGogB2pBADoAACAICwt4AQR/IABFBH9BABCiAQUgABCjASEBIAEQogEhAkEAIQMCQANAIAMgAU4NASAAQQRqIANqLQAAIQQgBEHhAE8gBEH6AE1xBEAgBEEgayEECyACQQRqIANqIAQ6AAAgA0EBaiEDDAALCyACQQRqIAFqQQA6AAAgAgsLeAEEfyAARQR/QQAQogEFIAAQowEhASABEKIBIQJBACEDAkADQCADIAFODQEgAEEEaiADai0AACEEIARBwQBPIARB2gBNcQRAIARBIGohBAsgAkEEaiADaiAEOgAAIANBAWohAwwACwsgAkEEaiABakEAOgAAIAILCwYAIAAQOwtwAQN/IABFIAFFcQRAQQEPCyAARSABRXIEQEEADwsgABCjASECIAEQowEhAyACIANHBEBBAA8LQQAhBAJAA0AgBCACTg0BIABBBGogBGotAAAgAUEEaiAEai0AAEcEQEEADwsgBEEBaiEEDAALC0EBC5ECBAN/AXwBfwF8IABFBHxEAAAAAAAAAAAFIAAQowEhAUQAAAAAAAAAACEEQQAhAiABQQBKIABBBGotAABBLUZxBEBBASEFQQEhAgsCQANAIAIgAU4NASAAQQRqIAJqLQAAIQMgA0EwSSADQTlLcg0BIAREAAAAAAAAJECiIANBMGu4oCEEIAJBAWohAgwACwsgAiABSCAAQQRqIAJqLQAAQS5GcQRAIAJBAWohAkSamZmZmZm5PyEGAkADQCACIAFODQEgAEEEaiACai0AACEDIANBMEkgA0E5S3INASAEIANBMGu4IAaioCEEIAZEmpmZmZmZuT+iIQYgAkEBaiECDAALCwsgBQR8IASaBSAECwsLpwEBBn8gAEUgAUVyBH9BAAUgABCjASECIAEQowEhAyADRSADIAJKcgR/QQAFQQAhBEEAIQUCQANAIAUgAiADa0oNAUEBIQdBACEGAkADQCAGIANODQEgAEEEaiAFIAZqai0AACABQQRqIAZqLQAARwRAQQAhBwwCCyAGQQFqIQYMAAsLIAcEQCAEQQFqIQQgBSADaiEFDAELIAVBAWohBQwACwsgBAsLC2MBA38gAEUEf0EAEKIBBSAAEKMBIQEgARCiASECQQAhAwJAA0AgAyABTg0BIAJBBGogA2ogAEEEaiABQQFrIANrai0AADoAACADQQFqIQMMAAsLIAJBBGogAWpBADoAACACCwtmAQN/IABFBEBBAA8LIAAQowEhAiACQQdOIABBBGotAABBI0ZxBEAgAEEFaiEDBSACQQZIBEBBAA8LIABBBGohAwsgAUECbCEEIAMgBGotAAAQtQFBEGwgAyAEQQFqai0AABC1AWoLDAAgACABEJYBELMBCxsAIABEAAAAAABgksBlBH8gAJqqBSAAEKwBCwulAQEDfyAARQRAQQAPCyAAQZgJSQRAIAAPCyAAQZiJgCBPIABBmImAwABJcQRAIAAPCyAAEKMBIQEjDiECIAIgAUEFampBA2pBfHEhAyADQZiJgMAASwRAQQAPCyACIAE2AgAgAyQOQQAhAwJAA0AgAyABTg0BIAJBBGogA2ogAEEEaiADai0AADoA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';
+var _bundleOptions = {};
 
 /**
- * Generate the renderer JavaScript code
- * @param {Object} project - Parsed project
- * @param {Object} options - Compiler options
- * @returns {string} JavaScript code
- */
-function generateRenderer(project, options = {}) {
-    const generator = new RendererGenerator(project, options);
-    return generator.generate();
-}
-
-class RendererGenerator {
-    constructor(project, options) {
-        this.project = project;
-        this.options = options;
-    }
-
-    escapeJSString(str) {
-        return String(str).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r');
-    }
-
-    generate() {
-        return `/**
  * EntryJS Compiled Project - Renderer
  * 
  * This file handles PixiJS rendering only.
@@ -46,11 +22,11 @@ const MAX_ACCUMULATOR = 0.05;
 const TARGET_TICK_MS = 10;
 const MIN_TICKS_PER_FRAME = 100;
 let dynamicMaxTicks = 10000;
-const SCENE_COUNT = ${this.project.scenes.length};
-const VARIABLE_COUNT = ${(this.project.variables.variables || []).length};
-const LIST_COUNT = ${(this.project.variables.lists || []).length};
-const ENTITY_COUNT = ${this.project.objects.length};
-const STRING_POOL_START = ${this.project.stringPool?.start || 1024};
+const SCENE_COUNT = 1;
+const VARIABLE_COUNT = 0;
+const LIST_COUNT = 0;
+const ENTITY_COUNT = 1;
+const STRING_POOL_START = 1176;
 
 // ===== WASM IMPORTS =====
 const wasmImports = {
@@ -340,6 +316,7 @@ let running = false;
 let lastTime = 0;
 let currentScene = 0;
 let accumulator = 0;
+let paused = false;
 
 // Timer and input state (matching EntryJS engine.js implementation)
 // projectTimer uses real system time for accuracy, not deltaTime accumulation
@@ -399,22 +376,46 @@ let isWaitingForInput = false;
 let inputOverlay = null;
 
 // ===== SCENE DATA =====
-${this.generateSceneData()}
+const SCENE_DATA = [
+    { id: "7dwq", name: "장면 1", index: 0 },
+];
+
 
 // ===== VARIABLE DATA =====
-${this.generateVariableData()}
+const VARIABLE_DATA = [
+];
+
 
 // ===== TIMER DATA =====
-${this.generateTimerData()}
+const TIMER_DATA = { name: "초시계", visible: false, x: 134, y: -70 };
+
 
 // ===== ANSWER DATA =====
-${this.generateAnswerData()}
+const ANSWER_DATA = { name: "대답", visible: false, x: 150, y: -100 };
+
 
 // ===== LIST DATA =====
-${this.generateListData()}
+const LIST_DATA = [
+];
+
 
 // ===== ASSET DATA =====
-${this.generateAssetData()}
+const ENTITY_DATA = [
+    {
+        id: "7y0y",
+        name: "엔트리봇",
+        objectType: "sprite",
+        pictures: [
+            { id: "vx80", url: "/lib/entry-js/images/media/entrybot1.svg", width: 144, height: 246 },
+            { id: "4t48", url: "/lib/entry-js/images/media/entrybot2.svg", width: 144, height: 246 },
+        ],
+        sounds: [
+            { id: "8el5", url: "/lib/entry-js/images/media/bark.mp3" },
+        ],
+        sceneIndex: 0
+    },
+];
+
 
 // ===== HELPER FUNCTIONS =====
 let placeholderTexture = null;
@@ -433,9 +434,17 @@ function normalizeAssetUrl(url) {
     // playentry.org base URL for assets
     const PLAYENTRY_BASE = 'https://playentry.org';
     
-    // Helper to wrap URL in proxy
+    // Helper to resolve asset URL (proxy, custom base, or direct)
     function proxyUrl(targetUrl) {
-        return '/proxy?url=' + encodeURIComponent(targetUrl);
+        if (_bundleOptions.proxyUrl) {
+            return _bundleOptions.proxyUrl + '?url=' + encodeURIComponent(targetUrl);
+        }
+        if (_bundleOptions.assetBaseUrl) {
+            var base = _bundleOptions.assetBaseUrl.replace(/\/$/, '');
+            try { return base + new URL(targetUrl).pathname; }
+            catch(e) { return base + targetUrl; }
+        }
+        return targetUrl;
     }
     
     // Handle various URL patterns
@@ -467,11 +476,18 @@ function normalizeAssetUrl(url) {
 }
 
 // ===== INITIALIZATION =====
-async function init() {
-    console.log('[Renderer] Initializing...');
+async function init(canvasOrId, options) {
+    _bundleOptions = options || {};
+    console.log('[EntryProject] Initializing...');
     
-    // Initialize PixiJS (compatible with v6, v7, and v8)
-    const canvas = document.getElementById('stage');
+    // Resolve canvas element
+    var canvas;
+    if (typeof canvasOrId === 'string') {
+        canvas = document.getElementById(canvasOrId);
+    } else {
+        canvas = canvasOrId;
+    }
+    if (!canvas) throw new Error('Canvas element not found');
     const initOptions = {
         width: STAGE_WIDTH,
         height: STAGE_HEIGHT,
@@ -491,17 +507,16 @@ async function init() {
         app = new PIXI.Application(initOptions);
     }
     
-    // Load WASM module
+    // Load WASM from embedded base64
     try {
-        const wasmResponse = await fetch('project.wasm');
-        const wasmBuffer = await wasmResponse.arrayBuffer();
-        const wasmModule = await WebAssembly.instantiate(wasmBuffer, wasmImports);
+        var wasmBinary = Uint8Array.from(atob(_WASM_BASE64), function(c) { return c.charCodeAt(0); });
+        var wasmModule = await WebAssembly.instantiate(wasmBinary.buffer, wasmImports);
         wasm = wasmModule.instance.exports;
         memory = new DataView(wasm.memory.buffer);
-        console.log('[Renderer] WASM loaded');
+        console.log('[EntryProject] WASM loaded');
     } catch (error) {
-        console.error('[Renderer] Failed to load WASM:', error);
-        return;
+        console.error('[EntryProject] Failed to load WASM:', error);
+        throw error;
     }
     
     // Load assets and create sprites
@@ -1020,7 +1035,7 @@ function showInputField() {
     input.addEventListener('keyup', (e) => { e.stopPropagation(); });
     
     const button = document.createElement('button');
-    button.textContent = '\uD655\uC778';
+    button.textContent = '확인';
     button.style.cssText = "height:30px;padding:0 16px;background:#4f80ff;color:white;" +
         "border:none;border-radius:6px;font-size:13px;cursor:pointer;" +
         "font-family:NanumGothic,'Nanum Gothic',Arial,sans-serif;";
@@ -1058,6 +1073,12 @@ function hideInputField() {
 // ===== GAME LOOP =====
 function gameLoop(currentTime) {
     if (!running) return;
+    
+    if (paused) {
+        lastTime = currentTime;
+        requestAnimationFrame(gameLoop);
+        return;
+    }
     
     const realDelta = (currentTime - lastTime) / 1000;
     lastTime = currentTime;
@@ -2082,7 +2103,7 @@ function updateListDisplays() {
         display.titleText.x = (w - display.titleText.width) / 2 + 3;
         
         const length = wasm.list_length ? wasm.list_length(i) : 0;
-        display.lengthText.text = length + ' \uAC1C';
+        display.lengthText.text = length + ' 개';
         display.lengthText.x = BORDER;
         display.lengthText.y = h + 5;
         
@@ -2301,7 +2322,26 @@ function updateDialogBubbles() {
 // ===== CONTROLS =====
 function stop() {
     running = false;
+    paused = false;
     wasm.stop();
+}
+
+function pause() {
+    if (!running || paused) return;
+    paused = true;
+    if (projectTimerIsInit && projectTimerPauseStart === 0) {
+        projectTimerPauseStart = performance.now();
+    }
+}
+
+function resume() {
+    if (!running || !paused) return;
+    paused = false;
+    if (projectTimerIsInit && projectTimerPauseStart > 0) {
+        projectTimerPausedTime += performance.now() - projectTimerPauseStart;
+        projectTimerPauseStart = 0;
+    }
+    accumulator = 0;
 }
 
 function restart() {
@@ -2375,6 +2415,7 @@ function restart() {
     
     wasm.init();
     currentScene = 0;
+    paused = false;
     running = true;
     lastTime = performance.now();
     accumulator = 0;
@@ -2397,302 +2438,7 @@ function getSceneInfo() {
     };
 }
 
-// ===== START =====
-init().catch(console.error);
-`;
-    }
-
-    generateAssetData() {
-        let code = 'const ENTITY_DATA = [\n';
-        
-        for (const obj of this.project.objects) {
-            code += `    {\n`;
-            code += `        id: "${obj.id}",\n`;
-            code += `        name: "${this.escapeJSString(obj.name)}",\n`;
-            code += `        objectType: "${obj.objectType || 'sprite'}",\n`;
-            code += `        pictures: [\n`;
-            
-            for (const pic of obj.pictures) {
-                // Generate URL: use fileurl if available, otherwise build from filename
-                let url = pic.fileurl || '';
-                if (!url && pic.filename && pic.filename.length >= 4) {
-                    // Build URL from filename following EntryJS pattern:
-                    // /uploads/{first2}/{next2}/image/{filename}.{ext}
-                    const filename = pic.filename;
-                    const imageType = pic.imageType || 'png';
-                    const ext = imageType === 'svg' ? 'svg' : 'png';
-                    url = `/uploads/${filename.substring(0, 2)}/${filename.substring(2, 4)}/image/${filename}.${ext}`;
-                }
-                code += `            { id: "${pic.id}", url: "${url}", width: ${pic.dimension?.width || 100}, height: ${pic.dimension?.height || 100} },\n`;
-            }
-            
-            code += `        ],\n`;
-            code += `        sounds: [\n`;
-            
-            for (const snd of obj.sounds) {
-                // Generate URL: use fileurl if available, otherwise build from filename
-                let sndUrl = snd.fileurl || '';
-                if (!sndUrl && snd.filename && snd.filename.length >= 4) {
-                    // Build URL from filename following EntryJS pattern
-                    const filename = snd.filename;
-                    const ext = snd.ext || '.mp3';
-                    sndUrl = `/uploads/${filename.substring(0, 2)}/${filename.substring(2, 4)}/${filename}${ext}`;
-                }
-                code += `            { id: "${snd.id}", url: "${sndUrl}" },\n`;
-            }
-            
-            code += `        ],\n`;
-            code += `        sceneIndex: ${obj.sceneIndex || 0}`;
-            if (obj.objectType === 'textBox') {
-                const fontWeight = (obj.entity.font || '').includes('bold') ? 'bold' : 'normal';
-                code += `,\n`;
-                code += `        text: "${this.escapeJSString(obj.entity.text || '')}",\n`;
-                code += `        bgColor: "${this.escapeJSString(obj.entity.bgColor || '#ffffff')}",\n`;
-                code += `        fontSize: ${obj.entity.fontSize || 20},\n`;
-                code += `        textColor: "${obj.entity.colour || '#000000'}",\n`;
-                code += `        textAlign: ${obj.entity.textAlign || 0},\n`;
-                code += `        lineBreak: ${obj.entity.lineBreak || false},\n`;
-                code += `        textBoxWidth: ${obj.entity.width || 100},\n`;
-                code += `        textBoxHeight: ${obj.entity.height || 22},\n`;
-                code += `        fontWeight: "${fontWeight}"\n`;
-            } else {
-                code += `\n`;
-            }
-            code += `    },\n`;
-        }
-        
-        code += '];\n';
-        return code;
-    }
-
-    generateSceneData() {
-        let code = 'const SCENE_DATA = [\n';
-        
-        for (const scene of this.project.scenes) {
-            code += `    { id: "${scene.id}", name: "${this.escapeJSString(scene.name)}", index: ${scene.index} },\n`;
-        }
-        
-        code += '];\n';
-        return code;
-    }
-
-    generateVariableData() {
-        const variables = this.project.variables.variables || [];
-        let code = 'const VARIABLE_DATA = [\n';
-        
-        for (const v of variables) {
-            const name = this.escapeJSString(v.name || '');
-            const visible = v.visible !== false;
-            const x = v.x != null ? v.x : 0;
-            const y = v.y != null ? v.y : 0;
-            const varType = v.variableType || 'variable';
-            let extra = '';
-            if (varType === 'slide') {
-                extra = `, minValue: ${v.minValue != null ? v.minValue : 0}, maxValue: ${v.maxValue != null ? v.maxValue : 100}`;
-            }
-            code += `    { id: "${v.id}", name: "${name}", memoryOffset: ${v.memoryOffset}, visible: ${visible}, x: ${x}, y: ${y}, varType: "${varType}"${extra} },\n`;
-        }
-        
-        code += '];\n';
-        return code;
-    }
-
-    generateListData() {
-        const lists = this.project.variables.lists || [];
-        let code = 'const LIST_DATA = [\n';
-        
-        for (const l of lists) {
-            const name = this.escapeJSString(l.name || '');
-            const visible = l.visible !== false;
-            const x = l.x != null ? l.x : 0;
-            const y = l.y != null ? l.y : 0;
-            const width = l.width || 100;
-            const height = l.height || 120;
-            code += `    { id: "${l.id}", name: "${name}", memoryIndex: ${l.memoryIndex}, visible: ${visible}, x: ${x}, y: ${y}, width: ${width}, height: ${height} },\n`;
-        }
-        
-        code += '];\n';
-        return code;
-    }
-
-    generateTimerData() {
-        const timer = this.project.variables.timer;
-        if (timer) {
-            const name = this.escapeJSString(timer.name || '\uCD08\uC2DC\uACC4');
-            const visible = timer.visible !== false;
-            // Match EntryJS generateTimer: x = 240 - (name.length * 12 + 70)
-            const nameLen = (timer.name || '\uCD08\uC2DC\uACC4').length;
-            const defaultX = 240 - (nameLen * 12 + 70);
-            const x = timer.x != null ? timer.x : defaultX;
-            const y = timer.y != null ? timer.y : -70;
-            return `const TIMER_DATA = { name: "${name}", visible: ${visible}, x: ${x}, y: ${y} };\n`;
-        }
-        // Default: "\uCD08\uC2DC\uACC4" (\uCD08\uC2DC\uACC4, 3 chars), x = 240 - (3*12+70) = 134
-        return `const TIMER_DATA = { name: "\uCD08\uC2DC\uACC4", visible: false, x: 134, y: -70 };\n`;
-    }
-
-    generateAnswerData() {
-        const answer = this.project.variables.answer;
-        if (answer) {
-            const name = this.escapeJSString(answer.name || '\uB300\uB2F5');
-            const visible = answer.visible !== false;
-            const x = answer.x != null ? answer.x : 150;
-            const y = answer.y != null ? answer.y : -100;
-            return `const ANSWER_DATA = { name: "${name}", visible: ${visible}, x: ${x}, y: ${y} };\n`;
-        }
-        // Default answer data (matches EntryJS generateAnswer defaults)
-        return `const ANSWER_DATA = { name: "\uB300\uB2F5", visible: false, x: 150, y: -100 };\n`;
-    }
-
-    /**
-     * Generate bundle-ready renderer code.
-     * Takes the output of generate() and transforms it for bundle mode:
-     * - Wraps in IIFE with public API
-     * - WASM loaded from embedded base64 (placeholder replaced by bundler)
-     * - Canvas and proxy URL passed via init(canvas, options)
-     * - Adds pause/resume controls
-     */
-    generateBundle() {
-        let code = this.generate();
-
-        const safeReplace = (src, old, replacement, label) => {
-            const result = src.replace(old, replacement);
-            if (result === src) {
-                console.warn(`[generateBundle] WARNING: replacement "${label}" did not match`);
-            }
-            return result;
-        };
-
-        // 1. Wrap in IIFE and add bundle globals
-        code = `(function() {
-"use strict";
-var _WASM_BASE64 = '__WASM_BASE64__';
-var _bundleOptions = {};
-
-${code}`;
-
-        // 2. Replace normalizeAssetUrl proxy to use configurable proxyUrl or assetBaseUrl
-        code = safeReplace(code,
-            `    // Helper to wrap URL in proxy
-    function proxyUrl(targetUrl) {
-        return '/proxy?url=' + encodeURIComponent(targetUrl);
-    }`,
-            `    // Helper to resolve asset URL (proxy, custom base, or direct)
-    function proxyUrl(targetUrl) {
-        if (_bundleOptions.proxyUrl) {
-            return _bundleOptions.proxyUrl + '?url=' + encodeURIComponent(targetUrl);
-        }
-        if (_bundleOptions.assetBaseUrl) {
-            var base = _bundleOptions.assetBaseUrl.replace(/\\/$/, '');
-            try { return base + new URL(targetUrl).pathname; }
-            catch(e) { return base + targetUrl; }
-        }
-        return targetUrl;
-    }`, 'proxyUrl'
-        );
-
-        // 3. Replace init() to accept canvas + options
-        code = safeReplace(code,
-            `async function init() {
-    console.log('[Renderer] Initializing...');
-    
-    // Initialize PixiJS (compatible with v6, v7, and v8)
-    const canvas = document.getElementById('stage');`,
-            `async function init(canvasOrId, options) {
-    _bundleOptions = options || {};
-    console.log('[EntryProject] Initializing...');
-    
-    // Resolve canvas element
-    var canvas;
-    if (typeof canvasOrId === 'string') {
-        canvas = document.getElementById(canvasOrId);
-    } else {
-        canvas = canvasOrId;
-    }
-    if (!canvas) throw new Error('Canvas element not found');`, 'init-signature'
-        );
-
-        // 4. Replace WASM loading: fetch → base64 decode
-        code = safeReplace(code,
-            `    // Load WASM module
-    try {
-        const wasmResponse = await fetch('project.wasm');
-        const wasmBuffer = await wasmResponse.arrayBuffer();
-        const wasmModule = await WebAssembly.instantiate(wasmBuffer, wasmImports);
-        wasm = wasmModule.instance.exports;
-        memory = new DataView(wasm.memory.buffer);
-        console.log('[Renderer] WASM loaded');
-    } catch (error) {
-        console.error('[Renderer] Failed to load WASM:', error);
-        return;
-    }`,
-            `    // Load WASM from embedded base64
-    try {
-        var wasmBinary = Uint8Array.from(atob(_WASM_BASE64), function(c) { return c.charCodeAt(0); });
-        var wasmModule = await WebAssembly.instantiate(wasmBinary.buffer, wasmImports);
-        wasm = wasmModule.instance.exports;
-        memory = new DataView(wasm.memory.buffer);
-        console.log('[EntryProject] WASM loaded');
-    } catch (error) {
-        console.error('[EntryProject] Failed to load WASM:', error);
-        throw error;
-    }`, 'wasm-loading'
-        );
-
-        // 5. Add paused state variable
-        code = safeReplace(code,
-            'let accumulator = 0;',
-            'let accumulator = 0;\nlet paused = false;', 'paused-var'
-        );
-
-        // 6. Add paused check in gameLoop (keep rAF running for instant resume)
-        code = safeReplace(code,
-            'function gameLoop(currentTime) {\n    if (!running) return;\n    \n    const realDelta = (currentTime - lastTime) / 1000;\n    lastTime = currentTime;',
-            'function gameLoop(currentTime) {\n    if (!running) return;\n    \n    if (paused) {\n        lastTime = currentTime;\n        requestAnimationFrame(gameLoop);\n        return;\n    }\n    \n    const realDelta = (currentTime - lastTime) / 1000;\n    lastTime = currentTime;', 'gameLoop-pause'
-        );
-
-        // 7. Add paused reset in restart()
-        code = safeReplace(code,
-            '    wasm.init();\n    currentScene = 0;\n    running = true;',
-            '    wasm.init();\n    currentScene = 0;\n    paused = false;\n    running = true;', 'restart-pause-reset'
-        );
-
-        // 8. Replace stop() and add pause/resume
-        code = safeReplace(code,
-            `function stop() {
-    running = false;
-    wasm.stop();
-}`,
-            `function stop() {
-    running = false;
-    paused = false;
-    wasm.stop();
-}
-
-function pause() {
-    if (!running || paused) return;
-    paused = true;
-    if (projectTimerIsInit && projectTimerPauseStart === 0) {
-        projectTimerPauseStart = performance.now();
-    }
-}
-
-function resume() {
-    if (!running || !paused) return;
-    paused = false;
-    if (projectTimerIsInit && projectTimerPauseStart > 0) {
-        projectTimerPausedTime += performance.now() - projectTimerPauseStart;
-        projectTimerPauseStart = 0;
-    }
-    accumulator = 0;
-}`, 'stop-pause-resume'
-        );
-
-        // 9. Replace auto-start with public API export
-        code = safeReplace(code,
-            `// ===== START =====
-init().catch(console.error);`,
-            `// ===== PUBLIC API =====
+// ===== PUBLIC API =====
 var _api = {
     init: init,
     start: function() { if (!wasm) throw new Error('Call init() first'); restart(); },
@@ -2706,22 +2452,4 @@ var _api = {
 if (typeof module !== 'undefined' && module.exports) module.exports = _api;
 else if (typeof window !== 'undefined') window.EntryProject = _api;
 return _api;
-})();`, 'public-api'
-        );
-
-        return code;
-    }
-}
-
-/**
- * Generate bundle-ready renderer code (WASM loaded from embedded base64, canvas passed via API)
- * @param {Object} project - Parsed project
- * @param {Object} options - Compiler options
- * @returns {string} Bundle-ready JavaScript code
- */
-function generateBundleRenderer(project, options = {}) {
-    const generator = new RendererGenerator(project, options);
-    return generator.generateBundle();
-}
-
-module.exports = { generateRenderer, generateBundleRenderer, RendererGenerator };
+})();

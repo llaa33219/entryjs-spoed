@@ -1,33 +1,9 @@
-/**
- * Renderer Generator
- * 
- * Generates minimal JavaScript code that uses PixiJS for rendering only.
- * All logic is handled by the WASM module.
- */
+(function() {
+"use strict";
+var _WASM_BASE64 = '__WASM_BASE64__';
+var _bundleOptions = {};
 
 /**
- * Generate the renderer JavaScript code
- * @param {Object} project - Parsed project
- * @param {Object} options - Compiler options
- * @returns {string} JavaScript code
- */
-function generateRenderer(project, options = {}) {
-    const generator = new RendererGenerator(project, options);
-    return generator.generate();
-}
-
-class RendererGenerator {
-    constructor(project, options) {
-        this.project = project;
-        this.options = options;
-    }
-
-    escapeJSString(str) {
-        return String(str).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r');
-    }
-
-    generate() {
-        return `/**
  * EntryJS Compiled Project - Renderer
  * 
  * This file handles PixiJS rendering only.
@@ -46,11 +22,11 @@ const MAX_ACCUMULATOR = 0.05;
 const TARGET_TICK_MS = 10;
 const MIN_TICKS_PER_FRAME = 100;
 let dynamicMaxTicks = 10000;
-const SCENE_COUNT = ${this.project.scenes.length};
-const VARIABLE_COUNT = ${(this.project.variables.variables || []).length};
-const LIST_COUNT = ${(this.project.variables.lists || []).length};
-const ENTITY_COUNT = ${this.project.objects.length};
-const STRING_POOL_START = ${this.project.stringPool?.start || 1024};
+const SCENE_COUNT = 1;
+const VARIABLE_COUNT = 0;
+const LIST_COUNT = 0;
+const ENTITY_COUNT = 1;
+const STRING_POOL_START = 1176;
 
 // ===== WASM IMPORTS =====
 const wasmImports = {
@@ -340,6 +316,7 @@ let running = false;
 let lastTime = 0;
 let currentScene = 0;
 let accumulator = 0;
+let paused = false;
 
 // Timer and input state (matching EntryJS engine.js implementation)
 // projectTimer uses real system time for accuracy, not deltaTime accumulation
@@ -399,22 +376,46 @@ let isWaitingForInput = false;
 let inputOverlay = null;
 
 // ===== SCENE DATA =====
-${this.generateSceneData()}
+const SCENE_DATA = [
+    { id: "7dwq", name: "장면 1", index: 0 },
+];
+
 
 // ===== VARIABLE DATA =====
-${this.generateVariableData()}
+const VARIABLE_DATA = [
+];
+
 
 // ===== TIMER DATA =====
-${this.generateTimerData()}
+const TIMER_DATA = { name: "초시계", visible: false, x: 134, y: -70 };
+
 
 // ===== ANSWER DATA =====
-${this.generateAnswerData()}
+const ANSWER_DATA = { name: "대답", visible: false, x: 150, y: -100 };
+
 
 // ===== LIST DATA =====
-${this.generateListData()}
+const LIST_DATA = [
+];
+
 
 // ===== ASSET DATA =====
-${this.generateAssetData()}
+const ENTITY_DATA = [
+    {
+        id: "7y0y",
+        name: "엔트리봇",
+        objectType: "sprite",
+        pictures: [
+            { id: "vx80", url: "/lib/entry-js/images/media/entrybot1.svg", width: 144, height: 246 },
+            { id: "4t48", url: "/lib/entry-js/images/media/entrybot2.svg", width: 144, height: 246 },
+        ],
+        sounds: [
+            { id: "8el5", url: "/lib/entry-js/images/media/bark.mp3" },
+        ],
+        sceneIndex: 0
+    },
+];
+
 
 // ===== HELPER FUNCTIONS =====
 let placeholderTexture = null;
@@ -433,9 +434,17 @@ function normalizeAssetUrl(url) {
     // playentry.org base URL for assets
     const PLAYENTRY_BASE = 'https://playentry.org';
     
-    // Helper to wrap URL in proxy
+    // Helper to resolve asset URL (proxy, custom base, or direct)
     function proxyUrl(targetUrl) {
-        return '/proxy?url=' + encodeURIComponent(targetUrl);
+        if (_bundleOptions.proxyUrl) {
+            return _bundleOptions.proxyUrl + '?url=' + encodeURIComponent(targetUrl);
+        }
+        if (_bundleOptions.assetBaseUrl) {
+            var base = _bundleOptions.assetBaseUrl.replace(/\/$/, '');
+            try { return base + new URL(targetUrl).pathname; }
+            catch(e) { return base + targetUrl; }
+        }
+        return targetUrl;
     }
     
     // Handle various URL patterns
@@ -467,11 +476,18 @@ function normalizeAssetUrl(url) {
 }
 
 // ===== INITIALIZATION =====
-async function init() {
-    console.log('[Renderer] Initializing...');
+async function init(canvasOrId, options) {
+    _bundleOptions = options || {};
+    console.log('[EntryProject] Initializing...');
     
-    // Initialize PixiJS (compatible with v6, v7, and v8)
-    const canvas = document.getElementById('stage');
+    // Resolve canvas element
+    var canvas;
+    if (typeof canvasOrId === 'string') {
+        canvas = document.getElementById(canvasOrId);
+    } else {
+        canvas = canvasOrId;
+    }
+    if (!canvas) throw new Error('Canvas element not found');
     const initOptions = {
         width: STAGE_WIDTH,
         height: STAGE_HEIGHT,
@@ -491,17 +507,16 @@ async function init() {
         app = new PIXI.Application(initOptions);
     }
     
-    // Load WASM module
+    // Load WASM from embedded base64
     try {
-        const wasmResponse = await fetch('project.wasm');
-        const wasmBuffer = await wasmResponse.arrayBuffer();
-        const wasmModule = await WebAssembly.instantiate(wasmBuffer, wasmImports);
+        var wasmBinary = Uint8Array.from(atob(_WASM_BASE64), function(c) { return c.charCodeAt(0); });
+        var wasmModule = await WebAssembly.instantiate(wasmBinary.buffer, wasmImports);
         wasm = wasmModule.instance.exports;
         memory = new DataView(wasm.memory.buffer);
-        console.log('[Renderer] WASM loaded');
+        console.log('[EntryProject] WASM loaded');
     } catch (error) {
-        console.error('[Renderer] Failed to load WASM:', error);
-        return;
+        console.error('[EntryProject] Failed to load WASM:', error);
+        throw error;
     }
     
     // Load assets and create sprites
@@ -1020,7 +1035,7 @@ function showInputField() {
     input.addEventListener('keyup', (e) => { e.stopPropagation(); });
     
     const button = document.createElement('button');
-    button.textContent = '\uD655\uC778';
+    button.textContent = '확인';
     button.style.cssText = "height:30px;padding:0 16px;background:#4f80ff;color:white;" +
         "border:none;border-radius:6px;font-size:13px;cursor:pointer;" +
         "font-family:NanumGothic,'Nanum Gothic',Arial,sans-serif;";
@@ -1058,6 +1073,12 @@ function hideInputField() {
 // ===== GAME LOOP =====
 function gameLoop(currentTime) {
     if (!running) return;
+    
+    if (paused) {
+        lastTime = currentTime;
+        requestAnimationFrame(gameLoop);
+        return;
+    }
     
     const realDelta = (currentTime - lastTime) / 1000;
     lastTime = currentTime;
@@ -2082,7 +2103,7 @@ function updateListDisplays() {
         display.titleText.x = (w - display.titleText.width) / 2 + 3;
         
         const length = wasm.list_length ? wasm.list_length(i) : 0;
-        display.lengthText.text = length + ' \uAC1C';
+        display.lengthText.text = length + ' 개';
         display.lengthText.x = BORDER;
         display.lengthText.y = h + 5;
         
@@ -2301,7 +2322,26 @@ function updateDialogBubbles() {
 // ===== CONTROLS =====
 function stop() {
     running = false;
+    paused = false;
     wasm.stop();
+}
+
+function pause() {
+    if (!running || paused) return;
+    paused = true;
+    if (projectTimerIsInit && projectTimerPauseStart === 0) {
+        projectTimerPauseStart = performance.now();
+    }
+}
+
+function resume() {
+    if (!running || !paused) return;
+    paused = false;
+    if (projectTimerIsInit && projectTimerPauseStart > 0) {
+        projectTimerPausedTime += performance.now() - projectTimerPauseStart;
+        projectTimerPauseStart = 0;
+    }
+    accumulator = 0;
 }
 
 function restart() {
@@ -2375,6 +2415,7 @@ function restart() {
     
     wasm.init();
     currentScene = 0;
+    paused = false;
     running = true;
     lastTime = performance.now();
     accumulator = 0;
@@ -2397,302 +2438,7 @@ function getSceneInfo() {
     };
 }
 
-// ===== START =====
-init().catch(console.error);
-`;
-    }
-
-    generateAssetData() {
-        let code = 'const ENTITY_DATA = [\n';
-        
-        for (const obj of this.project.objects) {
-            code += `    {\n`;
-            code += `        id: "${obj.id}",\n`;
-            code += `        name: "${this.escapeJSString(obj.name)}",\n`;
-            code += `        objectType: "${obj.objectType || 'sprite'}",\n`;
-            code += `        pictures: [\n`;
-            
-            for (const pic of obj.pictures) {
-                // Generate URL: use fileurl if available, otherwise build from filename
-                let url = pic.fileurl || '';
-                if (!url && pic.filename && pic.filename.length >= 4) {
-                    // Build URL from filename following EntryJS pattern:
-                    // /uploads/{first2}/{next2}/image/{filename}.{ext}
-                    const filename = pic.filename;
-                    const imageType = pic.imageType || 'png';
-                    const ext = imageType === 'svg' ? 'svg' : 'png';
-                    url = `/uploads/${filename.substring(0, 2)}/${filename.substring(2, 4)}/image/${filename}.${ext}`;
-                }
-                code += `            { id: "${pic.id}", url: "${url}", width: ${pic.dimension?.width || 100}, height: ${pic.dimension?.height || 100} },\n`;
-            }
-            
-            code += `        ],\n`;
-            code += `        sounds: [\n`;
-            
-            for (const snd of obj.sounds) {
-                // Generate URL: use fileurl if available, otherwise build from filename
-                let sndUrl = snd.fileurl || '';
-                if (!sndUrl && snd.filename && snd.filename.length >= 4) {
-                    // Build URL from filename following EntryJS pattern
-                    const filename = snd.filename;
-                    const ext = snd.ext || '.mp3';
-                    sndUrl = `/uploads/${filename.substring(0, 2)}/${filename.substring(2, 4)}/${filename}${ext}`;
-                }
-                code += `            { id: "${snd.id}", url: "${sndUrl}" },\n`;
-            }
-            
-            code += `        ],\n`;
-            code += `        sceneIndex: ${obj.sceneIndex || 0}`;
-            if (obj.objectType === 'textBox') {
-                const fontWeight = (obj.entity.font || '').includes('bold') ? 'bold' : 'normal';
-                code += `,\n`;
-                code += `        text: "${this.escapeJSString(obj.entity.text || '')}",\n`;
-                code += `        bgColor: "${this.escapeJSString(obj.entity.bgColor || '#ffffff')}",\n`;
-                code += `        fontSize: ${obj.entity.fontSize || 20},\n`;
-                code += `        textColor: "${obj.entity.colour || '#000000'}",\n`;
-                code += `        textAlign: ${obj.entity.textAlign || 0},\n`;
-                code += `        lineBreak: ${obj.entity.lineBreak || false},\n`;
-                code += `        textBoxWidth: ${obj.entity.width || 100},\n`;
-                code += `        textBoxHeight: ${obj.entity.height || 22},\n`;
-                code += `        fontWeight: "${fontWeight}"\n`;
-            } else {
-                code += `\n`;
-            }
-            code += `    },\n`;
-        }
-        
-        code += '];\n';
-        return code;
-    }
-
-    generateSceneData() {
-        let code = 'const SCENE_DATA = [\n';
-        
-        for (const scene of this.project.scenes) {
-            code += `    { id: "${scene.id}", name: "${this.escapeJSString(scene.name)}", index: ${scene.index} },\n`;
-        }
-        
-        code += '];\n';
-        return code;
-    }
-
-    generateVariableData() {
-        const variables = this.project.variables.variables || [];
-        let code = 'const VARIABLE_DATA = [\n';
-        
-        for (const v of variables) {
-            const name = this.escapeJSString(v.name || '');
-            const visible = v.visible !== false;
-            const x = v.x != null ? v.x : 0;
-            const y = v.y != null ? v.y : 0;
-            const varType = v.variableType || 'variable';
-            let extra = '';
-            if (varType === 'slide') {
-                extra = `, minValue: ${v.minValue != null ? v.minValue : 0}, maxValue: ${v.maxValue != null ? v.maxValue : 100}`;
-            }
-            code += `    { id: "${v.id}", name: "${name}", memoryOffset: ${v.memoryOffset}, visible: ${visible}, x: ${x}, y: ${y}, varType: "${varType}"${extra} },\n`;
-        }
-        
-        code += '];\n';
-        return code;
-    }
-
-    generateListData() {
-        const lists = this.project.variables.lists || [];
-        let code = 'const LIST_DATA = [\n';
-        
-        for (const l of lists) {
-            const name = this.escapeJSString(l.name || '');
-            const visible = l.visible !== false;
-            const x = l.x != null ? l.x : 0;
-            const y = l.y != null ? l.y : 0;
-            const width = l.width || 100;
-            const height = l.height || 120;
-            code += `    { id: "${l.id}", name: "${name}", memoryIndex: ${l.memoryIndex}, visible: ${visible}, x: ${x}, y: ${y}, width: ${width}, height: ${height} },\n`;
-        }
-        
-        code += '];\n';
-        return code;
-    }
-
-    generateTimerData() {
-        const timer = this.project.variables.timer;
-        if (timer) {
-            const name = this.escapeJSString(timer.name || '\uCD08\uC2DC\uACC4');
-            const visible = timer.visible !== false;
-            // Match EntryJS generateTimer: x = 240 - (name.length * 12 + 70)
-            const nameLen = (timer.name || '\uCD08\uC2DC\uACC4').length;
-            const defaultX = 240 - (nameLen * 12 + 70);
-            const x = timer.x != null ? timer.x : defaultX;
-            const y = timer.y != null ? timer.y : -70;
-            return `const TIMER_DATA = { name: "${name}", visible: ${visible}, x: ${x}, y: ${y} };\n`;
-        }
-        // Default: "\uCD08\uC2DC\uACC4" (\uCD08\uC2DC\uACC4, 3 chars), x = 240 - (3*12+70) = 134
-        return `const TIMER_DATA = { name: "\uCD08\uC2DC\uACC4", visible: false, x: 134, y: -70 };\n`;
-    }
-
-    generateAnswerData() {
-        const answer = this.project.variables.answer;
-        if (answer) {
-            const name = this.escapeJSString(answer.name || '\uB300\uB2F5');
-            const visible = answer.visible !== false;
-            const x = answer.x != null ? answer.x : 150;
-            const y = answer.y != null ? answer.y : -100;
-            return `const ANSWER_DATA = { name: "${name}", visible: ${visible}, x: ${x}, y: ${y} };\n`;
-        }
-        // Default answer data (matches EntryJS generateAnswer defaults)
-        return `const ANSWER_DATA = { name: "\uB300\uB2F5", visible: false, x: 150, y: -100 };\n`;
-    }
-
-    /**
-     * Generate bundle-ready renderer code.
-     * Takes the output of generate() and transforms it for bundle mode:
-     * - Wraps in IIFE with public API
-     * - WASM loaded from embedded base64 (placeholder replaced by bundler)
-     * - Canvas and proxy URL passed via init(canvas, options)
-     * - Adds pause/resume controls
-     */
-    generateBundle() {
-        let code = this.generate();
-
-        const safeReplace = (src, old, replacement, label) => {
-            const result = src.replace(old, replacement);
-            if (result === src) {
-                console.warn(`[generateBundle] WARNING: replacement "${label}" did not match`);
-            }
-            return result;
-        };
-
-        // 1. Wrap in IIFE and add bundle globals
-        code = `(function() {
-"use strict";
-var _WASM_BASE64 = '__WASM_BASE64__';
-var _bundleOptions = {};
-
-${code}`;
-
-        // 2. Replace normalizeAssetUrl proxy to use configurable proxyUrl or assetBaseUrl
-        code = safeReplace(code,
-            `    // Helper to wrap URL in proxy
-    function proxyUrl(targetUrl) {
-        return '/proxy?url=' + encodeURIComponent(targetUrl);
-    }`,
-            `    // Helper to resolve asset URL (proxy, custom base, or direct)
-    function proxyUrl(targetUrl) {
-        if (_bundleOptions.proxyUrl) {
-            return _bundleOptions.proxyUrl + '?url=' + encodeURIComponent(targetUrl);
-        }
-        if (_bundleOptions.assetBaseUrl) {
-            var base = _bundleOptions.assetBaseUrl.replace(/\\/$/, '');
-            try { return base + new URL(targetUrl).pathname; }
-            catch(e) { return base + targetUrl; }
-        }
-        return targetUrl;
-    }`, 'proxyUrl'
-        );
-
-        // 3. Replace init() to accept canvas + options
-        code = safeReplace(code,
-            `async function init() {
-    console.log('[Renderer] Initializing...');
-    
-    // Initialize PixiJS (compatible with v6, v7, and v8)
-    const canvas = document.getElementById('stage');`,
-            `async function init(canvasOrId, options) {
-    _bundleOptions = options || {};
-    console.log('[EntryProject] Initializing...');
-    
-    // Resolve canvas element
-    var canvas;
-    if (typeof canvasOrId === 'string') {
-        canvas = document.getElementById(canvasOrId);
-    } else {
-        canvas = canvasOrId;
-    }
-    if (!canvas) throw new Error('Canvas element not found');`, 'init-signature'
-        );
-
-        // 4. Replace WASM loading: fetch → base64 decode
-        code = safeReplace(code,
-            `    // Load WASM module
-    try {
-        const wasmResponse = await fetch('project.wasm');
-        const wasmBuffer = await wasmResponse.arrayBuffer();
-        const wasmModule = await WebAssembly.instantiate(wasmBuffer, wasmImports);
-        wasm = wasmModule.instance.exports;
-        memory = new DataView(wasm.memory.buffer);
-        console.log('[Renderer] WASM loaded');
-    } catch (error) {
-        console.error('[Renderer] Failed to load WASM:', error);
-        return;
-    }`,
-            `    // Load WASM from embedded base64
-    try {
-        var wasmBinary = Uint8Array.from(atob(_WASM_BASE64), function(c) { return c.charCodeAt(0); });
-        var wasmModule = await WebAssembly.instantiate(wasmBinary.buffer, wasmImports);
-        wasm = wasmModule.instance.exports;
-        memory = new DataView(wasm.memory.buffer);
-        console.log('[EntryProject] WASM loaded');
-    } catch (error) {
-        console.error('[EntryProject] Failed to load WASM:', error);
-        throw error;
-    }`, 'wasm-loading'
-        );
-
-        // 5. Add paused state variable
-        code = safeReplace(code,
-            'let accumulator = 0;',
-            'let accumulator = 0;\nlet paused = false;', 'paused-var'
-        );
-
-        // 6. Add paused check in gameLoop (keep rAF running for instant resume)
-        code = safeReplace(code,
-            'function gameLoop(currentTime) {\n    if (!running) return;\n    \n    const realDelta = (currentTime - lastTime) / 1000;\n    lastTime = currentTime;',
-            'function gameLoop(currentTime) {\n    if (!running) return;\n    \n    if (paused) {\n        lastTime = currentTime;\n        requestAnimationFrame(gameLoop);\n        return;\n    }\n    \n    const realDelta = (currentTime - lastTime) / 1000;\n    lastTime = currentTime;', 'gameLoop-pause'
-        );
-
-        // 7. Add paused reset in restart()
-        code = safeReplace(code,
-            '    wasm.init();\n    currentScene = 0;\n    running = true;',
-            '    wasm.init();\n    currentScene = 0;\n    paused = false;\n    running = true;', 'restart-pause-reset'
-        );
-
-        // 8. Replace stop() and add pause/resume
-        code = safeReplace(code,
-            `function stop() {
-    running = false;
-    wasm.stop();
-}`,
-            `function stop() {
-    running = false;
-    paused = false;
-    wasm.stop();
-}
-
-function pause() {
-    if (!running || paused) return;
-    paused = true;
-    if (projectTimerIsInit && projectTimerPauseStart === 0) {
-        projectTimerPauseStart = performance.now();
-    }
-}
-
-function resume() {
-    if (!running || !paused) return;
-    paused = false;
-    if (projectTimerIsInit && projectTimerPauseStart > 0) {
-        projectTimerPausedTime += performance.now() - projectTimerPauseStart;
-        projectTimerPauseStart = 0;
-    }
-    accumulator = 0;
-}`, 'stop-pause-resume'
-        );
-
-        // 9. Replace auto-start with public API export
-        code = safeReplace(code,
-            `// ===== START =====
-init().catch(console.error);`,
-            `// ===== PUBLIC API =====
+// ===== PUBLIC API =====
 var _api = {
     init: init,
     start: function() { if (!wasm) throw new Error('Call init() first'); restart(); },
@@ -2706,22 +2452,4 @@ var _api = {
 if (typeof module !== 'undefined' && module.exports) module.exports = _api;
 else if (typeof window !== 'undefined') window.EntryProject = _api;
 return _api;
-})();`, 'public-api'
-        );
-
-        return code;
-    }
-}
-
-/**
- * Generate bundle-ready renderer code (WASM loaded from embedded base64, canvas passed via API)
- * @param {Object} project - Parsed project
- * @param {Object} options - Compiler options
- * @returns {string} Bundle-ready JavaScript code
- */
-function generateBundleRenderer(project, options = {}) {
-    const generator = new RendererGenerator(project, options);
-    return generator.generateBundle();
-}
-
-module.exports = { generateRenderer, generateBundleRenderer, RendererGenerator };
+})();

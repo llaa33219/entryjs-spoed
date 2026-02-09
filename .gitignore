@@ -1,5 +1,6 @@
 # wasm 컴파일러 아웃풋
 compiler/output
+compiler/dist/
 # Logs
 logs
 *.log

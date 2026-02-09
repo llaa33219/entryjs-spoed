@@ -4,6 +4,8 @@
  * Handles blocks related to appearance, visibility, and size.
  */
 
+const _textEncoder = new TextEncoder();
+
 /**
  * Generate WAT code to allocate a string literal in memory
  * @param {string} str - The string to allocate
@@ -14,7 +16,7 @@ function generateStringAllocation(str) {
         return '(call $str_alloc (i32.const 0))';
     }
     
-    const bytes = Buffer.from(str, 'utf8');
+    const bytes = _textEncoder.encode(str);
     const len = bytes.length;
     
     let code = `(block (result i32)
