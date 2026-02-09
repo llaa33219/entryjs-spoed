@@ -2,42 +2,23 @@
 .git
 .gitignore
 
-# Node modules
+# Node modules (will be installed in container)
 node_modules
 
-# Source files (only need built player)
-src/
+# Compiled output (not needed for webpack-dev-server)
+compiled-output/
+
+# Internal data
+.hive/
+
+# Tests
 test/
 test_util/
-extern/
-images/
-scripts/
-webpack_config/
-weights/
-example/
 
-# Rust source (only need built WASM)
-wasm-engine/src/
-wasm-engine/target/
-wasm-engine/Cargo.toml
-wasm-engine/Cargo.lock
-wasm-engine/build.sh
-
-# Config files
-*.md
-!player/README.md
-.babelrc
-.eslintrc
-.eslintignore
-.prettierrc
-tsconfig.json
-jsconfig.json
-webpack.config.js
-Gruntfile.js
-karma.conf.js
-Jenkinsfile
-package.json
-pnpm-lock.yaml
-
-# GitHub
+# CI/CD
 .github/
+Jenkinsfile
+
+# Unnecessary config
+karma.conf.js
+Gruntfile.js

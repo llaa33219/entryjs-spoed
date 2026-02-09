@@ -21,6 +21,7 @@
         "url": "https://github.com/entrylabs/entryjs/issues"
     },
     "scripts": {
+        "start": "cross-env NODE_ENV=serve webpack-dev-server --hot --host 0.0.0.0",
         "lint": "cross-env NODE_ENV=lint webpack -w",
         "serve:webgl": "cross-env NODE_ENV=serve webpack-dev-server --open  --hot --host 127.0.0.1 --webgl=true",
         "serve": "cross-env NODE_ENV=serve webpack-dev-server --open --hot --host 127.0.0.1",

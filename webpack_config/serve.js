@@ -14,7 +14,7 @@ const templateName = (() => {
     }
 })();
 const template = path.resolve('example', templateName);
-const devServerPort = 8080;
+const devServerPort = parseInt(process.env.PORT, 10) || 8080;
 
 module.exports = {
     mode: 'development',
@@ -34,7 +34,9 @@ module.exports = {
         static: {
             directory: path.join(__dirname, '../'),
         },
+        host: '0.0.0.0',
         port: devServerPort,
+        allowedHosts: 'all',
         historyApiFallback: true,
         devMiddleware: {
             publicPath: '/',

@@ -2,8 +2,10 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-COPY compiled-output/ .
+COPY package.json pnpm-lock.yaml* package-lock.json* ./
 
-EXPOSE 3000
+RUN npm install --legacy-peer-deps
 
-CMD ["node", "server.js"]
+COPY . .
+
+CMD ["npm", "start"]
