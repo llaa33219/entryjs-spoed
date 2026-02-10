@@ -272,12 +272,12 @@ const valueBlocks = {
     },
 
     'get_user_name': (ctx, block, entityIndex) => {
-        const addr = ctx.generator.addStaticString(' ');
+        const addr = ctx.generator.addStaticString('spoed!');
         return `(f64.neg (f64.convert_i32_u (i32.const ${addr})))`;
     },
 
     'get_nickname': (ctx, block, entityIndex) => {
-        const addr = ctx.generator.addStaticString(' ');
+        const addr = ctx.generator.addStaticString('spoed!');
         return `(f64.neg (f64.convert_i32_u (i32.const ${addr})))`;
     },
 
