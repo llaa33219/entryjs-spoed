@@ -8,6 +8,7 @@
 // ===== CONFIGURATION =====
 const STAGE_WIDTH = 1920;
 const STAGE_HEIGHT = 1080;
+const DIALOG_SCALE = STAGE_WIDTH / 480;
 const TICK_RATE = 1000000;
 const FIXED_DT = 1.0 / TICK_RATE;
 const MAX_TICKS_PER_FRAME = 50000;
@@ -20,8 +21,8 @@ let dynamicMaxTicks = 10000;
 const SCENE_COUNT = 1;
 const VARIABLE_COUNT = 0;
 const LIST_COUNT = 0;
-const ENTITY_COUNT = 1;
-const STRING_POOL_START = 1176;
+const ENTITY_COUNT = 2;
+const STRING_POOL_START = 1328;
 
 // ===== WASM IMPORTS =====
 const wasmImports = {
@@ -395,6 +396,19 @@ const LIST_DATA = [
 
 // ===== ASSET DATA =====
 const ENTITY_DATA = [
+    {
+        id: "3ncv",
+        name: "(1)엔트리봇",
+        objectType: "sprite",
+        pictures: [
+            { id: "hvr3", url: "/uploads/a8/26/image/a8268fd79a48fd9b92c7b47406b95393.png", width: 284, height: 350 },
+            { id: "ag24", url: "/uploads/44/cb/image/44cbd5953180e91751e82837bdff91ac.png", width: 284, height: 350 },
+        ],
+        sounds: [
+            { id: "yk7x", url: "/uploads/30/a5/30a5116094820dedc36a4a761b9d1816.mp3" },
+        ],
+        sceneIndex: 0
+    },
     {
         id: "7y0y",
         name: "엔트리봇",
@@ -2152,28 +2166,26 @@ function updateListDisplays() {
 
 // ===== DIALOG BUBBLES =====
 function createDialogBubbles() {
-    const fontFamily = 'Arial, sans-serif';
+    const fontFamily = "'Nanum Gothic', NanumGothic, Arial, sans-serif";
+    const S = DIALOG_SCALE;
     
     for (let i = 0; i < ENTITY_COUNT; i++) {
-        // Create container for dialog bubble (positioned relative to stage center like sprites)
         const container = new PIXI.Container();
         container.visible = false;
         
-        // Background graphic (will be drawn dynamically based on text)
         const bg = new PIXI.Graphics();
         container.addChild(bg);
         
-        // Text
         const text = new PIXI.Text('', {
             fontFamily,
-            fontSize: 14,
+            fontSize: 15 * S,
             fill: 0x000000,
             wordWrap: true,
-            wordWrapWidth: 150
+            wordWrapWidth: 150 * S
         });
         text.resolution = 4;
-        text.x = 10;
-        text.y = 8;
+        text.x = 10 * S;
+        text.y = 8 * S;
         container.addChild(text);
         
         app.stage.addChild(container);
@@ -2182,7 +2194,8 @@ function createDialogBubbles() {
             bg,
             text,
             entityIdx: i,
-            type: 0,  // 0=none, 1=speak, 2=think
+            type: 0,
+            lastType: 0,
             lastText: ''
         });
     }
@@ -2203,10 +2216,10 @@ function readStringFromWasm(ptr) {
 }
 
 function updateDialogBubbles() {
+    const S = DIALOG_SCALE;
     for (let i = 0; i < dialogBubbles.length; i++) {
         const bubble = dialogBubbles[i];
         
-        // Get dialog type and text pointer from WASM
         const dialogType = wasm['getDialogType_' + i] ? wasm['getDialogType_' + i]() : 0;
         
         if (dialogType === 0) {
@@ -2214,14 +2227,12 @@ function updateDialogBubbles() {
             continue;
         }
         
-        // Hide dialog bubble if entity is not visible (hidden)
         const entityVisible = wasm.getVisible(i);
         if (!entityVisible) {
             bubble.container.visible = false;
             continue;
         }
         
-        // Get text from WASM memory
         const textPtr = wasm['getDialogTextPtr_' + i] ? wasm['getDialogTextPtr_' + i]() : 0;
         const dialogText = readStringFromWasm(textPtr);
         
@@ -2230,63 +2241,59 @@ function updateDialogBubbles() {
             continue;
         }
         
-        // Update text if changed
-        if (bubble.lastText !== dialogText) {
-            bubble.text.text = dialogText;
-            bubble.lastText = dialogText;
+        // Wrap long text at 15 characters per line (matching EntryJS Dialog)
+        const wrappedText = (dialogText.match(/.{1,15}/g) || [dialogText]).join('\n');
+        
+        if (bubble.lastText !== wrappedText || bubble.lastType !== dialogType) {
+            bubble.text.text = wrappedText;
+            bubble.lastText = wrappedText;
+            bubble.lastType = dialogType;
             
-            // Redraw background based on text size
-            const padding = 10;
-            const width = Math.max(60, bubble.text.width + padding * 2);
+            const padding = 10 * S;
+            const width = Math.max(60 * S, bubble.text.width + padding * 2);
             const height = bubble.text.height + padding * 2;
             
             bubble.bg.clear();
             
             const bgColor = 0xFFFFFF;
-            const borderColor = dialogType === 2 ? 0x888888 : 0x4f80ff;  // Gray for think, blue for speak
+            const borderColor = dialogType === 2 ? 0x888888 : 0x4f80ff;
             
             bubble.bg.beginFill(bgColor);
-            bubble.bg.lineStyle(2, borderColor, 1);
-            bubble.bg.drawRoundedRect(0, 0, width, height, 8);
+            bubble.bg.lineStyle(2 * S, borderColor, 1);
+            bubble.bg.drawRoundedRect(0, 0, width, height, 10 * S);
             bubble.bg.endFill();
             
-            // Draw tail/notch
             if (dialogType === 1) {
-                // Speak bubble - pointed tail
                 bubble.bg.beginFill(bgColor);
-                bubble.bg.lineStyle(2, borderColor, 1);
-                bubble.bg.moveTo(10, height);
-                bubble.bg.lineTo(5, height + 10);
-                bubble.bg.lineTo(20, height);
+                bubble.bg.lineStyle(2 * S, borderColor, 1);
+                bubble.bg.moveTo(10 * S, height);
+                bubble.bg.lineTo(5 * S, height + 10 * S);
+                bubble.bg.lineTo(20 * S, height);
                 bubble.bg.endFill();
-                // Cover the line inside
                 bubble.bg.lineStyle(0);
                 bubble.bg.beginFill(bgColor);
-                bubble.bg.drawRect(11, height - 1, 8, 2);
+                bubble.bg.drawRect(11 * S, height - S, 8 * S, 2 * S);
                 bubble.bg.endFill();
             } else if (dialogType === 2) {
-                // Think bubble - small circles
                 bubble.bg.beginFill(bgColor);
-                bubble.bg.lineStyle(2, borderColor, 1);
-                bubble.bg.drawCircle(12, height + 8, 5);
-                bubble.bg.drawCircle(6, height + 16, 3);
+                bubble.bg.lineStyle(2 * S, borderColor, 1);
+                bubble.bg.drawCircle(12 * S, height + 8 * S, 5 * S);
+                bubble.bg.drawCircle(6 * S, height + 16 * S, 3 * S);
                 bubble.bg.endFill();
             }
         }
         
-        // Position bubble above entity
         if (sprites[i]) {
             const sprite = sprites[i].sprite;
             const container = sprites[i].container;
             
-            // Calculate position (bubble above sprite)
             const scaleX = STAGE_WIDTH / 480;
             const scaleY = STAGE_HEIGHT / 270;
             const bubbleX = container.x + sprite.x * scaleX - bubble.bg.width / 2;
-            const bubbleY = container.y + sprite.y * scaleY - sprite.height * scaleY / 2 - bubble.bg.height - 20;
+            const bubbleY = container.y + sprite.y * scaleY - sprite.height * scaleY / 2 - bubble.bg.height - 20 * S;
             
-            bubble.container.x = Math.max(5, Math.min(STAGE_WIDTH - bubble.bg.width - 5, bubbleX));
-            bubble.container.y = Math.max(5, bubbleY);
+            bubble.container.x = Math.max(5 * S, Math.min(STAGE_WIDTH - bubble.bg.width - 5 * S, bubbleX));
+            bubble.container.y = Math.max(5 * S, bubbleY);
         }
         
         bubble.container.visible = true;
@@ -2335,6 +2342,7 @@ function restart() {
     for (let i = 0; i < dialogBubbles.length; i++) {
         dialogBubbles[i].container.visible = false;
         dialogBubbles[i].lastText = '';
+        dialogBubbles[i].lastType = 0;
     }
     
     // Reset project timer state

@@ -120,10 +120,13 @@
   (global $isFirstFrame (mut i32) (i32.const 1))
   (global $dialog_type_0 (mut i32) (i32.const 0))
   (global $dialog_text_ptr_0 (mut i32) (i32.const 0))
+  (global $dialog_type_1 (mut i32) (i32.const 0))
+  (global $dialog_text_ptr_1 (mut i32) (i32.const 0))
   (global $clone_requested_0 (mut i32) (i32.const 0))
-  (global $str_pool_ptr (mut i32) (i32.const 1176))
-  (global $persistent_pool_ptr (mut i32) (i32.const 67110040))
-  (global $heap_ptr (mut i32) (i32.const 134218904))
+  (global $clone_requested_1 (mut i32) (i32.const 0))
+  (global $str_pool_ptr (mut i32) (i32.const 1340))
+  (global $persistent_pool_ptr (mut i32) (i32.const 67110192))
+  (global $heap_ptr (mut i32) (i32.const 134219056))
   (global $thread_0_pc (mut i32) (i32.const 0))
   (global $thread_0_waiting (mut f64) (f64.const 0))
   (global $thread_0_active (mut i32) (i32.const 0))
@@ -134,21 +137,6 @@
   (global $thread_1_active (mut i32) (i32.const 0))
   (global $thread_1_loopCounter_0 (mut i32) (i32.const -1))
   (global $thread_1_resumeDepth (mut i32) (i32.const 0))
-  (global $thread_2_pc (mut i32) (i32.const 0))
-  (global $thread_2_waiting (mut f64) (f64.const 0))
-  (global $thread_2_active (mut i32) (i32.const 0))
-  (global $thread_2_loopCounter_0 (mut i32) (i32.const -1))
-  (global $thread_2_resumeDepth (mut i32) (i32.const 0))
-  (global $thread_3_pc (mut i32) (i32.const 0))
-  (global $thread_3_waiting (mut f64) (f64.const 0))
-  (global $thread_3_active (mut i32) (i32.const 0))
-  (global $thread_3_loopCounter_0 (mut i32) (i32.const -1))
-  (global $thread_3_resumeDepth (mut i32) (i32.const 0))
-  (global $thread_4_pc (mut i32) (i32.const 0))
-  (global $thread_4_waiting (mut f64) (f64.const 0))
-  (global $thread_4_active (mut i32) (i32.const 0))
-  (global $thread_4_loopCounter_0 (mut i32) (i32.const -1))
-  (global $thread_4_resumeDepth (mut i32) (i32.const 0))
 
 
   ;; ===== ENTITY ACCESSOR FUNCTIONS =====
@@ -404,6 +392,22 @@
             (i32.const 2)))
         (if (i32.eq (local.get $wrappedIdx) (i32.const 0))
           (then
+            (call $setWidth (local.get $idx) (f64.const 284))
+            (call $setHeight (local.get $idx) (f64.const 350))))
+        (if (i32.eq (local.get $wrappedIdx) (i32.const 1))
+          (then
+            (call $setWidth (local.get $idx) (f64.const 284))
+            (call $setHeight (local.get $idx) (f64.const 350))))))
+    (if (i32.eq (local.get $idx) (i32.const 1))
+      (then
+        (local.set $wrappedIdx
+          (i32.rem_u
+            (i32.add
+              (i32.rem_s (local.get $picIdx) (i32.const 2))
+              (i32.const 2))
+            (i32.const 2)))
+        (if (i32.eq (local.get $wrappedIdx) (i32.const 0))
+          (then
             (call $setWidth (local.get $idx) (f64.const 144))
             (call $setHeight (local.get $idx) (f64.const 246))))
         (if (i32.eq (local.get $wrappedIdx) (i32.const 1))
@@ -423,16 +427,28 @@
       (if (result i32) (local.get $v)
         (then (call $str_persist (local.get $v)))
         (else (i32.const 0)))))
+  (func $getDialogType_1 (result i32) (global.get $dialog_type_1))
+  (func $setDialogType_1 (param $v i32) (global.set $dialog_type_1 (local.get $v)))
+  (func $getDialogTextPtr_1 (result i32) (global.get $dialog_text_ptr_1))
+  (func $setDialogTextPtr_1 (param $v i32)
+    (global.set $dialog_text_ptr_1
+      (if (result i32) (local.get $v)
+        (then (call $str_persist (local.get $v)))
+        (else (i32.const 0)))))
   
   ;; Dynamic dialog type setter (for user functions)
   (func $setDialogTypeDyn (param $idx i32) (param $v i32)
     (if (i32.eq (local.get $idx) (i32.const 0))
-      (then (call $setDialogType_0 (local.get $v)))))
+      (then (call $setDialogType_0 (local.get $v))))
+    (if (i32.eq (local.get $idx) (i32.const 1))
+      (then (call $setDialogType_1 (local.get $v)))))
   
   ;; Dynamic dialog text pointer setter (for user functions)
   (func $setDialogTextPtrDyn (param $idx i32) (param $v i32)
     (if (i32.eq (local.get $idx) (i32.const 0))
-      (then (call $setDialogTextPtr_0 (local.get $v)))))
+      (then (call $setDialogTextPtr_0 (local.get $v))))
+    (if (i32.eq (local.get $idx) (i32.const 1))
+      (then (call $setDialogTextPtr_1 (local.get $v)))))
 
 
   ;; ===== BLOCK HELPER FUNCTIONS =====
@@ -466,7 +482,7 @@
   ;; Set variable value (persists string pointers to avoid dangling temp pool references)
   ;; Threshold: string pointers are memory addresses >= stringPoolStart, safe from normal negative numbers
   (func $setVariable (param $varOffset i32) (param $val f64)
-    (if (f64.le (local.get $val) (f64.const -1176))
+    (if (f64.le (local.get $val) (f64.const -1328))
       (then
         (f64.store (local.get $varOffset)
           (f64.neg (f64.convert_i32_s
@@ -506,7 +522,7 @@
   (func $updateSceneVisibility
     (local $i i32)
     (local $entityCount i32)
-    (local.set $entityCount (i32.const 1))
+    (local.set $entityCount (i32.const 2))
     (local.set $i (i32.const 0))
     (block $break
       (loop $loop
@@ -651,7 +667,7 @@
   (func $findClickedEntity (result i32)
     (local $i i32)
     (local $entityCount i32)
-    (local.set $entityCount (i32.const 1))
+    (local.set $entityCount (i32.const 2))
     (local.set $i (i32.const 0))
     (block $found (result i32)
       (block $notfound
@@ -699,7 +715,7 @@
   ;; List metadata: [length(i32), capacity(i32), data_ptr(i32), reserved(12 bytes)]
   (func $list_get_meta_ptr (param $listIdx i32) (result i32)
     (i32.add
-      (i32.const 1176)
+      (i32.const 1328)
       (i32.mul (local.get $listIdx) (i32.const 24))))
   
   ;; Get list length
@@ -1075,7 +1091,7 @@
         (i32.add (i32.add (local.get $ptr) (i32.add (local.get $len) (i32.const 5))) (i32.const 3))
         (i32.const -4)))
     ;; Bounds check: pool is 64MB so overflow is practically impossible
-    (if (i32.gt_u (local.get $newPtr) (i32.const 67110040))
+    (if (i32.gt_u (local.get $newPtr) (i32.const 67110192))
       (then (return (i32.const 0))))
     (i32.store (local.get $ptr) (local.get $len))
     (global.set $str_pool_ptr (local.get $newPtr))
@@ -1523,7 +1539,7 @@
   ;; Convert f64 to string pointer, or dereference if it's a negative-encoded string pointer
   ;; Convention: negated string pointer (<= -stringPoolStart) = string, otherwise = numeric value
   (func $f64_to_str_or_deref (param $val f64) (result i32)
-    (if (result i32) (f64.le (local.get $val) (f64.const -1176))
+    (if (result i32) (f64.le (local.get $val) (f64.const -1328))
       (then (i32.trunc_f64_s (f64.neg (local.get $val))))
       (else (call $f64_to_str (local.get $val)))))
   
@@ -1537,12 +1553,12 @@
     (if (i32.eqz (local.get $ptr))
       (then (return (i32.const 0))))
     ;; If pointer is a static string (below dynamic pool start), it's permanent - return as-is
-    (if (i32.lt_u (local.get $ptr) (i32.const 1176))
+    (if (i32.lt_u (local.get $ptr) (i32.const 1328))
       (then (return (local.get $ptr))))
     ;; If already in persistent pool (between persistentPoolStart and heapStart), return as-is
     (if (i32.and
-          (i32.ge_u (local.get $ptr) (i32.const 67110040))
-          (i32.lt_u (local.get $ptr) (i32.const 134218904)))
+          (i32.ge_u (local.get $ptr) (i32.const 67110192))
+          (i32.lt_u (local.get $ptr) (i32.const 134219056)))
       (then (return (local.get $ptr))))
     ;; Copy string to persistent pool
     (local.set $len (call $str_length (local.get $ptr)))
@@ -1553,7 +1569,7 @@
         (i32.add (i32.add (local.get $newPtr) (i32.add (local.get $len) (i32.const 5))) (i32.const 3))
         (i32.const -4)))
     ;; Bounds check: persistent pool is 64MB so overflow is practically impossible
-    (if (i32.gt_u (local.get $i) (i32.const 134218904))
+    (if (i32.gt_u (local.get $i) (i32.const 134219056))
       (then (return (i32.const 0))))
     ;; Store length
     (i32.store (local.get $newPtr) (local.get $len))
@@ -1663,6 +1679,8 @@
   (func $createClone (param $entityIdx i32)
     (if (i32.eq (local.get $entityIdx) (i32.const 0))
       (then (global.set $clone_requested_0 (i32.const 1))))
+    (if (i32.eq (local.get $entityIdx) (i32.const 1))
+      (then (global.set $clone_requested_1 (i32.const 1))))
     (call $createCloneVisual (local.get $entityIdx)))
 
 
@@ -1671,7 +1689,7 @@
 
   ;; ===== THREAD EXECUTION FUNCTIONS =====
   
-  ;; Thread 0: comment for entity 0
+  ;; Thread 0: when_run_button_click for entity 0
   (func $thread_0_run (param $entityIdx i32) (result i32)
     (local $pc i32)
     (local $temp f64)
@@ -1693,6 +1711,15 @@
     ;; Execute based on PC
     (block $end
       (block $done
+        (block $pc_0
+          (br_if $pc_0 (i32.ne (local.get $pc) (i32.const 0)))
+          ;; dialog: speak
+          (call $setDialogTextPtr_0 (call $f64_to_str_or_deref (f64.neg (f64.convert_i32_u (i32.const 1328)))))
+          (call $setDialogType_0 (i32.const 1))
+          (local.set $pc (i32.add (local.get $pc) (i32.const 1)))
+          (global.set $thread_0_pc (local.get $pc))
+          (global.set $thread_0_resumeDepth (i32.const 0))
+          (br $done))
         ;; End of thread
         (global.set $thread_0_pc (i32.const 0))
         (global.set $thread_0_resumeDepth (i32.const 0))
@@ -1703,7 +1730,7 @@
     (i32.const 1)  ;; Thread still running
   )
   
-  ;; Thread 1: comment for entity 0
+  ;; Thread 1: when_run_button_click for entity 1
   (func $thread_1_run (param $entityIdx i32) (result i32)
     (local $pc i32)
     (local $temp f64)
@@ -1725,491 +1752,18 @@
     ;; Execute based on PC
     (block $end
       (block $done
+        (block $pc_0
+          (br_if $pc_0 (i32.ne (local.get $pc) (i32.const 0)))
+          ;; dialog: speak
+          (call $setDialogTextPtr_1 (call $f64_to_str_or_deref (f64.neg (f64.convert_i32_u (i32.const 1328)))))
+          (call $setDialogType_1 (i32.const 1))
+          (local.set $pc (i32.add (local.get $pc) (i32.const 1)))
+          (global.set $thread_1_pc (local.get $pc))
+          (global.set $thread_1_resumeDepth (i32.const 0))
+          (br $done))
         ;; End of thread
         (global.set $thread_1_pc (i32.const 0))
         (global.set $thread_1_resumeDepth (i32.const 0))
-        (return (i32.const 0))  ;; Thread finished
-      )  ;; $done
-    )  ;; $end
-    
-    (i32.const 1)  ;; Thread still running
-  )
-  
-  ;; Thread 2: when_run_button_click for entity 0
-  (func $thread_2_run (param $entityIdx i32) (result i32)
-    (local $pc i32)
-    (local $temp f64)
-    (local $temp2 f64)
-    (local $iterCount i32)
-    (local $condResult i32)
-    (local $temp_str_ptr i32)
-    
-    ;; Get current program counter
-    (local.set $pc (global.get $thread_2_pc))
-    
-    ;; Check if waiting
-    (if (f64.gt (global.get $thread_2_waiting) (f64.const 0))
-      (then
-        (global.set $thread_2_waiting
-          (f64.sub (global.get $thread_2_waiting) (global.get $deltaTime)))
-        (return (i32.const 1))))  ;; Still running
-    
-    ;; Execute based on PC
-    (block $end
-      (block $done
-        ;; End of thread
-        (global.set $thread_2_pc (i32.const 0))
-        (global.set $thread_2_resumeDepth (i32.const 0))
-        (return (i32.const 0))  ;; Thread finished
-      )  ;; $done
-    )  ;; $end
-    
-    (i32.const 1)  ;; Thread still running
-  )
-  
-  ;; Thread 3: repeat_basic for entity 0
-  (func $thread_3_run (param $entityIdx i32) (result i32)
-    (local $pc i32)
-    (local $temp f64)
-    (local $temp2 f64)
-    (local $iterCount i32)
-    (local $condResult i32)
-    (local $temp_str_ptr i32)
-    
-    ;; Get current program counter
-    (local.set $pc (global.get $thread_3_pc))
-    
-    ;; Check if waiting
-    (if (f64.gt (global.get $thread_3_waiting) (f64.const 0))
-      (then
-        (global.set $thread_3_waiting
-          (f64.sub (global.get $thread_3_waiting) (global.get $deltaTime)))
-        (return (i32.const 1))))  ;; Still running
-    
-    ;; Execute based on PC
-    (block $end
-      (block $done
-        (block $pc_0
-          (br_if $pc_0 (i32.ne (local.get $pc) (i32.const 0)))
-          ;; repeat_basic (EntryJS-compatible: one iteration per tick, depth 0)
-          ;; Initialize loop counter on first entry (when counter is -1)
-          (if (i32.eq (global.get $thread_3_loopCounter_0) (i32.const -1))
-            (then
-              (global.set $thread_3_loopCounter_0 (i32.trunc_f64_s (f64.const 10)))))
-          ;; Check if iterations remain (counter > 0)
-          (if (i32.gt_s (global.get $thread_3_loopCounter_0) (i32.const 0))
-            (then
-              ;; Decrement counter first (like EntryJS)
-              (global.set $thread_3_loopCounter_0
-                (i32.sub (global.get $thread_3_loopCounter_0) (i32.const 1)))
-              ;; Execute inner blocks
-              
-          ;; rotate_relative
-          (call $setRotation (i32.const 0)
-            (f64.add (call $getRotation (i32.const 0)) (f64.const 5)))
-              ;; Add tiny delay and stay at same PC for next iteration
-              (global.set $thread_3_resumeDepth (i32.const 1))
-              (global.set $thread_3_waiting (f64.const 0.001))
-              (return (i32.const 1))))
-          ;; Loop finished - reset counter for potential re-entry
-          (global.set $thread_3_loopCounter_0 (i32.const -1))
-          (local.set $pc (i32.add (local.get $pc) (i32.const 1)))
-          (global.set $thread_3_pc (local.get $pc))
-          (global.set $thread_3_resumeDepth (i32.const 0))
-          (br $done))
-        (block $pc_1
-          (br_if $pc_1 (i32.ne (local.get $pc) (i32.const 1)))
-          ;; repeat_while_true (mode: until, EntryJS-compatible: one iteration per tick, depth 0)
-          (if (i32.eqz (call $isTouchingEdge (i32.const 0)))
-            (then
-              
-          ;; move_direction
-          (call $moveInDirection (i32.const 0) (f64.const -5))
-          (call $brushNotifyPosition (i32.const 0) (call $getX (i32.const 0)) (call $getY (i32.const 0)))
-              ;; Add tiny delay and stay at same PC for next iteration
-              (global.set $thread_3_resumeDepth (i32.const 1))
-              (global.set $thread_3_waiting (f64.const 0.001))
-              (return (i32.const 1))))
-          ;; Condition no longer met - fall through to advance PC
-          (local.set $pc (i32.add (local.get $pc) (i32.const 1)))
-          (global.set $thread_3_pc (local.get $pc))
-          (global.set $thread_3_resumeDepth (i32.const 0))
-          (br $done))
-        (block $pc_2
-          (br_if $pc_2 (i32.ne (local.get $pc) (i32.const 2)))
-          ;; dialog: speak
-          (call $setDialogTextPtr_0 (block (result i32)
-            (local.set $temp_str_ptr (call $str_alloc (i32.const 7)))
-            (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const 0)) (i32.const 236))
-            (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const 1)) (i32.const 149))
-            (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const 2)) (i32.const 136))
-            (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const 3)) (i32.const 235))
-            (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const 4)) (i32.const 133))
-            (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const 5)) (i32.const 149))
-            (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const 6)) (i32.const 33))
-            (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const 7)) (i32.const 0))
-            (local.get $temp_str_ptr)))
-          (call $setDialogType_0 (i32.const 1))
-          (local.set $pc (i32.add (local.get $pc) (i32.const 1)))
-          (global.set $thread_3_pc (local.get $pc))
-          (global.set $thread_3_resumeDepth (i32.const 0))
-          (br $done))
-        (block $pc_3
-          (br_if $pc_3 (i32.ne (local.get $pc) (i32.const 3)))
-          ;; wait_second
-          (global.set $thread_3_waiting (f64.const 1))
-          (local.set $pc (i32.add (local.get $pc) (i32.const 1)))
-          (global.set $thread_3_pc (local.get $pc))
-          (global.set $thread_3_resumeDepth (i32.const 0))
-          (br $done))
-        (block $pc_4
-          (br_if $pc_4 (i32.ne (local.get $pc) (i32.const 4)))
-          ;; hide
-          (call $setVisible (i32.const 0) (i32.const 0))
-          (call $setInitialVisible (i32.const 0) (i32.const 0))
-          (local.set $pc (i32.add (local.get $pc) (i32.const 1)))
-          (global.set $thread_3_pc (local.get $pc))
-          (global.set $thread_3_resumeDepth (i32.const 0))
-          (br $done))
-        (block $pc_5
-          (br_if $pc_5 (i32.ne (local.get $pc) (i32.const 5)))
-          ;; wait_second
-          (global.set $thread_3_waiting (f64.const 0.5))
-          (local.set $pc (i32.add (local.get $pc) (i32.const 1)))
-          (global.set $thread_3_pc (local.get $pc))
-          (global.set $thread_3_resumeDepth (i32.const 0))
-          (br $done))
-        (block $pc_6
-          (br_if $pc_6 (i32.ne (local.get $pc) (i32.const 6)))
-          ;; show
-          (call $setVisible (i32.const 0) (i32.const 1))
-          (call $setInitialVisible (i32.const 0) (i32.const 1))
-          (local.set $pc (i32.add (local.get $pc) (i32.const 1)))
-          (global.set $thread_3_pc (local.get $pc))
-          (global.set $thread_3_resumeDepth (i32.const 0))
-          (br $done))
-        (block $pc_7
-          (br_if $pc_7 (i32.ne (local.get $pc) (i32.const 7)))
-          ;; repeat_inf (EntryJS-compatible: one iteration per tick, depth 0)
-          
-          ;; if_else
-          (if (call $isTouchingMouse (i32.const 0))
-            (then 
-          ;; dialog: think
-          (call $setDialogTextPtr_0 (block (result i32)
-            (local.set $temp_str_ptr (call $str_alloc (i32.const 8)))
-            (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const 0)) (i32.const 51))
-            (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const 1)) (i32.const 50))
-            (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const 2)) (i32.const 52))
-            (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const 3)) (i32.const 51))
-            (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const 4)) (i32.const 50))
-            (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const 5)) (i32.const 50))
-            (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const 6)) (i32.const 51))
-            (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const 7)) (i32.const 52))
-            (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const 8)) (i32.const 0))
-            (local.get $temp_str_ptr)))
-          (call $setDialogType_0 (i32.const 2))
-            )
-            (else 
-          ;; dialog: speak
-          (call $setDialogTextPtr_0 (block (result i32)
-            (local.set $temp_str_ptr (call $str_alloc (i32.const 2)))
-            (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const 0)) (i32.const 78))
-            (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const 1)) (i32.const 79))
-            (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const 2)) (i32.const 0))
-            (local.get $temp_str_ptr)))
-          (call $setDialogType_0 (i32.const 1))
-            ))
-          ;; _if
-          (if (call $isTouchingMouse (i32.const 0))
-            (then 
-          ;; dialog: speak
-          (call $setDialogTextPtr_0 (block (result i32)
-            (local.set $temp_str_ptr (call $str_alloc (i32.const 5)))
-            (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const 0)) (i32.const 49))
-            (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const 1)) (i32.const 49))
-            (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const 2)) (i32.const 49))
-            (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const 3)) (i32.const 49))
-            (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const 4)) (i32.const 49))
-            (i32.store8 (i32.add (i32.add (local.get $temp_str_ptr) (i32.const 4)) (i32.const 5)) (i32.const 0))
-            (local.get $temp_str_ptr)))
-          (call $setDialogType_0 (i32.const 1))
-            ))
-          ;; _if
-          (if (call $isObjectClicked (i32.const 0))
-            (then 
-          ;; stop_repeat (break) - reset loop counter at depth 0 and fall through
-          (global.set $thread_3_loopCounter_0 (i32.const -1))
-            ))
-          ;; Add tiny delay and stay at same PC for next iteration
-          (global.set $thread_3_resumeDepth (i32.const 1))
-          (global.set $thread_3_waiting (f64.const 0.001))
-          (return (i32.const 1))
-          (local.set $pc (i32.add (local.get $pc) (i32.const 1)))
-          (global.set $thread_3_pc (local.get $pc))
-          (global.set $thread_3_resumeDepth (i32.const 0))
-          (br $done))
-        (block $pc_8
-          (br_if $pc_8 (i32.ne (local.get $pc) (i32.const 8)))
-          ;; repeat_basic (EntryJS-compatible: one iteration per tick, depth 0)
-          ;; Initialize loop counter on first entry (when counter is -1)
-          (if (i32.eq (global.get $thread_3_loopCounter_0) (i32.const -1))
-            (then
-              (global.set $thread_3_loopCounter_0 (i32.trunc_f64_s (f64.const 3)))))
-          ;; Check if iterations remain (counter > 0)
-          (if (i32.gt_s (global.get $thread_3_loopCounter_0) (i32.const 0))
-            (then
-              ;; Decrement counter first (like EntryJS)
-              (global.set $thread_3_loopCounter_0
-                (i32.sub (global.get $thread_3_loopCounter_0) (i32.const 1)))
-              ;; Execute inner blocks
-              
-          ;; move_xy_time (simplified to instant move)
-          (call $setX (i32.const 0)
-            (f64.add (call $getX (i32.const 0)) (f64.const -5)))
-          (call $setY (i32.const 0)
-            (f64.add (call $getY (i32.const 0)) (f64.const -5)))
-          (drop (f64.const 1))
-          (call $brushNotifyPosition (i32.const 0) (call $getX (i32.const 0)) (call $getY (i32.const 0)))
-          ;; add_effect_amount: color (not implemented)
-          (drop (f64.const 10))
-              ;; Add tiny delay and stay at same PC for next iteration
-              (global.set $thread_3_resumeDepth (i32.const 1))
-              (global.set $thread_3_waiting (f64.const 0.001))
-              (return (i32.const 1))))
-          ;; Loop finished - reset counter for potential re-entry
-          (global.set $thread_3_loopCounter_0 (i32.const -1))
-          (local.set $pc (i32.add (local.get $pc) (i32.const 1)))
-          (global.set $thread_3_pc (local.get $pc))
-          (global.set $thread_3_resumeDepth (i32.const 0))
-          (br $done))
-        ;; End of thread
-        (global.set $thread_3_pc (i32.const 0))
-        (global.set $thread_3_resumeDepth (i32.const 0))
-        (return (i32.const 0))  ;; Thread finished
-      )  ;; $done
-    )  ;; $end
-    
-    (i32.const 1)  ;; Thread still running
-  )
-  
-  ;; Thread 4: when_run_button_click for entity 0
-  (func $thread_4_run (param $entityIdx i32) (result i32)
-    (local $pc i32)
-    (local $temp f64)
-    (local $temp2 f64)
-    (local $iterCount i32)
-    (local $condResult i32)
-    (local $temp_str_ptr i32)
-    
-    ;; Get current program counter
-    (local.set $pc (global.get $thread_4_pc))
-    
-    ;; Check if waiting
-    (if (f64.gt (global.get $thread_4_waiting) (f64.const 0))
-      (then
-        (global.set $thread_4_waiting
-          (f64.sub (global.get $thread_4_waiting) (global.get $deltaTime)))
-        (return (i32.const 1))))  ;; Still running
-    
-    ;; Execute based on PC
-    (block $end
-      (block $done
-        (block $pc_0
-          (br_if $pc_0 (i32.ne (local.get $pc) (i32.const 0)))
-          ;; start_drawing
-          (call $startDrawing (i32.const 0))
-          (local.set $pc (i32.add (local.get $pc) (i32.const 1)))
-          (global.set $thread_4_pc (local.get $pc))
-          (global.set $thread_4_resumeDepth (i32.const 0))
-          (br $done))
-        (block $pc_1
-          (br_if $pc_1 (i32.ne (local.get $pc) (i32.const 1)))
-          ;; repeat_basic (EntryJS-compatible: one iteration per tick, depth 0)
-          ;; Initialize loop counter on first entry (when counter is -1)
-          (if (i32.eq (global.get $thread_4_loopCounter_0) (i32.const -1))
-            (then
-              (global.set $thread_4_loopCounter_0 (i32.trunc_f64_s (f64.const 10)))))
-          ;; Check if iterations remain (counter > 0)
-          (if (i32.gt_s (global.get $thread_4_loopCounter_0) (i32.const 0))
-            (then
-              ;; Decrement counter first (like EntryJS)
-              (global.set $thread_4_loopCounter_0
-                (i32.sub (global.get $thread_4_loopCounter_0) (i32.const 1)))
-              ;; Execute inner blocks
-              
-          ;; locate_x
-          (call $setX (i32.const 0) (f64.add (call $getX (i32.const 0)) (f64.const 10)))
-          (call $brushNotifyPosition (i32.const 0) (call $getX (i32.const 0)) (call $getY (i32.const 0)))
-              ;; Add tiny delay and stay at same PC for next iteration
-              (global.set $thread_4_resumeDepth (i32.const 1))
-              (global.set $thread_4_waiting (f64.const 0.001))
-              (return (i32.const 1))))
-          ;; Loop finished - reset counter for potential re-entry
-          (global.set $thread_4_loopCounter_0 (i32.const -1))
-          (local.set $pc (i32.add (local.get $pc) (i32.const 1)))
-          (global.set $thread_4_pc (local.get $pc))
-          (global.set $thread_4_resumeDepth (i32.const 0))
-          (br $done))
-        (block $pc_2
-          (br_if $pc_2 (i32.ne (local.get $pc) (i32.const 2)))
-          ;; set_color: rgb(64, 48, 232)
-          (call $setBrushColorRGB (i32.const 0) (f64.const 64) (f64.const 48) (f64.const 232))
-          (local.set $pc (i32.add (local.get $pc) (i32.const 1)))
-          (global.set $thread_4_pc (local.get $pc))
-          (global.set $thread_4_resumeDepth (i32.const 0))
-          (br $done))
-        (block $pc_3
-          (br_if $pc_3 (i32.ne (local.get $pc) (i32.const 3)))
-          ;; change_thickness
-          (call $changeBrushThickness (i32.const 0) (f64.const 10))
-          (local.set $pc (i32.add (local.get $pc) (i32.const 1)))
-          (global.set $thread_4_pc (local.get $pc))
-          (global.set $thread_4_resumeDepth (i32.const 0))
-          (br $done))
-        (block $pc_4
-          (br_if $pc_4 (i32.ne (local.get $pc) (i32.const 4)))
-          ;; repeat_basic (EntryJS-compatible: one iteration per tick, depth 0)
-          ;; Initialize loop counter on first entry (when counter is -1)
-          (if (i32.eq (global.get $thread_4_loopCounter_0) (i32.const -1))
-            (then
-              (global.set $thread_4_loopCounter_0 (i32.trunc_f64_s (f64.const 10)))))
-          ;; Check if iterations remain (counter > 0)
-          (if (i32.gt_s (global.get $thread_4_loopCounter_0) (i32.const 0))
-            (then
-              ;; Decrement counter first (like EntryJS)
-              (global.set $thread_4_loopCounter_0
-                (i32.sub (global.get $thread_4_loopCounter_0) (i32.const 1)))
-              ;; Execute inner blocks
-              
-          ;; move_y
-          (call $setY (i32.const 0)
-            (f64.add (call $getY (i32.const 0)) (f64.const 10)))
-          (call $brushNotifyPosition (i32.const 0) (call $getX (i32.const 0)) (call $getY (i32.const 0)))
-              ;; Add tiny delay and stay at same PC for next iteration
-              (global.set $thread_4_resumeDepth (i32.const 1))
-              (global.set $thread_4_waiting (f64.const 0.001))
-              (return (i32.const 1))))
-          ;; Loop finished - reset counter for potential re-entry
-          (global.set $thread_4_loopCounter_0 (i32.const -1))
-          (local.set $pc (i32.add (local.get $pc) (i32.const 1)))
-          (global.set $thread_4_pc (local.get $pc))
-          (global.set $thread_4_resumeDepth (i32.const 0))
-          (br $done))
-        (block $pc_5
-          (br_if $pc_5 (i32.ne (local.get $pc) (i32.const 5)))
-          ;; stop_drawing
-          (call $stopDrawing (i32.const 0))
-          (local.set $pc (i32.add (local.get $pc) (i32.const 1)))
-          (global.set $thread_4_pc (local.get $pc))
-          (global.set $thread_4_resumeDepth (i32.const 0))
-          (br $done))
-        (block $pc_6
-          (br_if $pc_6 (i32.ne (local.get $pc) (i32.const 6)))
-          ;; start_fill
-          (call $startFill (i32.const 0))
-          (local.set $pc (i32.add (local.get $pc) (i32.const 1)))
-          (global.set $thread_4_pc (local.get $pc))
-          (global.set $thread_4_resumeDepth (i32.const 0))
-          (br $done))
-        (block $pc_7
-          (br_if $pc_7 (i32.ne (local.get $pc) (i32.const 7)))
-          ;; repeat_basic (EntryJS-compatible: one iteration per tick, depth 0)
-          ;; Initialize loop counter on first entry (when counter is -1)
-          (if (i32.eq (global.get $thread_4_loopCounter_0) (i32.const -1))
-            (then
-              (global.set $thread_4_loopCounter_0 (i32.trunc_f64_s (f64.const 10)))))
-          ;; Check if iterations remain (counter > 0)
-          (if (i32.gt_s (global.get $thread_4_loopCounter_0) (i32.const 0))
-            (then
-              ;; Decrement counter first (like EntryJS)
-              (global.set $thread_4_loopCounter_0
-                (i32.sub (global.get $thread_4_loopCounter_0) (i32.const 1)))
-              ;; Execute inner blocks
-              
-          ;; locate_xy
-          (call $setX (i32.const 0) (f64.sub (call $getX (i32.const 0)) (f64.const 10)))
-          (call $setY (i32.const 0) (call $getY (i32.const 0)))
-          (call $brushNotifyPosition (i32.const 0) (call $getX (i32.const 0)) (call $getY (i32.const 0)))
-              ;; Add tiny delay and stay at same PC for next iteration
-              (global.set $thread_4_resumeDepth (i32.const 1))
-              (global.set $thread_4_waiting (f64.const 0.001))
-              (return (i32.const 1))))
-          ;; Loop finished - reset counter for potential re-entry
-          (global.set $thread_4_loopCounter_0 (i32.const -1))
-          (local.set $pc (i32.add (local.get $pc) (i32.const 1)))
-          (global.set $thread_4_pc (local.get $pc))
-          (global.set $thread_4_resumeDepth (i32.const 0))
-          (br $done))
-        (block $pc_8
-          (br_if $pc_8 (i32.ne (local.get $pc) (i32.const 8)))
-          ;; set_fill_color: rgb(255, 0, 0)
-          (call $setFillColorRGB (i32.const 0) (f64.const 255) (f64.const 0) (f64.const 0))
-          (local.set $pc (i32.add (local.get $pc) (i32.const 1)))
-          (global.set $thread_4_pc (local.get $pc))
-          (global.set $thread_4_resumeDepth (i32.const 0))
-          (br $done))
-        (block $pc_9
-          (br_if $pc_9 (i32.ne (local.get $pc) (i32.const 9)))
-          ;; rotate_absolute
-          (call $setRotation (i32.const 0) (f64.const 0))
-          (local.set $pc (i32.add (local.get $pc) (i32.const 1)))
-          (global.set $thread_4_pc (local.get $pc))
-          (global.set $thread_4_resumeDepth (i32.const 0))
-          (br $done))
-        (block $pc_10
-          (br_if $pc_10 (i32.ne (local.get $pc) (i32.const 10)))
-          ;; direction_relative
-          (call $setDirection (i32.const 0)
-            (f64.add (call $getDirection (i32.const 0)) (f64.const 90)))
-          (local.set $pc (i32.add (local.get $pc) (i32.const 1)))
-          (global.set $thread_4_pc (local.get $pc))
-          (global.set $thread_4_resumeDepth (i32.const 0))
-          (br $done))
-        (block $pc_11
-          (br_if $pc_11 (i32.ne (local.get $pc) (i32.const 11)))
-          ;; repeat_while_true (mode: while, EntryJS-compatible: one iteration per tick, depth 0)
-          (if (f64.gt (call $getY (i32.const 0)) (f64.const 0))
-            (then
-              
-          ;; move_direction
-          (call $moveInDirection (i32.const 0) (f64.const 10))
-          (call $brushNotifyPosition (i32.const 0) (call $getX (i32.const 0)) (call $getY (i32.const 0)))
-              ;; Add tiny delay and stay at same PC for next iteration
-              (global.set $thread_4_resumeDepth (i32.const 1))
-              (global.set $thread_4_waiting (f64.const 0.001))
-              (return (i32.const 1))))
-          ;; Condition no longer met - fall through to advance PC
-          (local.set $pc (i32.add (local.get $pc) (i32.const 1)))
-          (global.set $thread_4_pc (local.get $pc))
-          (global.set $thread_4_resumeDepth (i32.const 0))
-          (br $done))
-        (block $pc_12
-          (br_if $pc_12 (i32.ne (local.get $pc) (i32.const 12)))
-          ;; move_to_angle
-          (local.set $temp (f64.mul (f64.sub (f64.const 90) (f64.const 90)) (f64.const 0.017453292519943295)))
-          (call $setX (i32.const 0)
-            (f64.add (call $getX (i32.const 0))
-              (f64.mul (f64.const 100) (call $cos (local.get $temp)))))
-          (call $setY (i32.const 0)
-            (f64.sub (call $getY (i32.const 0))
-              (f64.mul (f64.const 100) (call $sin (local.get $temp)))))
-          (call $brushNotifyPosition (i32.const 0) (call $getX (i32.const 0)) (call $getY (i32.const 0)))
-          (local.set $pc (i32.add (local.get $pc) (i32.const 1)))
-          (global.set $thread_4_pc (local.get $pc))
-          (global.set $thread_4_resumeDepth (i32.const 0))
-          (br $done))
-        (block $pc_13
-          (br_if $pc_13 (i32.ne (local.get $pc) (i32.const 13)))
-          ;; stop_fill
-          (call $stopFill (i32.const 0))
-          (local.set $pc (i32.add (local.get $pc) (i32.const 1)))
-          (global.set $thread_4_pc (local.get $pc))
-          (global.set $thread_4_resumeDepth (i32.const 0))
-          (br $done))
-        ;; End of thread
-        (global.set $thread_4_pc (i32.const 0))
-        (global.set $thread_4_resumeDepth (i32.const 0))
         (return (i32.const 0))  ;; Thread finished
       )  ;; $done
     )  ;; $end
@@ -2231,28 +1785,46 @@
     ;; Reset first frame flag
     (global.set $isFirstFrame (i32.const 1))
     ;; Reset persistent string pool
-    (global.set $persistent_pool_ptr (i32.const 67110040))
+    (global.set $persistent_pool_ptr (i32.const 67110192))
     ;; Reset heap pointer for dynamic list growth
-    (global.set $heap_ptr (i32.const 134218904))
+    (global.set $heap_ptr (i32.const 134219056))
     
-    ;; Initialize entity 0: 엔트리봇 (scene: 0)
-    (call $setX (i32.const 0) (f64.const 0))
-    (call $setY (i32.const 0) (f64.const 0))
+    ;; Initialize entity 0: (1)엔트리봇 (scene: 0)
+    (call $setX (i32.const 0) (f64.const 137.7))
+    (call $setY (i32.const 0) (f64.const -3.94))
     (call $setRotation (i32.const 0) (f64.const 0))
     (call $setDirection (i32.const 0) (f64.const 90))
-    (call $setScaleX (i32.const 0) (f64.const 0.5128205128205128))
-    (call $setScaleY (i32.const 0) (f64.const 0.5128205128205128))
-    (call $setScaleOriginX (i32.const 0) (f64.const 0.5128205128205128))
-    (call $setScaleOriginY (i32.const 0) (f64.const 0.5128205128205128))
+    (call $setScaleX (i32.const 0) (f64.const 0.31545741324921134))
+    (call $setScaleY (i32.const 0) (f64.const 0.31545741324921134))
+    (call $setScaleOriginX (i32.const 0) (f64.const 0.31545741324921134))
+    (call $setScaleOriginY (i32.const 0) (f64.const 0.31545741324921134))
     (call $setVisible (i32.const 0) (i32.const 1))
     (call $setInitialVisible (i32.const 0) (i32.const 1))
-    (call $setWidth (i32.const 0) (f64.const 144))
-    (call $setHeight (i32.const 0) (f64.const 246))
+    (call $setWidth (i32.const 0) (f64.const 284))
+    (call $setHeight (i32.const 0) (f64.const 350))
     (call $setPictureIndex (i32.const 0) (i32.const 0))
     (call $setSceneIndex (i32.const 0) (i32.const 0))
     ;; Initialize brush colors to default red (255, 0, 0)
     (call $setBrushColorRGB (i32.const 0) (f64.const 255) (f64.const 0) (f64.const 0))
     (call $setFillColorRGB (i32.const 0) (f64.const 255) (f64.const 0) (f64.const 0))
+    ;; Initialize entity 1: 엔트리봇 (scene: 0)
+    (call $setX (i32.const 1) (f64.const -122.75))
+    (call $setY (i32.const 1) (f64.const -2.37))
+    (call $setRotation (i32.const 1) (f64.const 0))
+    (call $setDirection (i32.const 1) (f64.const 90))
+    (call $setScaleX (i32.const 1) (f64.const 0.5128205128205128))
+    (call $setScaleY (i32.const 1) (f64.const 0.5128205128205128))
+    (call $setScaleOriginX (i32.const 1) (f64.const 0.5128205128205128))
+    (call $setScaleOriginY (i32.const 1) (f64.const 0.5128205128205128))
+    (call $setVisible (i32.const 1) (i32.const 1))
+    (call $setInitialVisible (i32.const 1) (i32.const 1))
+    (call $setWidth (i32.const 1) (f64.const 144))
+    (call $setHeight (i32.const 1) (f64.const 246))
+    (call $setPictureIndex (i32.const 1) (i32.const 0))
+    (call $setSceneIndex (i32.const 1) (i32.const 0))
+    ;; Initialize brush colors to default red (255, 0, 0)
+    (call $setBrushColorRGB (i32.const 1) (f64.const 255) (f64.const 0) (f64.const 0))
+    (call $setFillColorRGB (i32.const 1) (f64.const 255) (f64.const 0) (f64.const 0))
     
     
     (global.set $running (i32.const 1)))
@@ -2260,7 +1832,7 @@
   ;; Main tick function - called every frame from JS
   (func $tick (param $dt f64)
     ;; Reset string pool to reclaim temporary strings from previous tick
-    (global.set $str_pool_ptr (i32.const 1176))
+    (global.set $str_pool_ptr (i32.const 1340))
     (global.set $deltaTime (local.get $dt))
     
     ;; Update click tracking state (detect new clicks)
@@ -2280,24 +1852,12 @@
         (global.set $thread_1_waiting (f64.const 0))
         (global.set $thread_1_loopCounter_0 (i32.const -1))
         (global.set $thread_1_resumeDepth (i32.const 0))
-        (global.set $thread_2_active (i32.const 0))
-        (global.set $thread_2_pc (i32.const 0))
-        (global.set $thread_2_waiting (f64.const 0))
-        (global.set $thread_2_loopCounter_0 (i32.const -1))
-        (global.set $thread_2_resumeDepth (i32.const 0))
-        (global.set $thread_3_active (i32.const 0))
-        (global.set $thread_3_pc (i32.const 0))
-        (global.set $thread_3_waiting (f64.const 0))
-        (global.set $thread_3_loopCounter_0 (i32.const -1))
-        (global.set $thread_3_resumeDepth (i32.const 0))
-        (global.set $thread_4_active (i32.const 0))
-        (global.set $thread_4_pc (i32.const 0))
-        (global.set $thread_4_waiting (f64.const 0))
-        (global.set $thread_4_loopCounter_0 (i32.const -1))
-        (global.set $thread_4_resumeDepth (i32.const 0))
         (global.set $dialog_type_0 (i32.const 0))
         (global.set $dialog_text_ptr_0 (i32.const 0))
-        (global.set $clone_requested_0 (i32.const 0))))
+        (global.set $dialog_type_1 (i32.const 0))
+        (global.set $dialog_text_ptr_1 (i32.const 0))
+        (global.set $clone_requested_0 (i32.const 0))
+        (global.set $clone_requested_1 (i32.const 0))))
     
     ;; Handle scene change events (when_scene_start)
     
@@ -2326,22 +1886,22 @@
     
     ;; Check events and activate threads
     
-    ;; Activate thread 2 on start (entity scene: 0)
+    ;; Activate thread 0 on start (entity scene: 0)
     (if (i32.and
           (global.get $isFirstFrame)
           (i32.eq (i32.const 0) (global.get $currentScene)))
       (then
-        (global.set $thread_2_loopCounter_0 (i32.const -1))
-        (global.set $thread_2_resumeDepth (i32.const 0))
-        (global.set $thread_2_active (i32.const 1))))
-    ;; Activate thread 4 on start (entity scene: 0)
+        (global.set $thread_0_loopCounter_0 (i32.const -1))
+        (global.set $thread_0_resumeDepth (i32.const 0))
+        (global.set $thread_0_active (i32.const 1))))
+    ;; Activate thread 1 on start (entity scene: 0)
     (if (i32.and
           (global.get $isFirstFrame)
           (i32.eq (i32.const 0) (global.get $currentScene)))
       (then
-        (global.set $thread_4_loopCounter_0 (i32.const -1))
-        (global.set $thread_4_resumeDepth (i32.const 0))
-        (global.set $thread_4_active (i32.const 1))))
+        (global.set $thread_1_loopCounter_0 (i32.const -1))
+        (global.set $thread_1_resumeDepth (i32.const 0))
+        (global.set $thread_1_active (i32.const 1))))
     
     ;; Handle clone start events (when_clone_start)
     
@@ -2349,6 +1909,7 @@
     ;; Clear clone request flags after processing
     
     (global.set $clone_requested_0 (i32.const 0))
+    (global.set $clone_requested_1 (i32.const 0))
     
     ;; Execute active threads
     
@@ -2360,23 +1921,8 @@
     ;; Run thread 1
     (if (i32.and (global.get $thread_1_active) (i32.eqz (global.get $sceneJustChanged)))
       (then
-        (if (i32.eqz (call $thread_1_run (i32.const 0)))
+        (if (i32.eqz (call $thread_1_run (i32.const 1)))
           (then (global.set $thread_1_active (i32.const 0))))))
-    ;; Run thread 2
-    (if (i32.and (global.get $thread_2_active) (i32.eqz (global.get $sceneJustChanged)))
-      (then
-        (if (i32.eqz (call $thread_2_run (i32.const 0)))
-          (then (global.set $thread_2_active (i32.const 0))))))
-    ;; Run thread 3
-    (if (i32.and (global.get $thread_3_active) (i32.eqz (global.get $sceneJustChanged)))
-      (then
-        (if (i32.eqz (call $thread_3_run (i32.const 0)))
-          (then (global.set $thread_3_active (i32.const 0))))))
-    ;; Run thread 4
-    (if (i32.and (global.get $thread_4_active) (i32.eqz (global.get $sceneJustChanged)))
-      (then
-        (if (i32.eqz (call $thread_4_run (i32.const 0)))
-          (then (global.set $thread_4_active (i32.const 0))))))
     
     ;; Finalize click state (update prevMouseClicked, clear clickedEntityIndex on release)
     (call $finalizeClickState)
@@ -2391,9 +1937,11 @@
   
   ;; Get entity count
   (func $getEntityCount (result i32)
-    (i32.const 1))
+    (i32.const 2))
 
 
+  ;; ===== STATIC STRING DATA =====
+  (data (i32.const 1328) "\06\00\00\00\73\70\6f\65\64\21\00\00")
 
 
   ;; ===== EXPORTS =====
@@ -2426,6 +1974,8 @@
   (export "getFillColorB" (func $getFillColorB))
   (export "getDialogType_0" (func $getDialogType_0))
   (export "getDialogTextPtr_0" (func $getDialogTextPtr_0))
+  (export "getDialogType_1" (func $getDialogType_1))
+  (export "getDialogTextPtr_1" (func $getDialogTextPtr_1))
   (export "str_length" (func $str_length))
   (export "str_alloc" (func $str_alloc))
   (export "getVariable" (func $getVariable))

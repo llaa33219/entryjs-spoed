@@ -1,0 +1,170 @@
+{
+    "objects": [
+        {
+            "id": "3ncv",
+            "name": "(1)엔트리봇",
+            "script": "[[{\"id\":\"oapw\",\"x\":50,\"y\":30,\"type\":\"when_run_button_click\",\"params\":[null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},{\"id\":\"odc7\",\"x\":0,\"y\":0,\"type\":\"dialog\",\"params\":[{\"id\":\"u8af\",\"x\":0,\"y\":0,\"type\":\"get_nickname\",\"params\":[],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},\"speak\",null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]}]]",
+            "objectType": "sprite",
+            "rotateMethod": "free",
+            "scene": "7dwq",
+            "sprite": {
+                "pictures": [
+                    {
+                        "id": "hvr3",
+                        "dimension": {
+                            "width": 284,
+                            "height": 350,
+                            "scaleX": 0.31545741324921134,
+                            "scaleY": 0.31545741324921134
+                        },
+                        "filename": "a8268fd79a48fd9b92c7b47406b95393",
+                        "name": "걷는 엔트리봇 1",
+                        "imageType": "png"
+                    },
+                    {
+                        "id": "ag24",
+                        "dimension": {
+                            "width": 284,
+                            "height": 350
+                        },
+                        "filename": "44cbd5953180e91751e82837bdff91ac",
+                        "name": "(1)엔트리봇_걷기2",
+                        "imageType": "png"
+                    }
+                ],
+                "sounds": [
+                    {
+                        "duration": 1.3,
+                        "id": "yk7x",
+                        "filename": "30a5116094820dedc36a4a761b9d1816",
+                        "name": "강아지 짖는 소리"
+                    }
+                ]
+            },
+            "selectedPictureId": "hvr3",
+            "lock": false,
+            "entity": {
+                "x": 137.7,
+                "y": -3.94,
+                "regX": 142,
+                "regY": 175,
+                "scaleX": 0.31545741324921134,
+                "scaleY": 0.31545741324921134,
+                "rotation": 0,
+                "direction": 90,
+                "width": 284,
+                "height": 350,
+                "font": "undefinedpx ",
+                "visible": true
+            }
+        },
+        {
+            "id": "7y0y",
+            "name": "엔트리봇",
+            "script": "[[{\"id\":\"5yv8\",\"x\":50,\"y\":30,\"type\":\"when_run_button_click\",\"params\":[null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},{\"id\":\"7eek\",\"x\":0,\"y\":0,\"type\":\"dialog\",\"params\":[{\"id\":\"ui4m\",\"x\":0,\"y\":0,\"type\":\"get_user_name\",\"params\":[],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]},\"speak\",null],\"statements\":[],\"movable\":null,\"deletable\":1,\"emphasized\":false,\"readOnly\":null,\"copyable\":true,\"assemble\":true,\"extensions\":[]}]]",
+            "objectType": "sprite",
+            "rotateMethod": "free",
+            "scene": "7dwq",
+            "sprite": {
+                "pictures": [
+                    {
+                        "id": "vx80",
+                        "dimension": {
+                            "width": 144,
+                            "height": 246,
+                            "scaleX": 0.5128205128205128,
+                            "scaleY": 0.5128205128205128
+                        },
+                        "fileurl": "/lib/entry-js/images/media/entrybot1.svg",
+                        "thumbUrl": "/lib/entry-js/images/media/entrybot1.svg",
+                        "name": "엔트리봇_걷기1",
+                        "imageType": "svg"
+                    },
+                    {
+                        "id": "4t48",
+                        "dimension": {
+                            "width": 144,
+                            "height": 246
+                        },
+                        "fileurl": "/lib/entry-js/images/media/entrybot2.svg",
+                        "thumbUrl": "/lib/entry-js/images/media/entrybot2.svg",
+                        "name": "엔트리봇_걷기2",
+                        "imageType": "svg"
+                    }
+                ],
+                "sounds": [
+                    {
+                        "duration": 1.3,
+                        "ext": ".mp3",
+                        "id": "8el5",
+                        "fileurl": "/lib/entry-js/images/media/bark.mp3",
+                        "name": "강아지 짖는 소리"
+                    }
+                ]
+            },
+            "selectedPictureId": "vx80",
+            "lock": false,
+            "entity": {
+                "x": -122.75,
+                "y": -2.37,
+                "regX": 72,
+                "regY": 123,
+                "scaleX": 0.5128205128205128,
+                "scaleY": 0.5128205128205128,
+                "rotation": 0,
+                "direction": 90,
+                "width": 144,
+                "height": 246,
+                "font": "undefinedpx ",
+                "visible": true
+            }
+        }
+    ],
+    "scenes": [
+        {
+            "id": "7dwq",
+            "name": "장면 1"
+        }
+    ],
+    "variables": [
+        {
+            "name": "초시계",
+            "id": "brih",
+            "visible": false,
+            "value": 0,
+            "variableType": "timer",
+            "isCloud": false,
+            "isRealTime": false,
+            "cloudDate": false,
+            "object": null,
+            "x": 134,
+            "y": -70
+        },
+        {
+            "name": "대답",
+            "id": "1vu8",
+            "visible": false,
+            "value": "0",
+            "variableType": "answer",
+            "isCloud": false,
+            "isRealTime": false,
+            "cloudDate": false,
+            "object": null,
+            "x": 150,
+            "y": -100
+        }
+    ],
+    "messages": [],
+    "functions": [],
+    "tables": [],
+    "speed": 60,
+    "interface": {
+        "canvasWidth": 636,
+        "object": "3ncv"
+    },
+    "expansionBlocks": [],
+    "aiUtilizeBlocks": [],
+    "hardwareLiteBlocks": [],
+    "externalModules": [],
+    "externalModulesLite": []
+}
