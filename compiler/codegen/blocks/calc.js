@@ -91,7 +91,7 @@ const valueBlocks = {
     'calc_rand': (ctx, block, entityIndex) => {
         const min = ctx.transpileValue(block.params?.[1], entityIndex);
         const max = ctx.transpileValue(block.params?.[3], entityIndex);
-        return `(call $randomInt ${min} ${max})`;
+        return `(call $calcRand ${min} ${max})`;
     },
 
     'coordinate_mouse': (ctx, block, entityIndex) => {

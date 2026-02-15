@@ -110,6 +110,13 @@ class BlockTranspiler {
             return handler(ctx, block, entityIndex);
         }
 
+        // Fallback: check if this is a boolean block and convert i32 -> f64
+        const boolHandler = getBooleanHandler(block.type);
+        if (boolHandler) {
+            const ctx = this.createContext(entityIndex, 0);
+            return `(f64.convert_i32_s ${boolHandler(ctx, block, entityIndex)})`;
+        }
+
         // Default: return 0
         // Note: Don't use inline comments here as they can break WAT syntax when
         // this value is used as a function argument

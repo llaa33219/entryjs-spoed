@@ -1,3 +1,8 @@
+(function() {
+"use strict";
+var _WASM_BASE64 = '__WASM_BASE64__';
+var _bundleOptions = {};
+
 /**
  * EntryJS Compiled Project - Renderer
  * 
@@ -19,10 +24,10 @@ const TARGET_TICK_MS = 10;
 const MIN_TICKS_PER_FRAME = 100;
 let dynamicMaxTicks = 10000;
 const SCENE_COUNT = 3;
-const VARIABLE_COUNT = 70;
-const LIST_COUNT = 49;
-const ENTITY_COUNT = 11;
-const STRING_POOL_START = 463408;
+const VARIABLE_COUNT = 38;
+const LIST_COUNT = 30;
+const ENTITY_COUNT = 23;
+const STRING_POOL_START = 53544;
 
 // ===== WASM IMPORTS =====
 const wasmImports = {
@@ -312,6 +317,7 @@ let running = false;
 let lastTime = 0;
 let currentScene = 0;
 let accumulator = 0;
+let paused = false;
 
 // Timer and input state (matching EntryJS engine.js implementation)
 // projectTimer uses real system time for accuracy, not deltaTime accumulation
@@ -375,278 +381,466 @@ let inputOverlay = null;
 
 // ===== SCENE DATA =====
 const SCENE_DATA = [
-    { id: "7j0r", name: "장면 2", index: 0 },
-    { id: "7dwq", name: "장면 1", index: 1 },
-    { id: "bi8g", name: "퍼포먼스테스트", index: 2 },
+    { id: "nrxr", name: "new projec", index: 0 },
+    { id: "2vv0", name: "templet", index: 1 },
+    { id: "7dwq", name: "project", index: 2 },
 ];
 
 
 // ===== VARIABLE DATA =====
 const VARIABLE_DATA = [
-    { id: "tmct", name: "ENGINE", memoryOffset: 2696, visible: false, x: -180, y: -4, varType: "variable" },
-    { id: "fa7r", name: "게임오버", memoryOffset: 2704, visible: false, x: 72, y: 49, varType: "variable" },
-    { id: "8nzs", name: "LastStande", memoryOffset: 2712, visible: false, x: -177, y: -15, varType: "variable" },
-    { id: "sp3g", name: "PieceCount", memoryOffset: 2720, visible: false, x: 28, y: -87, varType: "variable" },
-    { id: "vnis", name: "RepCounter", memoryOffset: 2728, visible: false, x: -3, y: 103, varType: "variable" },
-    { id: "bd79", name: "Search3fol", memoryOffset: 2736, visible: false, x: 30, y: 113, varType: "variable" },
-    { id: "2skz", name: "TTdisable", memoryOffset: 2744, visible: false, x: 67, y: 85, varType: "variable" },
-    { id: "pcfe", name: "BaseDepth", memoryOffset: 2752, visible: false, x: 125, y: -10, varType: "variable" },
-    { id: "nnii", name: "TimeTillOu", memoryOffset: 2760, visible: false, x: 173, y: 24, varType: "variable" },
-    { id: "mele", name: "Timeout", memoryOffset: 2768, visible: false, x: 6, y: -51, varType: "variable" },
-    { id: "ytr5", name: "TT이발", memoryOffset: 2776, visible: false, x: -3, y: 28, varType: "variable" },
-    { id: "zo19", name: "해시키쭈글쭈글햬짐", memoryOffset: 2784, visible: false, x: 93, y: 84, varType: "variable" },
-    { id: "ovv1", name: "해시키", memoryOffset: 2792, visible: false, x: -168, y: -93, varType: "variable" },
-    { id: "34b6", name: "정적평가치", memoryOffset: 2800, visible: false, x: 4, y: 78, varType: "variable" },
-    { id: "dbnc", name: "가장기대되는수", memoryOffset: 2808, visible: false, x: 64, y: -27, varType: "variable" },
-    { id: "ax5a", name: "루트최선의수", memoryOffset: 2816, visible: false, x: 116, y: -99, varType: "variable" },
-    { id: "jo54", name: "Score", memoryOffset: 2824, visible: false, x: 138, y: 14.677419354838705, varType: "variable" },
-    { id: "rufr", name: "디바이더이발", memoryOffset: 2832, visible: false, x: 129.24620060790278, y: 44.96774193548387, varType: "variable" },
-    { id: "xney", name: "엔드게임이발", memoryOffset: 2840, visible: false, x: 129.24620060790278, y: 44.96774193548387, varType: "variable" },
-    { id: "3de4", name: "미들게임이발", memoryOffset: 2848, visible: false, x: 129.24620060790278, y: 44.96774193548387, varType: "variable" },
-    { id: "3o72", name: "잡은기물", memoryOffset: 2856, visible: false, x: 138, y: 101.58064516129033, varType: "variable" },
-    { id: "swl7", name: "캐시", memoryOffset: 2864, visible: false, x: -230, y: 35, varType: "variable" },
-    { id: "sh7e", name: "PLY", memoryOffset: 2872, visible: false, x: 138, y: -13.322580645161295, varType: "variable" },
-    { id: "pdj7", name: "해시", memoryOffset: 2880, visible: false, x: 138, y: -41.322580645161295, varType: "variable" },
-    { id: "68jh", name: "이동하는기물", memoryOffset: 2888, visible: false, x: 138, y: -41.322580645161295, varType: "variable" },
-    { id: "hhbz", name: "잡힌기물", memoryOffset: 2896, visible: false, x: 138, y: -41.322580645161295, varType: "variable" },
-    { id: "7xvj", name: "HalfMoveCl", memoryOffset: 2904, visible: false, x: 46, y: 112, varType: "variable" },
-    { id: "istr", name: "리걸무브포인터", memoryOffset: 2912, visible: false, x: -2.145896656535001, y: 73.58064516129033, varType: "variable" },
-    { id: "vwcr", name: "Lookupcopy", memoryOffset: 2920, visible: false, x: 138, y: -105, varType: "variable" },
-    { id: "vb4o", name: "Dircopy", memoryOffset: 2928, visible: false, x: 138, y: -105, varType: "variable" },
-    { id: "ybsb", name: "S:SQ", memoryOffset: 2936, visible: false, x: 46, y: -77, varType: "variable" },
-    { id: "ly8s", name: "S:CRdir", memoryOffset: 2944, visible: false, x: 40.164133738601834, y: 16.967741935483872, varType: "variable" },
-    { id: "nea5", name: "KingPos:S", memoryOffset: 2952, visible: false, x: 45.148120193386546, y: -10.070137294774526, varType: "variable" },
-    { id: "4o15", name: "S:CR(short", memoryOffset: 2960, visible: false, x: 43.08206686930089, y: -33.83870967741933, varType: "variable" },
-    { id: "a8m7", name: "S:CRLen", memoryOffset: 2968, visible: false, x: 37.24620060790278, y: 45.16129032258064, varType: "variable" },
-    { id: "stly", name: "S:LastSpec", memoryOffset: 2976, visible: false, x: 46, y: 7, varType: "variable" },
-    { id: "3po7", name: "S:LastFrom", memoryOffset: 2984, visible: false, x: 46, y: -21, varType: "variable" },
-    { id: "zrg4", name: "S:LastTo", memoryOffset: 2992, visible: false, x: 46, y: -49, varType: "variable" },
-    { id: "mvo4", name: "S:체크상태", memoryOffset: 3000, visible: false, x: 37.246200607902665, y: -69.3225806451613, varType: "variable" },
-    { id: "1mse", name: "IsAttacked", memoryOffset: 3008, visible: false, x: 46, y: -105, varType: "variable" },
-    { id: "75k6", name: "낑긴위치", memoryOffset: 3016, visible: false, x: -15, y: 63, varType: "variable" },
-    { id: "oj9q", name: "오버월드핀처리", memoryOffset: 3024, visible: false, x: -46, y: 109, varType: "variable" },
-    { id: "h6gy", name: "오버월드용두므브", memoryOffset: 3032, visible: false, x: -46, y: 35, varType: "variable" },
-    { id: "aimv", name: "오버월드용i", memoryOffset: 3040, visible: false, x: -46, y: -21, varType: "variable" },
-    { id: "6m8n", name: "오버월드:반복수", memoryOffset: 3048, visible: false, x: -46, y: 7, varType: "variable" },
-    { id: "7owo", name: "오버월드:스칼라to", memoryOffset: 3056, visible: false, x: -46, y: -49, varType: "variable" },
-    { id: "fy29", name: "흐름끊김", memoryOffset: 3064, visible: false, x: -46, y: -77, varType: "variable" },
-    { id: "uq33", name: "SearSQOF", memoryOffset: 3072, visible: false, x: -46, y: -105, varType: "variable" },
-    { id: "wyni", name: "KingPos오버월", memoryOffset: 3080, visible: false, x: -138, y: 98, varType: "variable" },
-    { id: "j9za", name: "상대방의마지막수Sp", memoryOffset: 3088, visible: false, x: -138, y: 98, varType: "variable" },
-    { id: "wzdo", name: "상대방의마지막수To", memoryOffset: 3096, visible: false, x: -138, y: 98, varType: "variable" },
-    { id: "76wq", name: "상대방의마지막수Fr", memoryOffset: 3104, visible: false, x: -138, y: 98, varType: "variable" },
-    { id: "4bsx", name: "오버월드:체크상태", memoryOffset: 3112, visible: false, x: -138, y: -21, varType: "variable" },
-    { id: "pwgo", name: "Node#", memoryOffset: 3120, visible: false, x: -138, y: -49, varType: "variable" },
-    { id: "l9rj", name: "Q", memoryOffset: 3128, visible: false, x: -138, y: 70, varType: "variable" },
-    { id: "7qd5", name: "MIN[H]", memoryOffset: 3136, visible: false, x: -138, y: 22, varType: "variable" },
-    { id: "k311", name: "i", memoryOffset: 3144, visible: false, x: -138, y: -77, varType: "variable" },
-    { id: "furt", name: "ToSQ", memoryOffset: 3152, visible: false, x: -138, y: -105, varType: "variable" },
-    { id: "nyti", name: "mousey", memoryOffset: 3160, visible: false, x: -230, y: 91, varType: "variable" },
-    { id: "ojgd", name: "mousex", memoryOffset: 3168, visible: false, x: -230, y: 63, varType: "variable" },
-    { id: "gbzk", name: "TURN", memoryOffset: 3176, visible: false, x: -230, y: 35, varType: "variable" },
-    { id: "ruha", name: "MouseSQ", memoryOffset: 3184, visible: false, x: -230, y: 7, varType: "variable" },
-    { id: "wrh6", name: "보드의방향", memoryOffset: 3192, visible: false, x: -230, y: -21, varType: "variable" },
-    { id: "evbf", name: "Boardsize", memoryOffset: 3200, visible: false, x: -230, y: -77, varType: "variable" },
-    { id: "ddlr", name: "ZX", memoryOffset: 3208, visible: false, x: -230, y: -49, varType: "variable" },
-    { id: "x829", name: "두므", memoryOffset: 3216, visible: false, x: -138, y: -77, varType: "variable" },
-    { id: "t0lb", name: "i1", memoryOffset: 3224, visible: false, x: -138, y: 35, varType: "variable" },
-    { id: "j7uc", name: "Selected", memoryOffset: 3232, visible: false, x: -230, y: 7, varType: "slide", minValue: -1, maxValue: 196 },
-    { id: "pe15", name: "Size", memoryOffset: 3240, visible: false, x: -230, y: -49, varType: "variable" },
-    { id: "4jzo", name: "그리기", memoryOffset: 3248, visible: false, x: -230, y: -77, varType: "variable" },
+    { id: "pf5o", name: ".", memoryOffset: 4520, visible: false, x: -46, y: -21, varType: "variable" },
+    { id: "14ed", name: "sy", memoryOffset: 4528, visible: false, x: -46, y: 61, varType: "variable" },
+    { id: "ln94", name: "sx1", memoryOffset: 4536, visible: false, x: -46, y: 33, varType: "variable" },
+    { id: "m4fa", name: "file", memoryOffset: 4544, visible: false, x: -46, y: -49, varType: "variable" },
+    { id: "ont6", name: "del", memoryOffset: 4552, visible: false, x: -46, y: -77, varType: "variable" },
+    { id: "9mru", name: "ground", memoryOffset: 4560, visible: false, x: -138, y: 91, varType: "variable" },
+    { id: "hvd1", name: "gravity", memoryOffset: 4568, visible: false, x: -138, y: 63, varType: "variable" },
+    { id: "d1y6", name: "z-", memoryOffset: 4576, visible: false, x: -138, y: 35, varType: "variable" },
+    { id: "c65e", name: "y-", memoryOffset: 4584, visible: false, x: -138, y: 7, varType: "variable" },
+    { id: "tstn", name: "x-", memoryOffset: 4592, visible: false, x: -176, y: -21, varType: "variable" },
+    { id: "v2d3", name: "collided?", memoryOffset: 4600, visible: false, x: -138, y: -105, varType: "variable" },
+    { id: "i9r4", name: "listnum", memoryOffset: 4608, visible: false, x: -230, y: 91, varType: "variable" },
+    { id: "ig17", name: "n", memoryOffset: 4616, visible: false, x: -230, y: 63, varType: "variable" },
+    { id: "3cgi", name: "렌더거리", memoryOffset: 4624, visible: false, x: -230, y: 63, varType: "slide", minValue: 50, maxValue: 200 },
+    { id: "xlvp", name: "z", memoryOffset: 4632, visible: false, x: -230, y: 35, varType: "variable" },
+    { id: "692r", name: "y", memoryOffset: 4640, visible: false, x: -230, y: 7, varType: "variable" },
+    { id: "u99t", name: "x", memoryOffset: 4648, visible: false, x: -230, y: -21, varType: "variable" },
+    { id: "jpb4", name: "ay", memoryOffset: 4656, visible: false, x: -230, y: -49, varType: "variable" },
+    { id: "dzup", name: "ax", memoryOffset: 4664, visible: false, x: -230, y: -77, varType: "variable" },
+    { id: "9bqv", name: "a1", memoryOffset: 4672, visible: false, x: -138, y: -77, varType: "variable" },
+    { id: "dg20", name: "a2", memoryOffset: 4680, visible: false, x: -138, y: -49, varType: "variable" },
+    { id: "5ej9", name: "lx", memoryOffset: 4688, visible: false, x: -230, y: 91, varType: "variable" },
+    { id: "tbj4", name: "ly", memoryOffset: 4696, visible: false, x: -169, y: 91, varType: "variable" },
+    { id: "avcr", name: "그림자", memoryOffset: 4704, visible: false, x: -138, y: -21, varType: "variable" },
+    { id: "k5jv", name: "lz", memoryOffset: 4712, visible: false, x: -138, y: -105, varType: "variable" },
+    { id: "hjoz", name: "sx", memoryOffset: 4720, visible: false, x: -138, y: 7, varType: "variable" },
+    { id: "66rj", name: "sz", memoryOffset: 4728, visible: false, x: -138, y: 35, varType: "variable" },
+    { id: "oi0j", name: "항목수", memoryOffset: 4736, visible: false, x: -230, y: -80, varType: "variable" },
+    { id: "kb4l", name: "i", memoryOffset: 4744, visible: false, x: -230, y: -52, varType: "variable" },
+    { id: "pdfk", name: "i1", memoryOffset: 4752, visible: false, x: -230, y: 2, varType: "variable" },
+    { id: "0csg", name: "항목수1", memoryOffset: 4760, visible: false, x: -230, y: -77, varType: "variable" },
+    { id: "ai2n", name: "click_prev", memoryOffset: 4768, visible: false, x: -233.22147651006713, y: 2.271739266258507, varType: "variable" },
+    { id: "mb2s", name: "click", memoryOffset: 4776, visible: false, x: -230, y: -49, varType: "variable" },
+    { id: "dsel", name: "g", memoryOffset: 4784, visible: false, x: -83, y: -49, varType: "variable" },
+    { id: "xfxr", name: "dt", memoryOffset: 4792, visible: false, x: -230, y: -21, varType: "variable" },
+    { id: "iaou", name: "e", memoryOffset: 4800, visible: false, x: -138, y: -49, varType: "variable" },
+    { id: "mv31", name: "collsion", memoryOffset: 4808, visible: false, x: -230, y: 7, varType: "variable" },
+    { id: "68h6", name: "mode", memoryOffset: 4816, visible: false, x: -230, y: -77, varType: "variable" },
 ];
 
 
 // ===== TIMER DATA =====
-const TIMER_DATA = { name: "초시계", visible: true, x: 237.22584612112615, y: -141.67630978069448 };
+const TIMER_DATA = { name: "초시계", visible: false, x: 237.52541014866807, y: -143.56118387252218 };
 
 
 // ===== ANSWER DATA =====
-const ANSWER_DATA = { name: "대답", visible: false, x: 150, y: -100 };
+const ANSWER_DATA = { name: "대답", visible: true, x: 238.59060402684563, y: -138.57142857142856 };
 
 
 // ===== LIST DATA =====
 const LIST_DATA = [
-    { id: "hrrh", name: "q", memoryIndex: 0, visible: false, x: 120, y: -123, width: 100, height: 120 },
-    { id: "c7sl", name: "3FRstack", memoryIndex: 1, visible: false, x: -210, y: -74, width: 100, height: 120 },
-    { id: "ukak", name: "LASTSPECIA", memoryIndex: 2, visible: false, x: -210, y: -98, width: 100, height: 120 },
-    { id: "5dyv", name: "LASTFROM", memoryIndex: 3, visible: false, x: -210, y: -122, width: 100, height: 120 },
-    { id: "5oil", name: "LASTTO", memoryIndex: 4, visible: false, x: -100, y: -1, width: 100, height: 120 },
-    { id: "w0a6", name: "BestMove", memoryIndex: 5, visible: false, x: -100, y: -25, width: 100, height: 120 },
-    { id: "rwud", name: "Firstmove", memoryIndex: 6, visible: false, x: -100, y: -49, width: 100, height: 120 },
-    { id: "mbef", name: "TTmove", memoryIndex: 7, visible: false, x: -100, y: -73, width: 100, height: 120 },
-    { id: "di43", name: "TTdepth", memoryIndex: 8, visible: false, x: -100, y: -97, width: 100, height: 120 },
-    { id: "c3ek", name: "TTbestmove", memoryIndex: 9, visible: false, x: -100, y: -121, width: 100, height: 120 },
-    { id: "4fbs", name: "TTscore", memoryIndex: 10, visible: false, x: 120, y: -19, width: 100, height: 120 },
-    { id: "kpka", name: "TTbound", memoryIndex: 11, visible: false, x: 10, y: -24, width: 100, height: 120 },
-    { id: "6f2m", name: "TTkey", memoryIndex: 12, visible: false, x: 10, y: -48, width: 100, height: 120 },
-    { id: "do7v", name: "수의스콩터", memoryIndex: 13, visible: false, x: 10, y: -72, width: 100, height: 120 },
-    { id: "pn9c", name: "BestScore", memoryIndex: 14, visible: false, x: 10, y: -96, width: 100, height: 120 },
-    { id: "mai2", name: "B", memoryIndex: 15, visible: false, x: 10, y: -120, width: 100, height: 120 },
-    { id: "plha", name: "A", memoryIndex: 16, visible: false, x: 120, y: 1, width: 100, height: 120 },
-    { id: "lr64", name: "이발디바이더저장", memoryIndex: 17, visible: false, x: 120, y: -23, width: 100, height: 120 },
-    { id: "0j06", name: "미들게임이발저장", memoryIndex: 18, visible: false, x: 120, y: -47, width: 100, height: 120 },
-    { id: "uxxz", name: "엔드게임이발저장", memoryIndex: 19, visible: false, x: 120, y: -71, width: 100, height: 120 },
-    { id: "x0io", name: "수길이", memoryIndex: 20, visible: false, x: -210, y: -22, width: 100, height: 120 },
-    { id: "otac", name: "인덱스", memoryIndex: 21, visible: false, x: -210, y: -70, width: 100, height: 120 },
-    { id: "i9yf", name: "잡은기물", memoryIndex: 22, visible: false, x: -210, y: -94, width: 100, height: 120 },
-    { id: "3vu4", name: "노드카운터", memoryIndex: 23, visible: false, x: -210, y: -118, width: 100, height: 120 },
-    { id: "dja4", name: "Phash", memoryIndex: 24, visible: false, x: -100, y: 3, width: 100, height: 120 },
-    { id: "t94w", name: "PeP", memoryIndex: 25, visible: false, x: -100, y: -45, width: 100, height: 120 },
-    { id: "m69e", name: "PHalfClock", memoryIndex: 26, visible: false, x: -100, y: -69, width: 100, height: 120 },
-    { id: "ykam", name: "PCast[ply]", memoryIndex: 27, visible: false, x: -100, y: -93, width: 100, height: 120 },
-    { id: "ru4n", name: "Distance", memoryIndex: 28, visible: false, x: -100, y: -93, width: 100, height: 120 },
-    { id: "50sp", name: "MAX[SQ][di", memoryIndex: 29, visible: false, x: -100, y: -117, width: 100, height: 120 },
-    { id: "cdi9", name: "Direction", memoryIndex: 30, visible: false, x: 10, y: 4, width: 100, height: 120 },
-    { id: "g4kh", name: "수배열", memoryIndex: 31, visible: false, x: -226.35258358662614, y: -65, width: 100, height: 120 },
-    { id: "mm1o", name: "룩옵테이블(방향)", memoryIndex: 32, visible: false, x: 10, y: -44, width: 100, height: 120 },
-    { id: "rhpt", name: "CheckRAY", memoryIndex: 33, visible: false, x: 10, y: -92, width: 100, height: 120 },
-    { id: "v11u", name: "PinnedSQ", memoryIndex: 34, visible: false, x: 10, y: -116, width: 100, height: 120 },
-    { id: "kf1m", name: "오버월드의리걸무브", memoryIndex: 35, visible: false, x: 120, y: -19, width: 100, height: 120 },
-    { id: "gm7q", name: "Board", memoryIndex: 36, visible: false, x: 120, y: -43, width: 100, height: 120 },
-    { id: "nfnv", name: "dt", memoryIndex: 37, visible: false, x: 120, y: -67, width: 100, height: 120 },
-    { id: "inhl", name: "기물", memoryIndex: 38, visible: false, x: 120, y: -115, width: 100, height: 120 },
-    { id: "0vnk", name: "zx", memoryIndex: 39, visible: false, x: 10, y: -20, width: 100, height: 120 },
-    { id: "kphh", name: "기물해당", memoryIndex: 40, visible: false, x: 120, y: -91, width: 100, height: 120 },
-    { id: "d40k", name: "RNG", memoryIndex: 41, visible: false, x: -100, y: -73, width: 100, height: 120 },
-    { id: "iiij", name: "인코딩", memoryIndex: 42, visible: false, x: 120, y: -115, width: 100, height: 120 },
-    { id: "esg3", name: "squaŕe", memoryIndex: 43, visible: false, x: -210, y: -6, width: 100, height: 120 },
-    { id: "m4vq", name: "PST", memoryIndex: 44, visible: false, x: -100, y: 3, width: 100, height: 120 },
-    { id: "9wr4", name: "PSUEDOLEGA", memoryIndex: 45, visible: false, x: 120, y: -91, width: 100, height: 120 },
-    { id: "lyge", name: "Bias", memoryIndex: 46, visible: false, x: 120, y: -67, width: 100, height: 120 },
-    { id: "rk98", name: "빨래트", memoryIndex: 47, visible: false, x: 120, y: -91, width: 100, height: 120 },
-    { id: "3ls3", name: "기물들", memoryIndex: 48, visible: false, x: 120, y: -115, width: 100, height: 120 },
+    { id: "eeni", name: "lz", memoryIndex: 0, visible: false, x: 120, y: 1, width: 100, height: 120 },
+    { id: "y34h", name: "z_prev", memoryIndex: 1, visible: false, x: 120, y: -23, width: 100, height: 120 },
+    { id: "muuh", name: "temp_z", memoryIndex: 2, visible: false, x: 120, y: -47, width: 100, height: 120 },
+    { id: "yb8v", name: "az", memoryIndex: 3, visible: false, x: 120, y: -71, width: 100, height: 120 },
+    { id: "5gcl", name: "vz", memoryIndex: 4, visible: false, x: 120, y: -95, width: 100, height: 120 },
+    { id: "7rfy", name: "z1", memoryIndex: 5, visible: false, x: 120, y: -119, width: 100, height: 120 },
+    { id: "l5t9", name: "dis", memoryIndex: 6, visible: false, x: 10, y: -116, width: 100, height: 120 },
+    { id: "ghua", name: "color", memoryIndex: 7, visible: false, x: 120, y: 5, width: 100, height: 120 },
+    { id: "vlo8", name: "z", memoryIndex: 8, visible: false, x: 120, y: -19, width: 100, height: 120 },
+    { id: "uoxq", name: "y", memoryIndex: 9, visible: false, x: 120, y: -43, width: 100, height: 120 },
+    { id: "xsp4", name: "x", memoryIndex: 10, visible: false, x: -178.20598006644514, y: -51.12815077338256, width: 100, height: 120 },
+    { id: "solz", name: "3d object", memoryIndex: 11, visible: false, x: 120, y: -91, width: 100, height: 120 },
+    { id: "hfa7", name: "3d", memoryIndex: 12, visible: false, x: 120, y: -115, width: 100, height: 120 },
+    { id: "7sfr", name: "lx", memoryIndex: 13, visible: false, x: -206.3087248322147, y: -11.319293325459213, width: 100, height: 120 },
+    { id: "fuaq", name: "x1", memoryIndex: 14, visible: false, x: 120, y: -19, width: 100, height: 120 },
+    { id: "vdif", name: "click_prev", memoryIndex: 15, visible: false, x: 123.90076744087892, y: 40.77776619487656, width: 100, height: 120 },
+    { id: "y6pa", name: "click", memoryIndex: 16, visible: false, x: -212.751677852349, y: 14.316576307670033, width: 100, height: 120 },
+    { id: "l2gg", name: "y1", memoryIndex: 17, visible: false, x: 120, y: 5, width: 100, height: 120 },
+    { id: "pw52", name: "ly", memoryIndex: 18, visible: false, x: 161.12747087907883, y: 4.088298826067373, width: 100, height: 120 },
+    { id: "hr6g", name: "fix", memoryIndex: 19, visible: false, x: 10, y: 4, width: 100, height: 120 },
+    { id: "4w0x", name: "ay", memoryIndex: 20, visible: false, x: 120, y: -91, width: 100, height: 120 },
+    { id: "xxp7", name: "vx", memoryIndex: 21, visible: false, x: 120, y: -67, width: 100, height: 120 },
+    { id: "ncf4", name: "x_prev", memoryIndex: 22, visible: false, x: 10, y: -116, width: 100, height: 120 },
+    { id: "mdxh", name: "vy", memoryIndex: 23, visible: false, x: 120, y: -43, width: 100, height: 120 },
+    { id: "ac0r", name: "y_prev", memoryIndex: 24, visible: false, x: 10, y: -92, width: 100, height: 120 },
+    { id: "m94c", name: "temp_x", memoryIndex: 25, visible: false, x: 10, y: -44, width: 100, height: 120 },
+    { id: "sug1", name: "temp_y", memoryIndex: 26, visible: false, x: 10, y: -20, width: 100, height: 120 },
+    { id: "tldc", name: "ax", memoryIndex: 27, visible: false, x: 120, y: -115, width: 100, height: 120 },
+    { id: "uuqn", name: "색", memoryIndex: 28, visible: false, x: -100, y: -21, width: 100, height: 120 },
+    { id: "deig", name: "r", memoryIndex: 29, visible: false, x: 10, y: -68, width: 100, height: 120 },
 ];
 
 
 // ===== ASSET DATA =====
 const ENTITY_DATA = [
     {
-        id: "ypsm",
-        name: "(1)엔트리봇2",
-        objectType: "sprite",
+        id: "6uv8",
+        name: "Enreal Engine",
+        objectType: "textBox",
         pictures: [
-            { id: "0k4o", url: "/uploads/a8/26/image/a8268fd79a48fd9b92c7b47406b95393.png", width: 284, height: 350 },
-            { id: "vkyi", url: "/uploads/44/cb/image/44cbd5953180e91751e82837bdff91ac.png", width: 284, height: 350 },
-        ],
-        sounds: [
-            { id: "vgt2", url: "/uploads/30/a5/30a5116094820dedc36a4a761b9d1816.mp3" },
-        ],
-        sceneIndex: 0
-    },
-    {
-        id: "alfz",
-        name: "(1)엔트리봇1",
-        objectType: "sprite",
-        pictures: [
-            { id: "mr8p", url: "/uploads/a8/26/image/a8268fd79a48fd9b92c7b47406b95393.png", width: 284, height: 350 },
-            { id: "0pot", url: "/uploads/44/cb/image/44cbd5953180e91751e82837bdff91ac.png", width: 284, height: 350 },
-        ],
-        sounds: [
-            { id: "9o94", url: "/uploads/30/a5/30a5116094820dedc36a4a761b9d1816.mp3" },
-        ],
-        sceneIndex: 0
-    },
-    {
-        id: "vjyl",
-        name: "왕듸의 적(?)",
-        objectType: "sprite",
-        pictures: [
-            { id: "62wp", url: "/uploads/c8/b1/image/c8b11cb9mkqfgbp10006de17f68d5b6s.png", width: 78, height: 192 },
         ],
         sounds: [
         ],
-        sceneIndex: 0
+        sceneIndex: 0,
+        text: "Ensics",
+        bgColor: "transparent",
+        fontSize: 20,
+        textColor: "#4d4dff",
+        textAlign: 0,
+        lineBreak: false,
+        textBoxWidth: 73.04,
+        textBoxHeight: 22,
+        fontWeight: "bold"
     },
     {
-        id: "uep3",
-        name: "왕듸",
-        objectType: "sprite",
+        id: "nm20",
+        name: "Enreal Engine1",
+        objectType: "textBox",
         pictures: [
-            { id: "7szb", url: "/uploads/6c/8b/image/6c8b11cbmkqfgbp10006de17f68d1zvm.png", width: 96, height: 239 },
         ],
         sounds: [
         ],
-        sceneIndex: 0
+        sceneIndex: 0,
+        text: "엔트리 최초 물리엔진 api",
+        bgColor: "transparent",
+        fontSize: 20,
+        textColor: "#4d4dff",
+        textAlign: 0,
+        lineBreak: false,
+        textBoxWidth: 217.3,
+        textBoxHeight: 22,
+        fontWeight: "normal"
     },
     {
-        id: "4yqa",
-        name: "단색 배경1",
+        id: "1tft",
+        name: "스크린샷 2025-09-16 150307.png1",
         objectType: "sprite",
         pictures: [
-            { id: "gnv7", url: "/uploads/5b/cc/image/5bcca49emkrssgt40006a2c943etoyyf.png", width: 960, height: 540 },
-            { id: "u03x", url: "/uploads/96/76/image/9676ccc72b6db97473afff7308d39394.png", width: 960, height: 540 },
+            { id: "r2el", url: "/uploads/da/02/image/da02c69cmfniz3ci0007cda5de95gbsx.png", width: 960, height: 536 },
         ],
         sounds: [
         ],
         sceneIndex: 0
     },
     {
-        id: "dfks",
-        name: "단색 배경2",
+        id: "a42h",
+        name: "새 오브젝트4",
         objectType: "sprite",
         pictures: [
-            { id: "zfxo", url: "/uploads/78/be/image/78beca59mkqfk2120006a2c94354ue3x.png", width: 960, height: 540 },
-            { id: "q84o", url: "/uploads/69/8b/image/698b8b1ed17dd319ab31efa9f63af8f6.png", width: 960, height: 540 },
-            { id: "h9tm", url: "/uploads/96/76/image/9676ccc72b6db97473afff7308d39394.png", width: 960, height: 540 },
+            { id: "0wlj", url: "/uploads/9c/07/image/9c0713e2mfkbzgc10006a2c943c69mrf.png", width: 550, height: 170 },
         ],
         sounds: [
         ],
         sceneIndex: 0
     },
     {
-        id: "p2is",
-        name: "왕듸",
+        id: "8chh",
+        name: "창",
         objectType: "sprite",
         pictures: [
-            { id: "m2md", url: "/uploads/d7/d4/image/d7d4e991mkayyylw0006de17f6080ug9.png", width: 96, height: 239 },
+            { id: "pl3y", url: "/uploads/ca/f2/image/caf24323159ccb6b30b18c5714826230.png", width: 960, height: 540 },
+        ],
+        sounds: [
+        ],
+        sceneIndex: 0
+    },
+    {
+        id: "nkxr",
+        name: "make world",
+        objectType: "textBox",
+        pictures: [
+        ],
+        sounds: [
+        ],
+        sceneIndex: 1,
+        text: "make world!",
+        bgColor: "#00ff00",
+        fontSize: 20,
+        textColor: "#ffffff",
+        textAlign: 0,
+        lineBreak: false,
+        textBoxWidth: 133.54,
+        textBoxHeight: 24,
+        fontWeight: "bold"
+    },
+    {
+        id: "joip",
+        name: "normal",
+        objectType: "textBox",
+        pictures: [
+        ],
+        sounds: [
+        ],
+        sceneIndex: 1,
+        text: "normal",
+        bgColor: "transparent",
+        fontSize: 20,
+        textColor: "#ffffff",
+        textAlign: 0,
+        lineBreak: false,
+        textBoxWidth: 76.42,
+        textBoxHeight: 22,
+        fontWeight: "normal"
+    },
+    {
+        id: "7jmt",
+        name: "스크린샷 2025-09-16 150307.png",
+        objectType: "sprite",
+        pictures: [
+            { id: "hwkv", url: "/uploads/0f/4d/image/0f4dd58fmfm5cshl0006cda5defl9tp5.png", width: 960, height: 539 },
         ],
         sounds: [
         ],
         sceneIndex: 1
     },
     {
-        id: "t7vs",
-        name: "왕듸의 포지션 계산컴퓨터",
+        id: "xdnq",
+        name: "size x: 1",
+        objectType: "textBox",
+        pictures: [
+        ],
+        sounds: [
+        ],
+        sceneIndex: 1,
+        text: "size y: ",
+        bgColor: "transparent",
+        fontSize: 20,
+        textColor: "#4d4dff",
+        textAlign: 0,
+        lineBreak: false,
+        textBoxWidth: 76.92,
+        textBoxHeight: 22,
+        fontWeight: "normal"
+    },
+    {
+        id: "i4u2",
+        name: "size x: ",
+        objectType: "textBox",
+        pictures: [
+        ],
+        sounds: [
+        ],
+        sceneIndex: 1,
+        text: "size x: ",
+        bgColor: "transparent",
+        fontSize: 20,
+        textColor: "#4d4dff",
+        textAlign: 0,
+        lineBreak: false,
+        textBoxWidth: 76.4,
+        textBoxHeight: 22,
+        fontWeight: "normal"
+    },
+    {
+        id: "2g2i",
+        name: "창1",
         objectType: "sprite",
         pictures: [
-            { id: "xhhl", url: "/uploads/88/83/image/88834cacmkae8zcn0006de17f68qnhhy.png", width: 77, height: 192 },
-            { id: "1b1u", url: "/uploads/12/98/image/12985871mkayxu6p0006a2c9435vghl1.png", width: 960, height: 960 },
+            { id: "fib4", url: "/uploads/ca/f2/image/caf24323159ccb6b30b18c5714826230.png", width: 960, height: 540 },
         ],
         sounds: [
         ],
         sceneIndex: 1
     },
     {
-        id: "iapa",
-        name: "단색 배경",
-        objectType: "sprite",
+        id: "2h23",
+        name: "x2",
+        objectType: "textBox",
         pictures: [
-            { id: "ub48", url: "/uploads/cd/be/image/cdbe924bmkqel86i0006a2c9435wbs4r.png", width: 960, height: 540 },
-            { id: "f2zo", url: "/lib/entry-js/images/_1x1.png", width: 1, height: 1 },
         ],
         sounds: [
         ],
-        sceneIndex: 1
+        sceneIndex: 2,
+        text: "x: 0",
+        bgColor: "#808080",
+        fontSize: 20,
+        textColor: "#ffffff",
+        textAlign: 0,
+        lineBreak: false,
+        textBoxWidth: 41.52,
+        textBoxHeight: 22,
+        fontWeight: "bold"
     },
     {
-        id: "1hv3",
-        name: "(1)엔트리봇",
-        objectType: "sprite",
+        id: "5f3e",
+        name: "x1",
+        objectType: "textBox",
         pictures: [
-            { id: "you0", url: "/uploads/a8/26/image/a8268fd79a48fd9b92c7b47406b95393.png", width: 284, height: 350 },
-            { id: "55b1", url: "/uploads/44/cb/image/44cbd5953180e91751e82837bdff91ac.png", width: 284, height: 350 },
         ],
         sounds: [
-            { id: "mop0", url: "/uploads/30/a5/30a5116094820dedc36a4a761b9d1816.mp3" },
+        ],
+        sceneIndex: 2,
+        text: "x: 0",
+        bgColor: "#808080",
+        fontSize: 20,
+        textColor: "#ffffff",
+        textAlign: 0,
+        lineBreak: false,
+        textBoxWidth: 41.52,
+        textBoxHeight: 22,
+        fontWeight: "bold"
+    },
+    {
+        id: "8r1s",
+        name: "x",
+        objectType: "textBox",
+        pictures: [
+        ],
+        sounds: [
+        ],
+        sceneIndex: 2,
+        text: "x: 0",
+        bgColor: "#808080",
+        fontSize: 20,
+        textColor: "#ffffff",
+        textAlign: 0,
+        lineBreak: false,
+        textBoxWidth: 41.52,
+        textBoxHeight: 22,
+        fontWeight: "bold"
+    },
+    {
+        id: "ejf9",
+        name: "add body4",
+        objectType: "textBox",
+        pictures: [
+        ],
+        sounds: [
+        ],
+        sceneIndex: 2,
+        text: "delete",
+        bgColor: "#808080",
+        fontSize: 20,
+        textColor: "#ffffff",
+        textAlign: 0,
+        lineBreak: false,
+        textBoxWidth: 67.8,
+        textBoxHeight: 22,
+        fontWeight: "bold"
+    },
+    {
+        id: "tlsm",
+        name: "add body3",
+        objectType: "textBox",
+        pictures: [
+        ],
+        sounds: [
+        ],
+        sceneIndex: 2,
+        text: "fix",
+        bgColor: "#808080",
+        fontSize: 20,
+        textColor: "#ffffff",
+        textAlign: 0,
+        lineBreak: false,
+        textBoxWidth: 28.34,
+        textBoxHeight: 22,
+        fontWeight: "bold"
+    },
+    {
+        id: "95ck",
+        name: "add body2",
+        objectType: "textBox",
+        pictures: [
+        ],
+        sounds: [
+        ],
+        sceneIndex: 2,
+        text: "move",
+        bgColor: "#808080",
+        fontSize: 20,
+        textColor: "#ffffff",
+        textAlign: 0,
+        lineBreak: false,
+        textBoxWidth: 58.66,
+        textBoxHeight: 22,
+        fontWeight: "bold"
+    },
+    {
+        id: "ml1z",
+        name: "add body1",
+        objectType: "textBox",
+        pictures: [
+        ],
+        sounds: [
+        ],
+        sceneIndex: 2,
+        text: "add stick",
+        bgColor: "#808080",
+        fontSize: 20,
+        textColor: "#ffffff",
+        textAlign: 0,
+        lineBreak: false,
+        textBoxWidth: 101.66,
+        textBoxHeight: 22,
+        fontWeight: "bold"
+    },
+    {
+        id: "lu57",
+        name: "add body",
+        objectType: "textBox",
+        pictures: [
+        ],
+        sounds: [
+        ],
+        sceneIndex: 2,
+        text: "add body",
+        bgColor: "#00cc00",
+        fontSize: 20,
+        textColor: "#ffffff",
+        textAlign: 0,
+        lineBreak: false,
+        textBoxWidth: 102.68,
+        textBoxHeight: 22,
+        fontWeight: "bold"
+    },
+    {
+        id: "vgmp",
+        name: "투명배경",
+        objectType: "sprite",
+        pictures: [
+            { id: "f4lj", url: "/uploads/ca/f2/image/caf24323159ccb6b30b18c5714826230.png", width: 960, height: 540 },
+        ],
+        sounds: [
         ],
         sceneIndex: 2
     },
     {
-        id: "xdxa",
-        name: "마법 양탄자(1)",
+        id: "c397",
+        name: "엔트리봇",
         objectType: "sprite",
         pictures: [
-            { id: "79cj", url: "/uploads/0e/dd/image/0edd16065aea1d3e7657db5ee01aa74a.png", width: 297, height: 163 },
+            { id: "djj1", url: "/uploads/c0/79/image/c079588f8660418cb8dffe979cdcd2bd.png", width: 250, height: 250 },
+            { id: "wuy2", url: "/uploads/31/22/image/3122680270a3ffe3bd4d340b34ac816b.png", width: 205, height: 205 },
+            { id: "i5pc", url: "/uploads/b1/aa/image/b1aaf27eme6q8djw0006cda5debc75xc.png", width: 164, height: 160 },
+            { id: "5xkj", url: "/uploads/87/91/image/87918406mfjk93or0006a2c943aw3n0d.png", width: 182, height: 179 },
+        ],
+        sounds: [
+            { id: "1nf7", url: "/lib/entry-js/images/media/bark.mp3" },
+        ],
+        sceneIndex: 2
+    },
+    {
+        id: "7y0y",
+        name: "붓",
+        objectType: "sprite",
+        pictures: [
+            { id: "vx80", url: "/lib/entry-js/images/media/entrybot1.svg", width: 144, height: 246 },
+            { id: "4t48", url: "/lib/entry-js/images/media/entrybot2.svg", width: 144, height: 246 },
+        ],
+        sounds: [
+            { id: "8el5", url: "/lib/entry-js/images/media/bark.mp3" },
+        ],
+        sceneIndex: 2
+    },
+    {
+        id: "e8nu",
+        name: "새 오브젝트3",
+        objectType: "sprite",
+        pictures: [
+            { id: "8igc", url: "/uploads/d9/20/image/d9200860me2gkkse0006ad64bf55myvn.png", width: 960, height: 540 },
         ],
         sounds: [
         ],
@@ -672,9 +866,17 @@ function normalizeAssetUrl(url) {
     // playentry.org base URL for assets
     const PLAYENTRY_BASE = 'https://playentry.org';
     
-    // Helper to wrap URL in proxy
+    // Helper to resolve asset URL (proxy, custom base, or direct)
     function proxyUrl(targetUrl) {
-        return '/proxy?url=' + encodeURIComponent(targetUrl);
+        if (_bundleOptions.proxyUrl) {
+            return _bundleOptions.proxyUrl + '?url=' + encodeURIComponent(targetUrl);
+        }
+        if (_bundleOptions.assetBaseUrl) {
+            var base = _bundleOptions.assetBaseUrl.replace(/\/$/, '');
+            try { return base + new URL(targetUrl).pathname; }
+            catch(e) { return base + targetUrl; }
+        }
+        return targetUrl;
     }
     
     // Handle various URL patterns
@@ -706,11 +908,18 @@ function normalizeAssetUrl(url) {
 }
 
 // ===== INITIALIZATION =====
-async function init() {
-    console.log('[Renderer] Initializing...');
+async function init(canvasOrId, options) {
+    _bundleOptions = options || {};
+    console.log('[EntryProject] Initializing...');
     
-    // Initialize PixiJS (compatible with v6, v7, and v8)
-    const canvas = document.getElementById('stage');
+    // Resolve canvas element
+    var canvas;
+    if (typeof canvasOrId === 'string') {
+        canvas = document.getElementById(canvasOrId);
+    } else {
+        canvas = canvasOrId;
+    }
+    if (!canvas) throw new Error('Canvas element not found');
     const initOptions = {
         width: STAGE_WIDTH,
         height: STAGE_HEIGHT,
@@ -730,17 +939,16 @@ async function init() {
         app = new PIXI.Application(initOptions);
     }
     
-    // Load WASM module
+    // Load WASM from embedded base64
     try {
-        const wasmResponse = await fetch('project.wasm');
-        const wasmBuffer = await wasmResponse.arrayBuffer();
-        const wasmModule = await WebAssembly.instantiate(wasmBuffer, wasmImports);
+        var wasmBinary = Uint8Array.from(atob(_WASM_BASE64), function(c) { return c.charCodeAt(0); });
+        var wasmModule = await WebAssembly.instantiate(wasmBinary.buffer, wasmImports);
         wasm = wasmModule.instance.exports;
         memory = new DataView(wasm.memory.buffer);
-        console.log('[Renderer] WASM loaded');
+        console.log('[EntryProject] WASM loaded');
     } catch (error) {
-        console.error('[Renderer] Failed to load WASM:', error);
-        return;
+        console.error('[EntryProject] Failed to load WASM:', error);
+        throw error;
     }
     
     // Load assets and create sprites
@@ -1296,6 +1504,12 @@ function hideInputField() {
 // ===== GAME LOOP =====
 function gameLoop(currentTime) {
     if (!running) return;
+    
+    if (paused) {
+        lastTime = currentTime;
+        requestAnimationFrame(gameLoop);
+        return;
+    }
     
     const realDelta = (currentTime - lastTime) / 1000;
     lastTime = currentTime;
@@ -2539,7 +2753,26 @@ function updateDialogBubbles() {
 // ===== CONTROLS =====
 function stop() {
     running = false;
+    paused = false;
     wasm.stop();
+}
+
+function pause() {
+    if (!running || paused) return;
+    paused = true;
+    if (projectTimerIsInit && projectTimerPauseStart === 0) {
+        projectTimerPauseStart = performance.now();
+    }
+}
+
+function resume() {
+    if (!running || !paused) return;
+    paused = false;
+    if (projectTimerIsInit && projectTimerPauseStart > 0) {
+        projectTimerPausedTime += performance.now() - projectTimerPauseStart;
+        projectTimerPauseStart = 0;
+    }
+    accumulator = 0;
 }
 
 function restart() {
@@ -2615,6 +2848,7 @@ function restart() {
     
     wasm.init();
     currentScene = 0;
+    paused = false;
     running = true;
     lastTime = performance.now();
     accumulator = 0;
@@ -2637,5 +2871,18 @@ function getSceneInfo() {
     };
 }
 
-// ===== START =====
-init().catch(console.error);
+// ===== PUBLIC API =====
+var _api = {
+    init: init,
+    start: function() { if (!wasm) throw new Error('Call init() first'); restart(); },
+    stop: stop,
+    pause: pause,
+    resume: resume,
+    restart: restart,
+    changeScene: changeScene,
+    getSceneInfo: getSceneInfo
+};
+if (typeof module !== 'undefined' && module.exports) module.exports = _api;
+else if (typeof window !== 'undefined') window.EntryProject = _api;
+return _api;
+})();

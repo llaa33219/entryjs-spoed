@@ -30,8 +30,10 @@ class WATGenerator {
         this.currentFuncLocalVarMap = null; // Map of local variable IDs to indices
         this.currentFuncIsValue = false; // Whether currently generating a value-returning function
         this.threadLoopDepths = []; // Max loop nesting depth for each thread
+        this.currentThreadWaitPhase = 0; // Compile-time counter for wait_until_true phase tracking
         this.staticStrings = new Map();
         this.staticStringOffset = 0;
+        this.loopLabelStack = []; // Stack of {breakLabel, continueLabel} for user function loops
     }
 
     /**
@@ -41,6 +43,24 @@ class WATGenerator {
      */
     getNewLoopIterVar() {
         return `iter_${this.loopIterCounter++}`;
+    }
+
+    pushLoopLabels(breakLabel, continueLabel) {
+        this.loopLabelStack.push({ breakLabel, continueLabel });
+    }
+
+    popLoopLabels() {
+        this.loopLabelStack.pop();
+    }
+
+    getCurrentBreakLabel() {
+        if (this.loopLabelStack.length === 0) return null;
+        return this.loopLabelStack[this.loopLabelStack.length - 1].breakLabel;
+    }
+
+    getCurrentContinueLabel() {
+        if (this.loopLabelStack.length === 0) return null;
+        return this.loopLabelStack[this.loopLabelStack.length - 1].continueLabel;
     }
 
     /**
@@ -97,6 +117,14 @@ class WATGenerator {
     /**
      * Analyze all threads and store their max loop nesting depths
      */
+    getNextWaitPhase() {
+        return this.currentThreadWaitPhase++;
+    }
+
+    resetWaitPhase() {
+        this.currentThreadWaitPhase = 0;
+    }
+
     analyzeAllThreadLoopDepths() {
         this.threadLoopDepths = [];
         
@@ -403,6 +431,7 @@ class WATGenerator {
                     code += `\n  (global $thread_${threadIndex}_loopCounter_${depth} (mut i32) (i32.const -1))`;
                 }
                 code += `\n  (global $thread_${threadIndex}_resumeDepth (mut i32) (i32.const 0))`;
+                code += `\n  (global $thread_${threadIndex}_waitPhase (mut i32) (i32.const 0))`;
                 threadIndex++;
             }
         }
@@ -804,8 +833,11 @@ class WATGenerator {
   
   ;; Set variable value (persists string pointers to avoid dangling temp pool references)
   ;; Threshold: string pointers are memory addresses >= stringPoolStart, safe from normal negative numbers
+  ;; Guard: value must be > -2147483648 to fit in i32 (prevents trap on -Infinity or huge negatives)
   (func $setVariable (param $varOffset i32) (param $val f64)
-    (if (f64.le (local.get $val) (f64.const -${this.stringPoolStart || 1024}))
+    (if (i32.and
+      (f64.le (local.get $val) (f64.const -${this.stringPoolStart || 1024}))
+      (f64.gt (local.get $val) (f64.const -2147483648)))
       (then
         (f64.store (local.get $varOffset)
           (f64.neg (f64.convert_i32_s
@@ -829,6 +861,14 @@ class WATGenerator {
         (f64.mul
           (call $random)
           (f64.add (f64.sub (local.get $max) (local.get $min)) (f64.const 1))))))
+  
+  ;; Random number: integer if both params are integers, float otherwise (matches EntryJS behavior)
+  (func $calcRand (param $min f64) (param $max f64) (result f64)
+    (if (result f64) (i32.and
+      (f64.eq (call $floor (local.get $min)) (local.get $min))
+      (f64.eq (call $floor (local.get $max)) (local.get $max)))
+      (then (call $randomInt (local.get $min) (local.get $max)))
+      (else (call $randomRange (local.get $min) (local.get $max)))))
   
   ;; ===== SCENE FUNCTIONS =====
   
@@ -1145,10 +1185,10 @@ class WATGenerator {
     (local.set $oldLen (i32.load (local.get $metaPtr)))
     (local.set $oldCap (i32.load (i32.add (local.get $metaPtr) (i32.const 4))))
     (local.set $oldDataPtr (i32.load (i32.add (local.get $metaPtr) (i32.const 8))))
-    ;; Double capacity, cap at 1M elements, guard against i32 overflow
+    ;; Double capacity, cap at 16M elements (256MB), guard against i32 overflow
     (local.set $newCap (i32.mul (local.get $oldCap) (i32.const 2)))
-    (if (i32.gt_s (local.get $newCap) (i32.const 1000000))
-      (then (local.set $newCap (i32.const 1000000))))
+    (if (i32.gt_s (local.get $newCap) (i32.const 16777216))
+      (then (local.set $newCap (i32.const 16777216))))
     (if (i32.le_s (local.get $newCap) (local.get $oldCap))
       (then (return (i32.const 0))))
     (local.set $newBytes (i32.mul (local.get $newCap) (i32.const 16)))
@@ -1421,13 +1461,14 @@ class WATGenerator {
     (local.get $ptr))
   
   ;; Get string length (with defensive max check to prevent OOB from corrupted lengths)
+  ;; Max 256MB to support large data strings (e.g. image texture data in lists can be 131K+)
   (func $str_length (param $ptr i32) (result i32)
     (local $len i32)
     (if (result i32) (i32.eqz (local.get $ptr))
       (then (i32.const 0))
       (else
         (local.set $len (i32.load (local.get $ptr)))
-        (if (result i32) (i32.or (i32.lt_s (local.get $len) (i32.const 0)) (i32.gt_s (local.get $len) (i32.const 65536)))
+        (if (result i32) (i32.or (i32.lt_s (local.get $len) (i32.const 0)) (i32.gt_s (local.get $len) (i32.const 268435456)))
           (then (i32.const 0))
           (else (local.get $len))))))
   
@@ -1861,10 +1902,24 @@ class WATGenerator {
   
   ;; Convert f64 to string pointer, or dereference if it's a negative-encoded string pointer
   ;; Convention: negated string pointer (<= -stringPoolStart) = string, otherwise = numeric value
+  ;; Guard: value must be > -2147483648 to fit in i32 (prevents trap on -Infinity or huge negatives)
   (func $f64_to_str_or_deref (param $val f64) (result i32)
-    (if (result i32) (f64.le (local.get $val) (f64.const -${this.stringPoolStart || 1024}))
+    (if (result i32) (i32.and
+      (f64.le (local.get $val) (f64.const -${this.stringPoolStart || 1024}))
+      (f64.gt (local.get $val) (f64.const -2147483648)))
       (then (i32.trunc_f64_s (f64.neg (local.get $val))))
       (else (call $f64_to_str (local.get $val)))))
+  
+  ;; Auto-coerce f64 to number: if value is a negative string pointer, parse the string as a number
+  ;; This handles cases where string operations (char_at, substring, list_get, etc.) return
+  ;; string pointers that are then used in arithmetic or position-setting contexts
+  ;; Guard: value must be > -2147483648 to fit in i32 (prevents trap on -Infinity or huge negatives)
+  (func $auto_to_number (param $val f64) (result f64)
+    (if (result f64) (i32.and
+      (f64.le (local.get $val) (f64.const -${this.stringPoolStart || 1024}))
+      (f64.gt (local.get $val) (f64.const -2147483648)))
+      (then (call $str_to_f64 (i32.trunc_f64_s (f64.neg (local.get $val)))))
+      (else (local.get $val))))
   
   ;; Persist string to persistent pool (for strings stored in lists)
   ;; Strings in the temp pool are invalidated each tick - this copies them to a permanent location
@@ -2315,12 +2370,14 @@ class WATGenerator {
         (block $pc_${pc}
           (br_if $pc_${pc} (i32.ne (local.get $pc) (i32.const ${pc})))`;
             
+            this.resetWaitPhase();  // Reset compile-time wait phase counter for each PC block
             code += this.blockTranspiler.transpile(block, entityIndex, threadIndex, 0);  // Start at loopDepth 0
             
             code += `
           (local.set $pc (i32.add (local.get $pc) (i32.const 1)))
           (global.set $thread_${threadIndex}_pc (local.get $pc))
           (global.set $thread_${threadIndex}_resumeDepth (i32.const 0))
+          (global.set $thread_${threadIndex}_waitPhase (i32.const 0))
           (br $done))`;
             
             pc++;
@@ -2330,6 +2387,7 @@ class WATGenerator {
         ;; End of thread
         (global.set $thread_${threadIndex}_pc (i32.const 0))
         (global.set $thread_${threadIndex}_resumeDepth (i32.const 0))
+        (global.set $thread_${threadIndex}_waitPhase (i32.const 0))
         (return (i32.const 0))  ;; Thread finished
       )  ;; $done
     )  ;; $end
@@ -2373,6 +2431,7 @@ class WATGenerator {
                         resetLoopCounters += `\n        (global.set $thread_${threadIndex}_loopCounter_${d} (i32.const -1))`;
                     }
                     resetLoopCounters += `\n        (global.set $thread_${threadIndex}_resumeDepth (i32.const 0))`;
+                    resetLoopCounters += `\n        (global.set $thread_${threadIndex}_waitPhase (i32.const 0))`;
                     eventHandlers += `
     ;; Activate thread ${threadIndex} on start (entity scene: ${objSceneIndex})
     (if (i32.and
@@ -2389,6 +2448,7 @@ class WATGenerator {
                         resetLoopCounters += `\n        (global.set $thread_${threadIndex}_loopCounter_${d} (i32.const -1))`;
                     }
                     resetLoopCounters += `\n        (global.set $thread_${threadIndex}_resumeDepth (i32.const 0))`;
+                    resetLoopCounters += `\n        (global.set $thread_${threadIndex}_waitPhase (i32.const 0))`;
                     eventHandlers += `
     ;; Activate thread ${threadIndex} on key ${keycode} (entity scene: ${objSceneIndex})
     (if (i32.and
@@ -2404,6 +2464,7 @@ class WATGenerator {
                         resetLoopCounters += `\n        (global.set $thread_${threadIndex}_loopCounter_${d} (i32.const -1))`;
                     }
                     resetLoopCounters += `\n        (global.set $thread_${threadIndex}_resumeDepth (i32.const 0))`;
+                    resetLoopCounters += `\n        (global.set $thread_${threadIndex}_waitPhase (i32.const 0))`;
                     sceneStartHandlers += `
     ;; Activate thread ${threadIndex} on scene start (entity scene: ${objSceneIndex})
     (if (i32.and
@@ -2422,6 +2483,7 @@ class WATGenerator {
                         resetLoopCounters += `\n        (global.set $thread_${threadIndex}_loopCounter_${d} (i32.const -1))`;
                     }
                     resetLoopCounters += `\n        (global.set $thread_${threadIndex}_resumeDepth (i32.const 0))`;
+                    resetLoopCounters += `\n        (global.set $thread_${threadIndex}_waitPhase (i32.const 0))`;
                     objectClickHandlers += `
     ;; Activate thread ${threadIndex} when object ${objIdx} is clicked
     (if (i32.and
@@ -2441,6 +2503,7 @@ class WATGenerator {
                         resetLoopCounters += `\n        (global.set $thread_${threadIndex}_loopCounter_${d} (i32.const -1))`;
                     }
                     resetLoopCounters += `\n        (global.set $thread_${threadIndex}_resumeDepth (i32.const 0))`;
+                    resetLoopCounters += `\n        (global.set $thread_${threadIndex}_waitPhase (i32.const 0))`;
                     objectClickCanceledHandlers += `
     ;; Activate thread ${threadIndex} when object ${objIdx} click is released
     (if (i32.and
@@ -2467,6 +2530,7 @@ class WATGenerator {
                             resetLoopCounters += `\n        (global.set $thread_${threadIndex}_loopCounter_${d} (i32.const -1))`;
                         }
                         resetLoopCounters += `\n        (global.set $thread_${threadIndex}_resumeDepth (i32.const 0))`;
+                        resetLoopCounters += `\n        (global.set $thread_${threadIndex}_waitPhase (i32.const 0))`;
                         messageHandlers += `
     ;; Activate thread ${threadIndex} when message "${this.sanitizeComment(message?.name || messageId)}" is received (entity scene: ${objSceneIndex})
     (if (i32.and
@@ -2484,6 +2548,7 @@ class WATGenerator {
                         resetLoopCounters += `\n        (global.set $thread_${threadIndex}_loopCounter_${d} (i32.const -1))`;
                     }
                     resetLoopCounters += `\n        (global.set $thread_${threadIndex}_resumeDepth (i32.const 0))`;
+                    resetLoopCounters += `\n        (global.set $thread_${threadIndex}_waitPhase (i32.const 0))`;
                     mouseClickedHandlers += `
     ;; Activate thread ${threadIndex} on mouse click (entity scene: ${objSceneIndex})
     (if (i32.and
@@ -2502,6 +2567,7 @@ class WATGenerator {
                         resetLoopCounters += `\n        (global.set $thread_${threadIndex}_loopCounter_${d} (i32.const -1))`;
                     }
                     resetLoopCounters += `\n        (global.set $thread_${threadIndex}_resumeDepth (i32.const 0))`;
+                    resetLoopCounters += `\n        (global.set $thread_${threadIndex}_waitPhase (i32.const 0))`;
                     mouseClickCanceledHandlers += `
     ;; Activate thread ${threadIndex} on mouse click release (entity scene: ${objSceneIndex})
     (if (i32.and
@@ -2558,6 +2624,7 @@ class WATGenerator {
                         sceneChangeCleanup += `\n        (global.set $thread_${tidx}_loopCounter_${d} (i32.const -1))`;
                     }
                     sceneChangeCleanup += `\n        (global.set $thread_${tidx}_resumeDepth (i32.const 0))`;
+                    sceneChangeCleanup += `\n        (global.set $thread_${tidx}_waitPhase (i32.const 0))`;
                     tidx++;
                 }
             }

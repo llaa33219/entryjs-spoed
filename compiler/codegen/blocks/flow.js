@@ -47,30 +47,40 @@ const statementBlocks = {
         const count = ctx.transpileValue(block.params?.[0], entityIndex);
         const loopDepth = ctx.loopDepth || 0;
         
-        const { innerCode, preLoopCode, fromLoopCode, foundNestedLoop } = splitLoopBody(ctx, block, entityIndex, threadIndex, loopDepth);
-        
         // In user functions (threadIndex === -1), use traditional WASM loop
         // Functions cannot use tick-based iteration
         if (threadIndex === -1) {
             const loopId = ctx.generator.getNewLabel();
-            // Use unique iteration variable for this loop to support nesting
             const iterVar = ctx.generator.getNewLoopIterVar();
+            
+            // Push labels so stop_repeat/continue_repeat can reference them
+            ctx.generator.pushLoopLabels(`break_${loopId}`, `loop_${loopId}`);
+            let innerCode = '';
+            const innerStatements = block.statements?.[0] || [];
+            for (const innerBlock of innerStatements) {
+                innerCode += ctx.transpile(innerBlock, entityIndex, threadIndex, loopDepth + 1);
+            }
+            ctx.generator.popLoopLabels();
+            
             return `
           ;; repeat_basic (traditional WASM loop in user function)
           (local.set $${iterVar} (i32.trunc_f64_s ${count}))
           (block $break_${loopId}
             (loop $loop_${loopId}
-              ;; Check if ${iterVar} <= 0, if so break
               (br_if $break_${loopId} (i32.le_s (local.get $${iterVar}) (i32.const 0)))
-              ;; Decrement counter
               (local.set $${iterVar} (i32.sub (local.get $${iterVar}) (i32.const 1)))
-              ;; Execute inner blocks
               ${innerCode}
-              ;; Continue loop
               (br $loop_${loopId})
             )
           )`;
         }
+        
+        const { innerCode, preLoopCode, fromLoopCode, foundNestedLoop } = splitLoopBody(ctx, block, entityIndex, threadIndex, loopDepth);
+        
+        // waitPhase reset: only outermost loop resets waitPhase for next iteration
+        const waitPhaseReset = loopDepth === 0
+            ? `\n              (global.set $thread_${threadIndex}_waitPhase (i32.const 0))`
+            : '';
         
         // Thread-based path with nested loop: use resume depth to avoid
         // re-executing preamble blocks when resuming from a deeper loop
@@ -94,7 +104,7 @@ const statementBlocks = {
                     (i32.sub (global.get $thread_${threadIndex}_loopCounter_${loopDepth}) (i32.const 1)))
                   ${preLoopCode}))
               ;; Always execute from nested loop onwards
-              ${fromLoopCode}
+              ${fromLoopCode}${waitPhaseReset}
               ;; Yield (reached when nested loop finished and fell through)
               (global.set $thread_${threadIndex}_resumeDepth (i32.const ${loopDepth + 1}))
               (global.set $thread_${threadIndex}_waiting (f64.const 0.001))
@@ -117,7 +127,7 @@ const statementBlocks = {
               (global.set $thread_${threadIndex}_loopCounter_${loopDepth}
                 (i32.sub (global.get $thread_${threadIndex}_loopCounter_${loopDepth}) (i32.const 1)))
               ;; Execute inner blocks
-              ${innerCode}
+              ${innerCode}${waitPhaseReset}
               ;; Add tiny delay and stay at same PC for next iteration
               (global.set $thread_${threadIndex}_resumeDepth (i32.const ${loopDepth + 1}))
               (global.set $thread_${threadIndex}_waiting (f64.const 0.001))
@@ -129,30 +139,40 @@ const statementBlocks = {
     'repeat_inf': (ctx, block, entityIndex, threadIndex) => {
         const loopDepth = ctx.loopDepth || 0;
         
-        const { innerCode, preLoopCode, fromLoopCode, foundNestedLoop } = splitLoopBody(ctx, block, entityIndex, threadIndex, loopDepth);
-        
         // In user functions (threadIndex === -1), infinite loop is dangerous
         // We limit to a maximum number of iterations to prevent browser freeze
         if (threadIndex === -1) {
             const loopId = ctx.generator.getNewLabel();
-            // Use unique iteration variable for this loop to support nesting
             const iterVar = ctx.generator.getNewLoopIterVar();
-            const maxIterations = 10000; // Safety limit
+            const maxIterations = 1000000; // Safety limit
+            
+            ctx.generator.pushLoopLabels(`break_${loopId}`, `loop_${loopId}`);
+            let innerCode = '';
+            const innerStatements = block.statements?.[0] || [];
+            for (const innerBlock of innerStatements) {
+                innerCode += ctx.transpile(innerBlock, entityIndex, threadIndex, loopDepth + 1);
+            }
+            ctx.generator.popLoopLabels();
+            
             return `
           ;; repeat_inf (limited loop in user function - max ${maxIterations} iterations)
           (local.set $${iterVar} (i32.const ${maxIterations}))
           (block $break_${loopId}
             (loop $loop_${loopId}
-              ;; Safety check - break after max iterations
               (br_if $break_${loopId} (i32.le_s (local.get $${iterVar}) (i32.const 0)))
               (local.set $${iterVar} (i32.sub (local.get $${iterVar}) (i32.const 1)))
-              ;; Execute inner blocks
               ${innerCode}
-              ;; Continue loop
               (br $loop_${loopId})
             )
           )`;
         }
+        
+        const { innerCode, preLoopCode, fromLoopCode, foundNestedLoop } = splitLoopBody(ctx, block, entityIndex, threadIndex, loopDepth);
+        
+        // waitPhase reset: only outermost loop resets waitPhase for next iteration
+        const waitPhaseReset = loopDepth === 0
+            ? `\n          (global.set $thread_${threadIndex}_waitPhase (i32.const 0))`
+            : '';
         
         // Thread-based path with nested loop: skip preamble when resuming
         if (foundNestedLoop) {
@@ -164,7 +184,7 @@ const statementBlocks = {
             (then
               ${preLoopCode}))
           ;; Always execute from nested loop onwards
-          ${fromLoopCode}
+          ${fromLoopCode}${waitPhaseReset}
           ;; Yield (reached when nested loop finished and fell through)
           (global.set $thread_${threadIndex}_resumeDepth (i32.const ${loopDepth + 1}))
           (global.set $thread_${threadIndex}_waiting (f64.const 0.001))
@@ -174,7 +194,7 @@ const statementBlocks = {
         // No nested loop - standard tick-based iteration
         return `
           ;; repeat_inf (EntryJS-compatible: one iteration per tick, depth ${loopDepth})
-          ${innerCode}
+          ${innerCode}${waitPhaseReset}
           ;; Add tiny delay and stay at same PC for next iteration
           (global.set $thread_${threadIndex}_resumeDepth (i32.const ${loopDepth + 1}))
           (global.set $thread_${threadIndex}_waiting (f64.const 0.001))
@@ -222,12 +242,16 @@ const statementBlocks = {
     },
 
     'stop_repeat': (ctx, block, entityIndex, threadIndex) => {
-        // In user functions (threadIndex === -1), we can't use thread globals
-        // The traditional WASM loop uses $break_* labels, but we can't reference them here
-        // This is a limitation - stop_repeat in functions may not work correctly
         if (threadIndex === -1) {
+            const breakLabel = ctx.generator.getCurrentBreakLabel();
+            if (breakLabel) {
+                return `
+          ;; stop_repeat (break out of loop in user function)
+          (br $${breakLabel})`;
+            }
             return `
-          ;; stop_repeat (in user function - limited support)`;
+          ;; stop_repeat (in user function - no enclosing loop)
+          (nop)`;
         }
         // Break out of loop by resetting counter and advancing PC
         // Note: This resets the current loop depth's counter
@@ -251,7 +275,7 @@ const statementBlocks = {
             const loopId = ctx.generator.getNewLabel();
             // Use unique iteration variable for this loop to support nesting
             const iterVar = ctx.generator.getNewLoopIterVar();
-            const maxIterations = 10000; // Safety limit
+            const maxIterations = 1000000; // Safety limit
             return `
           ;; wait_until_true (busy-wait in user function - max ${maxIterations} checks)
           (local.set $${iterVar} (i32.const ${maxIterations}))
@@ -268,13 +292,19 @@ const statementBlocks = {
           )`;
         }
         
+        // Phase-aware wait: each wait_until_true in a PC block gets a unique phase.
+        // When resuming after a yield, already-passed waits are skipped via phase check.
+        const phase = ctx.generator.getNextWaitPhase();
         return `
-          ;; wait_until_true (EntryJS-compatible: yield when condition not met, depth ${loopDepth})
-          (if (i32.eqz ${condition})
+          ;; wait_until_true (phase ${phase}, depth ${loopDepth})
+          (if (i32.eq (global.get $thread_${threadIndex}_waitPhase) (i32.const ${phase}))
             (then
-              ;; Condition not met, wait and stay at same PC
-              (global.set $thread_${threadIndex}_waiting (f64.const 0.001))
-              (return (i32.const 1))))`;
+              (if (i32.eqz ${condition})
+                (then
+                  ;; Condition not met, wait and stay at same PC
+                  (global.set $thread_${threadIndex}_waiting (f64.const 0.001))
+                  (return (i32.const 1))))
+              (global.set $thread_${threadIndex}_waitPhase (i32.const ${phase + 1}))))`;
     },
 
     'repeat_while_true': (ctx, block, entityIndex, threadIndex) => {
@@ -282,8 +312,6 @@ const statementBlocks = {
         const option = block.params?.[1] || 'until';  // 'until' or 'while'
         const loopDepth = ctx.loopDepth || 0;
         
-        const { innerCode, preLoopCode, fromLoopCode, foundNestedLoop } = splitLoopBody(ctx, block, entityIndex, threadIndex, loopDepth);
-
         // EntryJS has two modes: 'until' (repeat until condition becomes true) and 'while' (repeat while condition is true)
         // For 'until': continue if condition is FALSE (i.e., negate the condition)
         // For 'while': continue if condition is TRUE
@@ -294,19 +322,32 @@ const statementBlocks = {
         // In user functions (threadIndex === -1), use traditional WASM loop
         if (threadIndex === -1) {
             const loopId = ctx.generator.getNewLabel();
+            
+            ctx.generator.pushLoopLabels(`break_${loopId}`, `loop_${loopId}`);
+            let innerCode = '';
+            const innerStatements = block.statements?.[0] || [];
+            for (const innerBlock of innerStatements) {
+                innerCode += ctx.transpile(innerBlock, entityIndex, threadIndex, loopDepth + 1);
+            }
+            ctx.generator.popLoopLabels();
+            
             return `
           ;; repeat_while_true (mode: ${option}, traditional WASM loop in user function)
           (block $break_${loopId}
             (loop $loop_${loopId}
-              ;; Check condition
               (br_if $break_${loopId} (i32.eqz ${shouldContinue}))
-              ;; Execute inner blocks
               ${innerCode}
-              ;; Continue loop
               (br $loop_${loopId})
             )
           )`;
         }
+        
+        const { innerCode, preLoopCode, fromLoopCode, foundNestedLoop } = splitLoopBody(ctx, block, entityIndex, threadIndex, loopDepth);
+        
+        // waitPhase reset: only outermost loop resets waitPhase for next iteration
+        const waitPhaseReset = loopDepth === 0
+            ? `\n              (global.set $thread_${threadIndex}_waitPhase (i32.const 0))`
+            : '';
         
         // Thread-based path with nested loop: skip preamble when resuming
         if (foundNestedLoop) {
@@ -320,7 +361,7 @@ const statementBlocks = {
                 (then
                   ${preLoopCode}))
               ;; Always execute from nested loop onwards
-              ${fromLoopCode}
+              ${fromLoopCode}${waitPhaseReset}
               ;; Yield (reached when nested loop finished and fell through)
               (global.set $thread_${threadIndex}_resumeDepth (i32.const ${loopDepth + 1}))
               (global.set $thread_${threadIndex}_waiting (f64.const 0.001))
@@ -333,7 +374,7 @@ const statementBlocks = {
           ;; repeat_while_true (mode: ${option}, EntryJS-compatible: one iteration per tick, depth ${loopDepth})
           (if ${shouldContinue}
             (then
-              ${innerCode}
+              ${innerCode}${waitPhaseReset}
               ;; Add tiny delay and stay at same PC for next iteration
               (global.set $thread_${threadIndex}_resumeDepth (i32.const ${loopDepth + 1}))
               (global.set $thread_${threadIndex}_waiting (f64.const 0.001))
@@ -382,18 +423,23 @@ const statementBlocks = {
     },
 
     'continue_repeat': (ctx, block, entityIndex, threadIndex) => {
-        // In user functions (threadIndex === -1), we can't use thread globals
-        // The traditional WASM loop uses $loop_* labels, but we can't reference them here
-        // This is a limitation - continue_repeat in functions may not work correctly
         if (threadIndex === -1) {
+            const continueLabel = ctx.generator.getCurrentContinueLabel();
+            if (continueLabel) {
+                return `
+          ;; continue_repeat (continue loop in user function)
+          (br $${continueLabel})`;
+            }
             return `
-          ;; continue_repeat (in user function - limited support)`;
+          ;; continue_repeat (in user function - no enclosing loop)
+          (nop)`;
         }
         const loopDepth = ctx.loopDepth || 0;
         // Continue to next iteration - just return to stay at same PC
         // The loop will continue on next tick
         return `
           ;; continue_repeat - skip rest of inner blocks, continue loop (depth ${loopDepth})
+          (global.set $thread_${threadIndex}_waitPhase (i32.const 0))
           (global.set $thread_${threadIndex}_waiting (f64.const 0.001))
           (return (i32.const 1))`;
     },

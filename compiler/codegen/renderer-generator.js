@@ -395,6 +395,9 @@ let clones = [];
 // Drag state for slide variables and list scroll buttons
 let dragState = null;
 
+// Mouse release is deferred so WASM tick sees the click before it's cleared
+let mouseUpPending = false;
+
 // Ask-and-wait input state
 let isWaitingForInput = false;
 let inputOverlay = null;
@@ -888,9 +891,7 @@ function setupInputHandlers() {
     });
     
     canvas.addEventListener('mouseup', () => {
-        if (dragState) return;
-        const view = new DataView(wasm.memory.buffer);
-        view.setInt32(32, 0, true);
+        mouseUpPending = true;
     });
     
     // Keyboard
@@ -974,6 +975,7 @@ function setupInputHandlers() {
     
     document.addEventListener('mouseup', () => {
         dragState = null;
+        mouseUpPending = true;
     });
 }
 
@@ -1089,6 +1091,13 @@ function gameLoop(currentTime) {
         accumulator -= ticksToRun * FIXED_DT;
     } else {
         accumulator = 0;
+    }
+    
+    // Process pending mouse release (deferred so WASM sees the click for at least one frame)
+    if (mouseUpPending) {
+        const view = new DataView(wasm.memory.buffer);
+        view.setInt32(32, 0, true);
+        mouseUpPending = false;
     }
     
     // Check for scene changes
@@ -2359,6 +2368,7 @@ function restart() {
     if (inputOverlay) hideInputField();
     isWaitingForInput = false;
     dragState = null;
+    mouseUpPending = false;
     
     // Reset list scroll positions
     for (let i = 0; i < listDisplays.length; i++) {

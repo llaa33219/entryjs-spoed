@@ -186,11 +186,14 @@ const booleanBlocks = {
 
     'is_type': (ctx, block, entityIndex) => {
         const value = ctx.transpileValue(block.params?.[0], entityIndex);
-        const typeCheck = block.params?.[1];
+        const typeCheck = block.params?.[2];
         
-        // Type checking is complex in WASM, provide simple defaults
+        // String pointers are stored as large negative values (e.g. -2292340)
+        // Regular numbers have much smaller absolute values
         if (typeCheck === 'number') {
-            return '(i32.const 1)'; // Assume all values are numbers
+            return `(f64.gt ${value} (f64.const -1000000))`;
+        } else if (typeCheck === 'string') {
+            return `(f64.le ${value} (f64.const -1000000))`;
         }
         return '(i32.const 0)';
     },
